@@ -138,6 +138,8 @@ function docKeyForDocumentType(documentType: string): string | null {
       return "doc:pib_bc";
     case "SPPB":
       return "doc:sppb";
+    case "SPPBMCP":
+      return "doc:sppbmcp";
     case "VO":
       return "doc:vo";
     default:
