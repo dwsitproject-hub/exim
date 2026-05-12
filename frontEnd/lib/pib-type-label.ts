@@ -31,3 +31,11 @@ export function isPibTypeBc23(stored: string | null | undefined): boolean {
   const canonical = PIB_TYPE_CANONICAL[v] ?? v;
   return canonical === "BC 2.3";
 }
+
+/** Consignment Note (incl. legacy "Consignee Note"): customs document rules differ from BC. */
+export function isPibTypeConsignmentNote(stored: string | null | undefined): boolean {
+  const v = stored != null ? String(stored).trim() : "";
+  if (!v) return false;
+  const canonical = PIB_TYPE_CANONICAL[v] ?? v;
+  return canonical === "Consignment Note";
+}

@@ -38,7 +38,7 @@ import styles from "./ShipmentList.module.css";
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 10;
 
-const SHIPMENT_LIST_TABLE_COLUMNS_KEY = "eos.dash.shipmentList.tableColumns.v3";
+const SHIPMENT_LIST_TABLE_COLUMNS_KEY = "eos.dash.shipmentList.tableColumns.v4";
 
 /** PT and Plant first for sticky priority; Shipment scrolls with the table. */
 const SHIPMENT_TABLE_COLUMNS: TableColumnDef[] = [
@@ -50,7 +50,6 @@ const SHIPMENT_TABLE_COLUMNS: TableColumnDef[] = [
   { id: "vendor", label: "Vendor" },
   { id: "incoterm", label: "Incoterms" },
   { id: "pib_type", label: "PIB type" },
-  { id: "shipment_method", label: "Shipment method" },
   { id: "ship_via", label: "Ship via" },
   { id: "product_classification", label: "Product classification" },
   { id: "ship_by", label: "Ship by" },
@@ -513,12 +512,6 @@ export function ShipmentList() {
           </TableCell>
         );
       }
-      case "shipment_method":
-        return (
-          <TableCell key={column.id}>
-            <CellText value={row.shipment_method} />
-          </TableCell>
-        );
       case "ship_via":
         return (
           <TableCell key={column.id}>
@@ -636,7 +629,7 @@ export function ShipmentList() {
           <form onSubmit={handleSearchSubmit} className={styles.searchForm}>
             <input
               type="search"
-              placeholder="Search shipment, supplier…"
+              placeholder="Search shipment, supplier, or PO…"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               className={styles.searchInput}

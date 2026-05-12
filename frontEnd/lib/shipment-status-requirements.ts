@@ -14,7 +14,7 @@
  */
 
 import type { ShipmentDocumentListItem } from "@/types/shipments";
-import { isPibTypeBc23 } from "@/lib/pib-type-label";
+import { isPibTypeBc23, isPibTypeConsignmentNote } from "@/lib/pib-type-label";
 
 export const SHIPMENT_STATUS_ORDER = [
   "INITIATE_SHIPPING_DOCUMENT",
@@ -97,6 +97,7 @@ export const STATUS_DOC_REQUIREMENT_LABELS: Record<string, string> = {
   "doc:bl": "Bill of Lading (Documents)",
   "doc:pib_bc": "PIB / BC (Documents)",
   "doc:sppb": "SPPB (Documents)",
+  "doc:sppbmcp": "SPPBMCP (Documents)",
   "doc:vo": "VO (Documents — required at Ready Pickup when Surveyor is Yes)",
 };
 
@@ -111,6 +112,7 @@ export const STATUS_REQUIRED_DOCS: Record<string, string[]> = {
   READY_PICKUP: ["VO (required when Surveyor is Yes)"],
   PICKED_UP: ["Laporan Surveyor (optional)"],
   ON_SHIPMENT: ["Bill of Lading", "COO (optional)", "Insurance (optional)"],
+  /** Non–Consignment Note; Consignment Note hints are built in `getRequiredDocsForTransition`. */
   CUSTOMS_CLEARANCE: ["PIB / BC", "SPPB", "SPPBMCP (optional)"],
   DELIVERED: [],
 };
@@ -428,6 +430,10 @@ function hasSppbDoc(docs: ShipmentDocumentListItem[]): boolean {
   return docs.some((d) => d.document_type === "SPPB");
 }
 
+function hasSppbmcpDoc(docs: ShipmentDocumentListItem[]): boolean {
+  return docs.some((d) => d.document_type === "SPPBMCP");
+}
+
 function hasVoDoc(docs: ShipmentDocumentListItem[]): boolean {
   return docs.some((d) => d.document_type === "VO");
 }
@@ -450,6 +456,8 @@ export type ShipmentDocumentValidationContext = {
   linked_pos: { intake_id: string }[];
   /** Used for VO requirement at Ready Pickup when Surveyor is Yes. */
   surveyor: string | null;
+  /** Customs clearance document set when PIB type is Consignment Note. */
+  pib_type?: string | null;
 };
 
 function addEnforcedDocsForLifecycleStatus(
@@ -457,7 +465,8 @@ function addEnforcedDocsForLifecycleStatus(
   statusKey: string,
   docs: ShipmentDocumentListItem[],
   linked: { intake_id: string }[],
-  surveyor: string | null
+  surveyor: string | null,
+  pibType: string | null | undefined
 ): void {
   if (statusKey === "INITIATE_SHIPPING_DOCUMENT") {
     if (linked.length > 0 && linkedPosMissingPoDoc(docs, linked)) {
@@ -477,8 +486,12 @@ function addEnforcedDocsForLifecycleStatus(
     if (!hasBlDoc(docs)) missing.add("doc:bl");
   }
   if (statusKey === "CUSTOMS_CLEARANCE") {
-    if (!hasPibBcDoc(docs)) missing.add("doc:pib_bc");
-    if (!hasSppbDoc(docs)) missing.add("doc:sppb");
+    if (isPibTypeConsignmentNote(pibType)) {
+      if (!hasSppbmcpDoc(docs)) missing.add("doc:sppbmcp");
+    } else {
+      if (!hasPibBcDoc(docs)) missing.add("doc:pib_bc");
+      if (!hasSppbDoc(docs)) missing.add("doc:sppb");
+    }
   }
 }
 
@@ -500,12 +513,13 @@ export function getMissingRequiredDocuments(
   const docs = ctx.documents ?? [];
   const linked = ctx.linked_pos ?? [];
   const singleStep = target === current + 1;
+  const pibType = ctx.pib_type;
 
   if (singleStep) {
-    addEnforcedDocsForLifecycleStatus(missing, currentStatus, docs, linked, ctx.surveyor);
+    addEnforcedDocsForLifecycleStatus(missing, currentStatus, docs, linked, ctx.surveyor, pibType);
   } else {
     for (const s of applicable.slice(current, target + 1)) {
-      addEnforcedDocsForLifecycleStatus(missing, s, docs, linked, ctx.surveyor);
+      addEnforcedDocsForLifecycleStatus(missing, s, docs, linked, ctx.surveyor, pibType);
     }
   }
 
@@ -516,11 +530,17 @@ export function getRequiredDocsForStatus(status: string): string[] {
   return STATUS_REQUIRED_DOCS[status] ?? [];
 }
 
+function customsClearanceDocHintLines(pibType: string | null | undefined): string[] {
+  if (isPibTypeConsignmentNote(pibType)) return ["SPPBMCP"];
+  return STATUS_REQUIRED_DOCS.CUSTOMS_CLEARANCE ?? [];
+}
+
 /** Hint list: **current** only if single-step; union of hints for every status on the path if multi-skip. */
 export function getRequiredDocsForTransition(
   currentStatus: string,
   targetStatus: string,
-  incoterm?: string | null
+  incoterm?: string | null,
+  pibType?: string | null
 ): string[] {
   const applicable = getApplicableStatuses(incoterm);
   const current = statusIndexInList(currentStatus, applicable);
@@ -535,7 +555,8 @@ export function getRequiredDocsForTransition(
   const seen = new Set<string>();
   const out: string[] = [];
   for (const s of statusKeys) {
-    for (const line of STATUS_REQUIRED_DOCS[s] ?? []) {
+    const lines = s === "CUSTOMS_CLEARANCE" ? customsClearanceDocHintLines(pibType) : (STATUS_REQUIRED_DOCS[s] ?? []);
+    for (const line of lines) {
       if (!seen.has(line)) {
         seen.add(line);
         out.push(line);
