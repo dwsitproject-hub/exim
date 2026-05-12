@@ -198,10 +198,19 @@ export class ShipmentRepository {
       params.push(query.created_to);
     }
     if (query.search) {
+      const term = `%${query.search}%`;
       conditions.push(
-        `(s.shipment_no ILIKE $${idx} OR s.vendor_name ILIKE $${idx})`
+        `(
+          s.shipment_no ILIKE $${idx}
+          OR s.vendor_name ILIKE $${idx}
+          OR EXISTS (
+            SELECT 1 FROM shipment_po_mapping m
+            JOIN Import_purchase_order i ON i.id = m.intake_id AND m.decoupled_at IS NULL
+            WHERE m.shipment_id = s.id AND i.po_number ILIKE $${idx}
+          )
+        )`
       );
-      params.push(`%${query.search}%`);
+      params.push(term);
       idx++;
     }
     if (query.po_number) {

@@ -138,6 +138,8 @@ function docKeyForDocumentType(documentType: string): string | null {
       return "doc:pib_bc";
     case "SPPB":
       return "doc:sppb";
+    case "SPPBMCP":
+      return "doc:sppbmcp";
     case "VO":
       return "doc:vo";
     default:
@@ -1875,6 +1877,7 @@ export function ShipmentDetail({ id }: { id: string }) {
         documents: shipmentDocuments,
         linked_pos: detailForStatusValidation.linked_pos ?? [],
         surveyor: detailForStatusValidation.surveyor,
+        pib_type: detailForStatusValidation.pib_type,
       }
     );
     return [...fields, ...docs];
@@ -1885,7 +1888,8 @@ export function ShipmentDetail({ id }: { id: string }) {
     return getRequiredDocsForTransition(
       detailForStatusValidation.current_status,
       newStatus.trim(),
-      detailForStatusValidation.incoterm
+      detailForStatusValidation.incoterm,
+      detailForStatusValidation.pib_type
     );
   }, [detailForStatusValidation, newStatus]);
 
