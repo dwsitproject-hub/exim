@@ -9,6 +9,8 @@ export interface PageHeaderProps {
   titleAddon?: React.ReactNode;
   backHref?: string;
   backLabel?: string;
+  /** When set, back uses this handler instead of navigation (e.g. unsaved guard). */
+  onBackClick?: () => void;
   actions?: React.ReactNode;
   subtitle?: string;
   breadcrumbs?: Array<{ label: string; href?: string }>;
@@ -20,6 +22,7 @@ export function PageHeader({
   titleAddon,
   backHref,
   backLabel = "Back",
+  onBackClick,
   actions,
   subtitle,
   breadcrumbs,
@@ -48,9 +51,15 @@ export function PageHeader({
       {showTopRow && (
         <div className={styles.topRow}>
           {backHref ? (
-            <Link href={backHref} className={styles.backLink}>
-              ← {backLabel}
-            </Link>
+            onBackClick ? (
+              <button type="button" className={styles.backLink} onClick={onBackClick}>
+                ← {backLabel}
+              </button>
+            ) : (
+              <Link href={backHref} className={styles.backLink}>
+                ← {backLabel}
+              </Link>
+            )
           ) : (
             <span />
           )}

@@ -37,7 +37,7 @@ export function Header({ onMenuClick }: HeaderProps) {
         >
           <span className={styles.menuIcon} aria-hidden />
         </button>
-        <Link href="/dashboard" className={styles.logo}>
+        <Link href="/" className={styles.logo}>
           <span className={styles.logoMark} aria-hidden>
             <Image
               src="/brand/eos-header-mark.png"

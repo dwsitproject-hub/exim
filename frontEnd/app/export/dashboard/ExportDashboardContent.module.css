@@ -1,0 +1,198 @@
+.loading,
+.error {
+  font-size: var(--typography-fontSize-small, 14px);
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  margin: 0;
+}
+
+.error {
+  color: var(--color-semantic-destructive-default, #c43a31);
+}
+
+.kpiBand {
+  margin-bottom: var(--spacing-5, 32px);
+}
+
+.kpiBandLabel {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  margin: 0 0 12px;
+}
+
+.summaryGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: var(--spacing-4, 24px);
+}
+
+@media (min-width: 1024px) {
+  .summaryGrid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.quickActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-3, 16px);
+  margin-bottom: var(--spacing-5, 32px);
+  padding: var(--spacing-4, 24px);
+  background-color: var(--color-primitive-background-white, #ffffff);
+  border: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  border-radius: var(--borderRadius-lg, 12px);
+}
+
+.quickActionsLabel {
+  font-size: var(--typography-fontSize-small, 14px);
+  font-weight: var(--typography-fontWeight-medium, 500);
+  color: var(--color-primitive-text-steel, #6b6b6b);
+}
+
+.quickActionsButtons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-2, 8px);
+}
+
+.btnPrimary {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--spacing-2, 8px) var(--spacing-3, 16px);
+  font-size: var(--typography-fontSize-base, 16px);
+  font-weight: var(--typography-fontWeight-semibold, 600);
+  color: var(--color-semantic-primary-foreground, #ffffff);
+  background-color: var(--color-semantic-primary-default, #c43a31);
+  border: none;
+  border-radius: var(--borderRadius-md, 8px);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.btnPrimary:hover {
+  background-color: var(--color-semantic-primary-hover, #9e2c25);
+}
+
+.btnSecondary {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--spacing-2, 8px) var(--spacing-3, 16px);
+  font-size: var(--typography-fontSize-base, 16px);
+  font-weight: var(--typography-fontWeight-semibold, 600);
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+  background: var(--color-semantic-secondary-default, #f4f4f4);
+  border: 1px solid var(--color-primitive-border-medium, #c4c4c4);
+  border-radius: var(--borderRadius-md, 8px);
+  text-decoration: none;
+}
+
+.statusBreakdown {
+  margin-bottom: var(--spacing-5, 32px);
+  padding: var(--spacing-4, 24px);
+  background: var(--color-primitive-background-white, #fff);
+  border: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  border-radius: var(--borderRadius-lg, 12px);
+}
+
+.statusBreakdownTitle {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0 0 12px;
+}
+
+.statusRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.statusPill {
+  min-width: 120px;
+  text-align: center;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.statusBar {
+  flex: 1;
+  height: 8px;
+  background: #f4f4f5;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.statusBarFill {
+  height: 100%;
+  border-radius: 4px;
+}
+
+.attentionGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--spacing-5, 32px);
+  margin-bottom: var(--spacing-5, 32px);
+}
+
+@media (min-width: 960px) {
+  .attentionGrid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.attentionSection {
+  margin-bottom: 0;
+}
+
+.attentionTitle {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0 0 12px;
+}
+
+.attentionList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  border-radius: var(--borderRadius-md, 8px);
+  overflow: hidden;
+  background: #fff;
+}
+
+.attentionItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  font-size: 13px;
+}
+
+.attentionItem:last-child {
+  border-bottom: none;
+}
+
+.attentionLink {
+  color: var(--color-semantic-primary-default, #c43a31);
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.attentionLink:hover {
+  text-decoration: underline;
+}
+
+.attentionEmpty {
+  font-size: 13px;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  margin: 0;
+}

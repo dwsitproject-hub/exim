@@ -10,8 +10,13 @@ import {
   Truck,
   Upload,
   Users,
+  Ship,
+  Package,
+  Home,
   ChevronLeft,
   ChevronRight,
+  Anchor,
+  Briefcase,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { can } from "@/lib/permissions";
@@ -23,14 +28,40 @@ export interface NavItem {
   icon: LucideIcon;
 }
 
-const BASE_NAV: NavItem[] = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/dashboard/po", label: "Purchase Order", icon: ClipboardList },
-  { href: "/dashboard/shipments", label: "Shipments", icon: Truck },
+type AppSection = "import" | "export" | "admin";
+
+function detectSection(pathname: string): AppSection {
+  if (pathname.startsWith("/export")) return "export";
+  if (pathname.startsWith("/admin")) return "admin";
+  return "import";
+}
+
+const IMPORT_NAV: NavItem[] = [
+  { href: "/import/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/import/po", label: "Purchase Order", icon: ClipboardList },
+  { href: "/import/shipments", label: "Shipments", icon: Truck },
 ];
+
+const EXPORT_NAV: NavItem[] = [
+  { href: "/export/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/export/bulking", label: "Bulking", icon: Ship },
+];
+
+const ADMIN_NAV: NavItem[] = [
+  { href: "/admin/users", label: "User management", icon: Users },
+  { href: "/admin/shippers", label: "Master Shipper", icon: Anchor },
+  { href: "/admin/agents", label: "Master Agent", icon: Briefcase },
+];
+
+const SECTION_LABELS: Record<AppSection, string> = {
+  import: "Import",
+  export: "Export",
+  admin: "Admin",
+};
 
 const MANAGE_USERS = "MANAGE_USERS";
 const IMPORT_PO_CSV = "IMPORT_PO_CSV";
+const VIEW_EXPORT_BULKING = "VIEW_EXPORT_BULKING";
 
 function NavLink({
   item,
@@ -60,13 +91,9 @@ function NavLink({
 }
 
 export interface SidebarProps {
-  /** When true (and viewport is mobile), drawer is visible. */
   isMobileOpen?: boolean;
-  /** Called when drawer should close (e.g. overlay click, or after navigation). */
   onClose?: () => void;
-  /** Desktop: narrow icon-only rail. */
   collapsed?: boolean;
-  /** Desktop: toggle collapse. */
   onToggleCollapsed?: () => void;
 }
 
@@ -78,17 +105,21 @@ export function Sidebar({
 }: SidebarProps) {
   const pathname = usePathname();
   const { user } = useAuth();
+  const section = detectSection(pathname);
 
   const mainNav = useMemo(() => {
-    const items: NavItem[] = [...BASE_NAV];
-    if (can(user, IMPORT_PO_CSV)) {
-      items.push({ href: "/dashboard/monitoring-data", label: "Import Data", icon: Upload });
+    if (section === "export") {
+      return [...EXPORT_NAV];
     }
-    if (can(user, MANAGE_USERS)) {
-      items.push({ href: "/dashboard/users", label: "User management", icon: Users });
+    if (section === "admin") {
+      return [...ADMIN_NAV];
+    }
+    const items: NavItem[] = [...IMPORT_NAV];
+    if (can(user, IMPORT_PO_CSV)) {
+      items.push({ href: "/import/monitoring-data", label: "Import Data", icon: Upload });
     }
     return items;
-  }, [user]);
+  }, [user, section]);
 
   useEffect(() => {
     if (isMobileOpen && onClose) onClose();
@@ -99,11 +130,18 @@ export function Sidebar({
     collapsed ? styles.collapsed : ""
   }`;
 
+  const dashboardHref =
+    section === "import"
+      ? "/import/dashboard"
+      : section === "export"
+        ? "/export/dashboard"
+        : "/admin/users";
+
   return (
     <aside className={asideClass} aria-label="Main navigation">
       {onToggleCollapsed && (
         <div className={styles.sidebarHeader}>
-          {!collapsed && <span className={styles.sidebarHeaderTitle}>Menu</span>}
+          {!collapsed && <span className={styles.sidebarHeaderTitle}>{SECTION_LABELS[section]}</span>}
           <button
             type="button"
             className={styles.collapseToggle}
@@ -122,12 +160,20 @@ export function Sidebar({
           </button>
         </div>
       )}
+
+      {!collapsed && (
+        <Link href="/" className={styles.hubLink} onClick={onClose}>
+          <Home size={16} strokeWidth={2} aria-hidden />
+          <span>Switch section</span>
+        </Link>
+      )}
+
       <nav className={styles.nav} aria-label="Primary">
         <ul className={styles.list}>
           {mainNav.map((item) => {
             const isActive =
               pathname === item.href ||
-              (item.href !== "/dashboard" && pathname.startsWith(item.href + "/"));
+              (item.href !== dashboardHref && pathname.startsWith(item.href + "/"));
             return (
               <li key={item.href + item.label}>
                 <NavLink

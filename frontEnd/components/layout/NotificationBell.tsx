@@ -65,7 +65,7 @@ export function NotificationBell() {
     }
     setOpen(false);
     if (n.shipment_id) {
-      router.push(`/dashboard/shipments/${n.shipment_id}`);
+      router.push(`/import/shipments/${n.shipment_id}`);
     }
     refresh();
   }

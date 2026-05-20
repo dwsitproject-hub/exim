@@ -46,6 +46,23 @@ body {
   background-color: var(--color-primitive-background-white, #ffffff);
 }
 
+/* Keep form controls on the same typeface as body content. Native date/time pickers
+   often ignore inheritance and use the system UI font unless explicitly set. */
+input,
+textarea,
+select,
+button {
+  font-family: inherit;
+}
+
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"],
+input[type="month"],
+input[type="week"] {
+  font-family: var(--typography-fontFamily-primary, "Inter", system-ui, sans-serif);
+}
+
 a {
   color: var(--color-semantic-primary-default, #c43a31);
 }
@@ -60,5 +77,43 @@ a:hover {
   text-align: center;
   font-size: var(--typography-fontSize-small, 14px);
   color: var(--color-primitive-text-steel, #6b6b6b);
+}
+
+/* Export bulking documents — print isolation (must be global; CSS Modules disallow unpure :global(body *)). */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .si-print-root,
+  .si-print-root *,
+  .invoice-print-root,
+  .invoice-print-root *,
+  .pl-print-root,
+  .pl-print-root * {
+    visibility: visible;
+  }
+  .si-print-root,
+  .invoice-print-root,
+  .pl-print-root {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 210mm;
+    min-height: 297mm;
+    max-width: 210mm;
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+  .si-print-noPrint,
+  .invoice-print-noPrint,
+  .pl-print-noPrint,
+  .export-doc-noPrint {
+    display: none !important;
+  }
+  @page {
+    size: A4 portrait;
+    margin: 12mm;
+  }
 }
 

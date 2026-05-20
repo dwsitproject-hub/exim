@@ -3,9 +3,51 @@
   width: 100%;
 }
 
+/* Chevron arrow indicator */
+.wrap::after {
+  content: "";
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid var(--color-primitive-text-steel, #6b6b6b);
+  border-bottom: 2px solid var(--color-primitive-text-steel, #6b6b6b);
+  transform: translateY(-65%) rotate(45deg);
+  pointer-events: none;
+}
+
 .input {
   width: 100%;
   box-sizing: border-box;
+  font-family: inherit;
+  font-size: var(--typography-fontSize-small, 14px);
+  font-weight: var(--typography-fontWeight-regular, 400);
+  padding: var(--spacing-2, 8px) 28px var(--spacing-2, 8px) var(--spacing-2, 8px);
+  border: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  border-radius: var(--borderRadius-sm, 6px);
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+  background: var(--color-primitive-background-white, #ffffff);
+  line-height: 1.5;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.input::placeholder {
+  color: var(--color-primitive-text-steel, #6b6b6b);
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--color-semantic-primary-default, #c43a31);
+  box-shadow: 0 0 0 2px rgba(196, 58, 49, 0.12);
+}
+
+.input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: var(--color-primitive-background-lighter, #fafafa);
 }
 
 .list {
@@ -29,15 +71,15 @@
 .option {
   display: block;
   width: 100%;
-  padding: var(--spacing-2, 8px) var(--spacing-3, 16px);
-  font-size: var(--typography-fontSize-base, 16px);
+  padding: 7px var(--spacing-3, 12px);
+  font-size: var(--typography-fontSize-small, 14px);
+  font-family: inherit;
   text-align: left;
   color: var(--color-primitive-text-charcoal, #2b2b2b);
   background: transparent;
   border: none;
   border-radius: var(--borderRadius-sm, 6px);
   cursor: pointer;
-  font-family: inherit;
 }
 
 .option:hover,
@@ -45,8 +87,20 @@
   background: var(--color-primitive-background-lighter, #fafafa);
 }
 
+.option[aria-selected="true"] {
+  background: #fef2f2;
+  color: var(--color-semantic-primary-default, #c43a31);
+  font-weight: 600;
+}
+
+.optionCreate {
+  color: var(--color-semantic-primary-default, #c43a31);
+  font-style: normal;
+  font-weight: 500;
+}
+
 .emptyHint {
-  padding: var(--spacing-2, 8px) var(--spacing-3, 16px);
+  padding: var(--spacing-2, 8px) var(--spacing-3, 12px);
   font-size: var(--typography-fontSize-small, 14px);
   color: var(--color-primitive-text-steel, #6b6b6b);
 }

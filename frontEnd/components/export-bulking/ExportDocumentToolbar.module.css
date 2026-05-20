@@ -1,0 +1,41 @@
+.toolRow {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin: 0 0 0.75rem;
+}
+
+.btn {
+  padding: 0.35rem 0.85rem;
+  cursor: pointer;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+  background: var(--surface-elevated, #f6f6f6);
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--surface-hover, #ececec);
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btnPrimary {
+  padding: 0.35rem 0.85rem;
+  cursor: pointer;
+  border: 1px solid var(--color-semantic-primary-default, #c43a31);
+  border-radius: 6px;
+  background: var(--color-semantic-primary-default, #c43a31);
+  color: #fff;
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.btnPrimary:hover:not(:disabled) {
+  background: var(--color-semantic-primary-hover, #a32e27);
+}

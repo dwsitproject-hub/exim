@@ -35,3 +35,85 @@
 .nav a:hover {
   color: var(--color-semantic-primary-hover, #9e2c25);
 }
+
+/* Hub page (authenticated) */
+
+.hubMain {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-6, 40px) var(--spacing-4, 24px);
+  gap: var(--spacing-4, 24px);
+}
+
+.hubHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3, 16px);
+}
+
+.hubTitle {
+  font-family: var(--typography-fontFamily-heading, Georgia, serif);
+  font-size: var(--typography-fontSize-h2, 28px);
+  font-weight: var(--typography-fontWeight-semibold, 600);
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+  margin: 0;
+  line-height: 1.2;
+}
+
+.hubSubtitle {
+  font-size: var(--typography-fontSize-small, 14px);
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  margin: 0;
+}
+
+.hubWelcome {
+  font-size: var(--typography-fontSize-base, 16px);
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  margin: 0;
+}
+
+.hubCards {
+  display: flex;
+  gap: var(--spacing-4, 24px);
+  margin-top: var(--spacing-3, 16px);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.hubCard {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-3, 16px);
+  padding: var(--spacing-4, 24px);
+  border: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  border-radius: var(--borderRadius-lg, 12px);
+  background: var(--color-primitive-background-white, #ffffff);
+  text-decoration: none;
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+  width: 320px;
+  transition:
+    border-color var(--animation-duration-fast, 150ms) var(--animation-easing-default, ease-out),
+    box-shadow var(--animation-duration-fast, 150ms) var(--animation-easing-default, ease-out);
+}
+
+.hubCard:hover {
+  border-color: var(--color-semantic-primary-default, #c43a31);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.hubCardTitle {
+  display: block;
+  font-size: var(--typography-fontSize-large, 18px);
+  font-weight: var(--typography-fontWeight-semibold, 600);
+  margin-bottom: var(--spacing-1, 4px);
+}
+
+.hubCardDesc {
+  display: block;
+  font-size: var(--typography-fontSize-small, 14px);
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  line-height: 1.5;
+}

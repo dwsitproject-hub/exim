@@ -1,16 +1,63 @@
+"use client";
+
 import Link from "next/link";
-import { LOGIN_PATH, DEFAULT_AFTER_LOGIN_PATH } from "@/lib/constants";
+import Image from "next/image";
+import { ArrowDownLeft, ArrowUpRight } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
+import { LOGIN_PATH } from "@/lib/constants";
 import styles from "./page.module.css";
 
-export default function Home() {
+export default function HubPage() {
+  const { user } = useAuth();
+
+  if (!user) {
+    return (
+      <main className={styles.main}>
+        <h1 className={styles.title}>Exim Operation System (EOS)</h1>
+        <p className={styles.subtitle}>Redirecting&hellip;</p>
+        <nav className={styles.nav}>
+          <Link href={LOGIN_PATH}>Log in</Link>
+        </nav>
+      </main>
+    );
+  }
+
   return (
-    <main className={styles.main}>
-      <h1 className={styles.title}>Exim Operation System (EOS)</h1>
-      <p className={styles.subtitle}>Phase 1 — Import Operation</p>
-      <nav className={styles.nav}>
-        <Link href={LOGIN_PATH}>Log in</Link>
-        <Link href={DEFAULT_AFTER_LOGIN_PATH}>Dashboard</Link>
-      </nav>
+    <main className={styles.hubMain}>
+      <div className={styles.hubHeader}>
+        <Image
+          src="/brand/eos-header-mark.png"
+          alt=""
+          width={48}
+          height={48}
+          priority
+        />
+        <div>
+          <h1 className={styles.hubTitle}>EOS</h1>
+          <p className={styles.hubSubtitle}>Exim Operation System</p>
+        </div>
+      </div>
+      <p className={styles.hubWelcome}>Welcome, {user.name}. Choose a section to continue.</p>
+      <div className={styles.hubCards}>
+        <Link href="/import/dashboard" className={styles.hubCard}>
+          <ArrowDownLeft size={28} strokeWidth={2} aria-hidden />
+          <div>
+            <span className={styles.hubCardTitle}>Import</span>
+            <span className={styles.hubCardDesc}>
+              PO intake, shipments, duty tracking, and documents.
+            </span>
+          </div>
+        </Link>
+        <Link href="/export/dashboard" className={styles.hubCard}>
+          <ArrowUpRight size={28} strokeWidth={2} aria-hidden />
+          <div>
+            <span className={styles.hubCardTitle}>Export</span>
+            <span className={styles.hubCardDesc}>
+              Bulking, shipping instructions, invoices, and packing lists.
+            </span>
+          </div>
+        </Link>
+      </div>
     </main>
   );
 }
