@@ -38,7 +38,7 @@ import styles from "./ShipmentList.module.css";
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 10;
 
-const SHIPMENT_LIST_TABLE_COLUMNS_KEY = "eos.dash.shipmentList.tableColumns.v3";
+const SHIPMENT_LIST_TABLE_COLUMNS_KEY = "eos.dash.shipmentList.tableColumns.v4";
 
 /** PT and Plant first for sticky priority; Shipment scrolls with the table. */
 const SHIPMENT_TABLE_COLUMNS: TableColumnDef[] = [
@@ -50,7 +50,6 @@ const SHIPMENT_TABLE_COLUMNS: TableColumnDef[] = [
   { id: "vendor", label: "Vendor" },
   { id: "incoterm", label: "Incoterms" },
   { id: "pib_type", label: "PIB type" },
-  { id: "shipment_method", label: "Shipment method" },
   { id: "ship_via", label: "Ship via" },
   { id: "product_classification", label: "Product classification" },
   { id: "ship_by", label: "Ship by" },
@@ -169,6 +168,8 @@ export function ShipmentList() {
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
   const [openFilterColumnId, setOpenFilterColumnId] = useState<string | null>(null);
   const [filterOptions, setFilterOptions] = useState<ShipmentListFilterOptions | null>(null);
+  const [sortBy, setSortBy] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   const syncSearchToUrl = useCallback(
     (search: string) => {
@@ -240,6 +241,10 @@ export function ShipmentList() {
     if (performanceEtaLate) {
       listQuery.performance_eta_late = true;
     }
+    if (sortBy) {
+      listQuery.sort_by = sortBy;
+      listQuery.sort_dir = sortDir;
+    }
     listShipments(listQuery, accessToken)
       .then((res) => {
         if (isApiError(res)) {
@@ -266,6 +271,8 @@ export function ShipmentList() {
     performanceEtaLate,
     columnFiltersKey,
     statusLabelToRaw,
+    sortBy,
+    sortDir,
   ]);
 
   useEffect(() => {
@@ -362,6 +369,16 @@ export function ShipmentList() {
     setSearchParam(searchInput);
     setPage(1);
     syncSearchToUrl(searchInput);
+  }
+
+  function handleColumnSort(columnId: string) {
+    setPage(1);
+    if (sortBy === columnId) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortBy(columnId);
+      setSortDir("asc");
+    }
   }
 
   function applyPoDateFilter() {
@@ -495,12 +512,6 @@ export function ShipmentList() {
           </TableCell>
         );
       }
-      case "shipment_method":
-        return (
-          <TableCell key={column.id}>
-            <CellText value={row.shipment_method} />
-          </TableCell>
-        );
       case "ship_via":
         return (
           <TableCell key={column.id}>
@@ -618,7 +629,7 @@ export function ShipmentList() {
           <form onSubmit={handleSearchSubmit} className={styles.searchForm}>
             <input
               type="search"
-              placeholder="Search shipment, supplier…"
+              placeholder="Search shipment, supplier, or PO…"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               className={styles.searchInput}
@@ -788,9 +799,24 @@ export function ShipmentList() {
                                 ? styles.plantStickyTh
                                 : undefined
                           }
+                          aria-sort={
+                            sortBy === c.id ? (sortDir === "asc" ? "ascending" : "descending") : undefined
+                          }
                         >
                           <div className={styles.headerCellFilter}>
-                            <span>{c.label}</span>
+                            <button
+                              type="button"
+                              className={styles.sortHeadBtn}
+                              onClick={() => handleColumnSort(c.id)}
+                              aria-label={`Sort by ${c.label}${sortBy === c.id ? `, ${sortDir === "asc" ? "ascending" : "descending"}` : ""}`}
+                            >
+                              <span>{c.label}</span>
+                              {sortBy === c.id ? (
+                                <span className={styles.sortIndicator} aria-hidden>
+                                  {sortDir === "asc" ? "↑" : "↓"}
+                                </span>
+                              ) : null}
+                            </button>
                             <TableColumnFilterPicker
                               columnLabel={c.label}
                               options={opts}

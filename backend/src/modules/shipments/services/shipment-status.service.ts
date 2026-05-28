@@ -114,6 +114,7 @@ export class ShipmentStatusService {
       })),
       linked_pos: detail.linked_pos.map((p) => ({ intake_id: p.intake_id })),
       surveyor: detail.surveyor,
+      pib_type: detail.pib_type,
     });
 
     if (missingFields.length > 0 || missingDocs.length > 0) {

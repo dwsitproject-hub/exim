@@ -63,6 +63,8 @@ function parseListQuery(req: Request): ListPoIntakeQuery {
     taken_at_dates: mergeFilterTokens(q, "taken_at_date", "taken_at_dates_in"),
     created_at_dates: mergeFilterTokens(q, "created_at_date", "created_at_dates_in"),
     updated_at_dates: mergeFilterTokens(q, "updated_at_date", "updated_at_dates_in"),
+    sort_by: typeof q.sort_by === "string" && q.sort_by.trim() ? q.sort_by.trim() : undefined,
+    sort_dir: q.sort_dir === "asc" || q.sort_dir === "desc" ? q.sort_dir : undefined,
   };
 }
 

@@ -10,6 +10,8 @@ import { logger } from "./utils/logger.js";
 import { PoIntakeRepository } from "./modules/po-intake/repositories/po-intake.repository.js";
 import { createPoApiClient, startPoPolling } from "./integration/saaS/index.js";
 
+let stopCoupaStagingIntegrationFn: (() => void) | null = null;
+
 async function main(): Promise<void> {
   try {
     await connectDb();
@@ -26,6 +28,50 @@ async function main(): Promise<void> {
     const client = createPoApiClient(config.poPolling.saasApiBaseUrl);
     startPoPolling(repo, client, config.poPolling.intervalMs);
   }
+
+  if (config.coupa.enabled) {
+    const coupaModulePath = "./integration/coupa/index.js";
+    const coupaModule = (await import(coupaModulePath)) as {
+      CoupaPoApiClient: {
+        fromConfig: (args: {
+          baseUrl: string;
+          issuedListPathOrUrl: string;
+          accessToken?: string;
+          clientId?: string;
+          clientSecret?: string;
+          oauthTokenUrl?: string;
+          oauthScope?: string;
+          requestTimeoutMs?: number;
+        }) => unknown;
+      };
+      PurchaseOrderStagingRepository: new () => unknown;
+      startCoupaStagingIntegration: (
+        args: { stagingRepo: unknown; poRepo: PoIntakeRepository; coupa: unknown },
+        options: { ingestMs: number; processorMs: number }
+      ) => void;
+      stopCoupaStagingIntegration: () => void;
+    };
+
+    const coupa = coupaModule.CoupaPoApiClient.fromConfig({
+      baseUrl: config.coupa.baseUrl,
+      issuedListPathOrUrl: config.coupa.issuedListPathOrUrl,
+      accessToken: config.coupa.accessToken,
+      clientId: config.coupa.clientId,
+      clientSecret: config.coupa.clientSecret,
+      oauthTokenUrl: config.coupa.oauthTokenUrl,
+      oauthScope: config.coupa.oauthScope,
+      requestTimeoutMs: config.coupa.requestTimeoutMs,
+    });
+    coupaModule.startCoupaStagingIntegration(
+      {
+        stagingRepo: new coupaModule.PurchaseOrderStagingRepository(),
+        poRepo: new PoIntakeRepository(),
+        coupa,
+      },
+      { ingestMs: config.coupa.ingestIntervalMs, processorMs: config.coupa.processorIntervalMs }
+    );
+    stopCoupaStagingIntegrationFn = coupaModule.stopCoupaStagingIntegration;
+  }
 }
 
 main().catch((err) => {
@@ -37,6 +83,7 @@ process.on("SIGTERM", async () => {
   logger.info("SIGTERM received, stopping polling and closing DB");
   const { stopPoPolling } = await import("./integration/saaS/index.js");
   stopPoPolling();
+  stopCoupaStagingIntegrationFn?.();
   await closeDb();
   process.exit(0);
 });

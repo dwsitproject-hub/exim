@@ -118,6 +118,8 @@ export function PoList() {
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
   const [openFilterColumnId, setOpenFilterColumnId] = useState<string | null>(null);
   const [filterOptions, setFilterOptions] = useState<PoListFilterOptions | null>(null);
+  const [sortBy, setSortBy] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   const columnFiltersKey = JSON.stringify(columnFilters);
 
@@ -159,20 +161,35 @@ export function PoList() {
       search: searchParam.trim() || undefined,
       ...fromCols,
     };
+    let out: ListPoQuery;
     if (filterFromUrl === MANAGERIAL_LIST_FILTERS.stale) {
       const d = Math.max(1, parseInt(daysFromUrl || "2", 10) || 2);
-      return {
+      out = {
         ...base,
         intake_status: "NEW_PO_DETECTED",
         unclaimed_only: true,
         detected_older_than_days: d,
       };
+    } else if (filterFromUrl === MANAGERIAL_LIST_FILTERS.uncoupled) {
+      out = { ...base, has_linked_shipment: false };
+    } else {
+      out = { ...base, intake_status: statusFromUrl };
     }
-    if (filterFromUrl === MANAGERIAL_LIST_FILTERS.uncoupled) {
-      return { ...base, has_linked_shipment: false };
+    if (sortBy && sortBy !== "actions") {
+      out = { ...out, sort_by: sortBy, sort_dir: sortDir };
     }
-    return { ...base, intake_status: statusFromUrl };
-  }, [page, searchParam, columnFiltersKey, statusLabelToRaw, filterFromUrl, daysFromUrl, statusFromUrl]);
+    return out;
+  }, [
+    page,
+    searchParam,
+    columnFiltersKey,
+    statusLabelToRaw,
+    filterFromUrl,
+    daysFromUrl,
+    statusFromUrl,
+    sortBy,
+    sortDir,
+  ]);
 
   const fetchList = useCallback(() => {
     if (!accessToken) {
@@ -256,6 +273,17 @@ export function PoList() {
     e.preventDefault();
     setSearchParam(searchInput);
     setPage(1);
+  }
+
+  function handleColumnSort(columnId: string) {
+    if (columnId === "actions") return;
+    setPage(1);
+    if (sortBy === columnId) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortBy(columnId);
+      setSortDir("asc");
+    }
   }
 
   const visiblePoColumns = poColumnDefs.filter((c) => visibleById[c.id] !== false);
@@ -424,9 +452,30 @@ export function PoList() {
                 <TableHead>
                   <TableRow>
                     {visiblePoColumns.map((c) => (
-                      <TableHeaderCell key={c.id}>
+                      <TableHeaderCell
+                        key={c.id}
+                        aria-sort={
+                          sortBy === c.id ? (sortDir === "asc" ? "ascending" : "descending") : undefined
+                        }
+                      >
                         <span className={styles.thWithFilter}>
-                          <span>{c.label}</span>
+                          {c.id === "actions" ? (
+                            <span className={styles.thLabelStatic}>{c.label}</span>
+                          ) : (
+                            <button
+                              type="button"
+                              className={styles.sortHeadBtn}
+                              onClick={() => handleColumnSort(c.id)}
+                              aria-label={`Sort by ${c.label}${sortBy === c.id ? `, ${sortDir === "asc" ? "ascending" : "descending"}` : ""}`}
+                            >
+                              <span>{c.label}</span>
+                              {sortBy === c.id ? (
+                                <span className={styles.sortIndicator} aria-hidden>
+                                  {sortDir === "asc" ? "↑" : "↓"}
+                                </span>
+                              ) : null}
+                            </button>
+                          )}
                           {c.id !== "actions" && (
                             <TableColumnFilterPicker
                               columnLabel={c.label}

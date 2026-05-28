@@ -2,6 +2,8 @@
  * Shipment DTOs. Main operational entity; status timeline; PO mapping.
  */
 
+import type { FreightChargeCurrency } from "../../../shared/freight-currency.js";
+
 export const SHIPMENT_STATUSES = [
   "INITIATE_SHIPPING_DOCUMENT",
   "BIDDING_TRANSPORTER",
@@ -43,6 +45,7 @@ export interface CreateShipmentDto {
   insurance_no?: string;
   coo?: string;
   incoterm_amount?: number;
+  incoterm_currency?: FreightChargeCurrency;
   cbm?: number | null;
   kawasan_berikat?: string;
   product_classification?: string;
@@ -67,6 +70,7 @@ export interface UpdateShipmentDto {
   insurance_no?: string;
   coo?: string;
   incoterm_amount?: number;
+  incoterm_currency?: FreightChargeCurrency;
   cbm?: number | null;
   net_weight_mt?: number;
   gross_weight_mt?: number;
@@ -182,6 +186,9 @@ export interface ListShipmentsQuery {
    * Aligns with `computeOnTimeStatus` → `kind === "late"` when ETA exists.
    */
   performance_eta_late?: boolean;
+  /** List UI column id (e.g. `shipment`, `pt`); server maps to SQL / subqueries. */
+  sort_by?: string;
+  sort_dir?: "asc" | "desc";
 }
 
 /** Distinct values for shipment list column filters (full database). */
@@ -270,6 +277,7 @@ export interface ShipmentRow {
   insurance_no: string | null;
   coo: string | null;
   incoterm_amount: number | null;
+  incoterm_currency: FreightChargeCurrency;
   cbm: number | null;
   net_weight_mt: number | null;
   gross_weight_mt: number | null;
@@ -362,6 +370,7 @@ export interface ShipmentDetail {
   insurance_no: string | null;
   coo: string | null;
   incoterm_amount: number | null;
+  incoterm_currency: FreightChargeCurrency;
   cbm: number | null;
   net_weight_mt: number | null;
   gross_weight_mt: number | null;
@@ -506,6 +515,7 @@ export interface ShipmentBidRow {
   shipment_id: string;
   forwarder_name: string;
   service_amount: number | null;
+  service_amount_currency: FreightChargeCurrency;
   duration: string | null;
   /** Calendar expiry for quotation validity (optional). */
   quotation_expires_at: Date | null;
@@ -521,6 +531,7 @@ export interface ShipmentBidRow {
 export interface CreateShipmentBidDto {
   forwarder_name: string;
   service_amount?: number;
+  service_amount_currency?: FreightChargeCurrency;
   duration?: string;
   /** YYYY-MM-DD; optional. */
   quotation_expires_at?: string | null;
@@ -532,6 +543,7 @@ export interface CreateShipmentBidDto {
 export interface UpdateShipmentBidDto {
   forwarder_name?: string;
   service_amount?: number;
+  service_amount_currency?: FreightChargeCurrency;
   duration?: string;
   quotation_expires_at?: string | null;
   origin_port?: string;

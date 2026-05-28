@@ -13,6 +13,7 @@ import type {
   ShipmentListFilterOptions,
   ShipmentRow,
 } from "../dto/index.js";
+import { DEFAULT_FREIGHT_CHARGE_CURRENCY } from "../../../shared/freight-currency.js";
 
 export class ShipmentRepository {
   private get pool(): Pool {
@@ -34,7 +35,7 @@ export class ShipmentRepository {
     incoterm, shipment_method, origin_port_code, origin_port_name, origin_port_country,
     destination_port_code, destination_port_name, destination_port_country, etd, eta, atd, ata, depo, depo_location, current_status,
     closed_at, close_reason, remarks, created_at, updated_at,
-    pib_type, no_request_pib, ppjk_mkl, nopen, nopen_date, ship_by, bl_awb, insurance_no, coo, incoterm_amount, cbm, net_weight_mt, gross_weight_mt, bm, ppn_amount, pph_amount, kawasan_berikat, surveyor,
+    pib_type, no_request_pib, ppjk_mkl, nopen, nopen_date, ship_by, bl_awb, insurance_no, coo, incoterm_amount, incoterm_currency, cbm, net_weight_mt, gross_weight_mt, bm, ppn_amount, pph_amount, kawasan_berikat, surveyor,
     product_classification,
     unit_20ft, unit_40ft, unit_package, unit_20_iso_tank, container_count_20ft, container_count_40ft, package_count, container_count_20_iso_tank,
     deleted_at, deleted_by`;
@@ -48,10 +49,10 @@ export class ShipmentRepository {
         shipment_no, vendor_code, vendor_name, forwarder_code, forwarder_name, warehouse_code, warehouse_name,
         incoterm, shipment_method, origin_port_code, origin_port_name, origin_port_country,
         destination_port_code, destination_port_name, destination_port_country, etd, eta, remarks,
-        pib_type, no_request_pib, ppjk_mkl, nopen, nopen_date, ship_by, bl_awb, insurance_no, coo, incoterm_amount, cbm, bm, kawasan_berikat,
+        pib_type, no_request_pib, ppjk_mkl, nopen, nopen_date, ship_by, bl_awb, insurance_no, coo, incoterm_amount, incoterm_currency, cbm, bm, kawasan_berikat,
         product_classification,
         current_status, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, 'INITIATE_SHIPPING_DOCUMENT', NOW(), NOW())
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, 'INITIATE_SHIPPING_DOCUMENT', NOW(), NOW())
       RETURNING ${this.selectColumns}`,
       [
         shipmentNo,
@@ -82,6 +83,7 @@ export class ShipmentRepository {
         dto.insurance_no ?? null,
         dto.coo ?? null,
         dto.incoterm_amount ?? null,
+        dto.incoterm_currency ?? DEFAULT_FREIGHT_CHARGE_CURRENCY,
         dto.cbm ?? null,
         null,
         dto.kawasan_berikat ?? null,
@@ -106,6 +108,53 @@ export class ShipmentRepository {
       [shipmentNo]
     );
     return result.rows[0] ?? null;
+  }
+
+  private firstCoupledPoScalar(selectExpr: string): string {
+    return `(SELECT ${selectExpr}
+      FROM shipment_po_mapping m0
+      JOIN Import_purchase_order i0 ON i0.id = m0.intake_id
+      WHERE m0.shipment_id = s.id AND m0.decoupled_at IS NULL
+      ORDER BY m0.coupled_at ASC NULLS LAST
+      LIMIT 1)`;
+  }
+
+  private buildShipmentListOrderBy(query: ListShipmentsQuery): string {
+    const dir = query.sort_dir === "desc" ? "DESC" : "ASC";
+    const key = query.sort_by?.trim() ?? "";
+    const picFirst = `(SELECT u2.name
+      FROM shipment_po_mapping m2
+      JOIN Import_purchase_order i2 ON i2.id = m2.intake_id
+      LEFT JOIN users u2 ON u2.id::text = i2.taken_by_user_id
+      WHERE m2.shipment_id = s.id AND m2.decoupled_at IS NULL
+        AND TRIM(COALESCE(u2.name, '')) <> ''
+      ORDER BY m2.coupled_at ASC NULLS LAST
+      LIMIT 1)`;
+    const cols: Record<string, string> = {
+      pt: this.firstCoupledPoScalar("i0.pt"),
+      plant: this.firstCoupledPoScalar("i0.plant"),
+      shipment: "s.shipment_no",
+      status: "s.current_status",
+      po_number: this.firstCoupledPoScalar("i0.po_number"),
+      vendor: "s.vendor_name",
+      incoterm: "s.incoterm",
+      pib_type: "s.pib_type",
+      shipment_method: "s.shipment_method",
+      ship_via: "s.shipment_method",
+      product_classification: "s.product_classification",
+      ship_by: "s.ship_by",
+      pic: picFirst,
+      forwarder: "s.forwarder_name",
+      etd: "s.etd",
+      eta: "s.eta",
+      origin_port: "s.origin_port_name",
+      destination_port: "s.destination_port_name",
+    };
+    const expr = cols[key];
+    if (!expr) {
+      return "ORDER BY s.created_at DESC NULLS LAST, s.id DESC";
+    }
+    return `ORDER BY ${expr} ${dir} NULLS LAST, s.id ${dir}`;
   }
 
   async findAll(query: ListShipmentsQuery): Promise<{ rows: ShipmentRow[]; total: number }> {
@@ -149,10 +198,19 @@ export class ShipmentRepository {
       params.push(query.created_to);
     }
     if (query.search) {
+      const term = `%${query.search}%`;
       conditions.push(
-        `(s.shipment_no ILIKE $${idx} OR s.vendor_name ILIKE $${idx})`
+        `(
+          s.shipment_no ILIKE $${idx}
+          OR s.vendor_name ILIKE $${idx}
+          OR EXISTS (
+            SELECT 1 FROM shipment_po_mapping m
+            JOIN Import_purchase_order i ON i.id = m.intake_id AND m.decoupled_at IS NULL
+            WHERE m.shipment_id = s.id AND i.po_number ILIKE $${idx}
+          )
+        )`
       );
-      params.push(`%${query.search}%`);
+      params.push(term);
       idx++;
     }
     if (query.po_number) {
@@ -407,7 +465,7 @@ export class ShipmentRepository {
       conditions.push(`EXISTS (
         SELECT 1
         FROM shipment_po_mapping m
-        JOIN Import_purchase_order_items it ON it.intake_id = m.intake_id
+        JOIN Import_purchase_order_items it ON it.import_purchase_order_id = m.intake_id
         WHERE m.shipment_id = s.id AND m.decoupled_at IS NULL
         AND COALESCE(it.qty, 0) > COALESCE((
           SELECT SUM(r.received_qty) FROM shipment_po_line_received r WHERE r.item_id = it.id
@@ -430,10 +488,10 @@ export class ShipmentRepository {
         s.destination_port_code, s.destination_port_name, s.destination_port_country,
         s.etd, s.eta, s.atd, s.ata, s.depo, s.depo_location, s.current_status, s.closed_at, s.close_reason, s.remarks, s.created_at, s.updated_at,
         s.pib_type, s.no_request_pib, s.ppjk_mkl, s.nopen, s.nopen_date, s.ship_by, s.bl_awb, s.insurance_no, s.coo,
-        s.incoterm_amount, s.cbm, s.net_weight_mt, s.gross_weight_mt, s.bm, s.ppn_amount, s.pph_amount, s.kawasan_berikat, s.surveyor, s.product_classification,
+        s.incoterm_amount, s.incoterm_currency, s.cbm, s.net_weight_mt, s.gross_weight_mt, s.bm, s.ppn_amount, s.pph_amount, s.kawasan_berikat, s.surveyor, s.product_classification,
         s.unit_20ft, s.unit_40ft, s.unit_package, s.unit_20_iso_tank, s.container_count_20ft, s.container_count_40ft,
         s.package_count, s.container_count_20_iso_tank
-       FROM shipments s WHERE ${where} ORDER BY s.created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
+       FROM shipments s WHERE ${where} ${this.buildShipmentListOrderBy(query)} LIMIT $${idx} OFFSET $${idx + 1}`,
       params
     );
 
@@ -646,6 +704,10 @@ export class ShipmentRepository {
     if (dto.incoterm_amount !== undefined) {
       updates.push(`incoterm_amount = $${idx++}`);
       params.push(dto.incoterm_amount);
+    }
+    if (dto.incoterm_currency !== undefined) {
+      updates.push(`incoterm_currency = $${idx++}`);
+      params.push(dto.incoterm_currency);
     }
     if (dto.cbm !== undefined) {
       updates.push(`cbm = $${idx++}`);

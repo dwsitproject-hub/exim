@@ -64,6 +64,9 @@ export interface LinkedPoSummary {
   line_received: LinkedPoLineReceived[];
 }
 
+/** Currency for freight charges (shipment) and forwarder bid service amounts. */
+export type FreightChargeCurrency = "USD" | "IDR";
+
 export interface ShipmentListItem {
   id: string;
   shipment_number: string;
@@ -131,6 +134,7 @@ export interface ShipmentDetail {
   insurance_no: string | null;
   coo: string | null;
   incoterm_amount: number | null;
+  incoterm_currency: FreightChargeCurrency;
   cbm: number | null;
   net_weight_mt: number | null;
   gross_weight_mt: number | null;
@@ -239,6 +243,9 @@ export interface ListShipmentsQuery {
    * Query param: `performance_eta_late=true`.
    */
   performance_eta_late?: boolean;
+  /** Shipment list column id; backend maps to SQL. */
+  sort_by?: string;
+  sort_dir?: "asc" | "desc";
 }
 
 /** Full-database distinct values for shipment list column filters. */
@@ -304,6 +311,7 @@ export interface ShipmentBid {
   shipment_id: string;
   forwarder_name: string;
   service_amount: number | null;
+  service_amount_currency: FreightChargeCurrency;
   duration: string | null;
   /** Optional calendar expiry (YYYY-MM-DD) for quotation validity. */
   quotation_expires_at?: string | null;
@@ -322,6 +330,7 @@ export interface RecentForwarderBid {
   duration: string | null;
   quotation_expires_at?: string | null;
   service_amount: number | null;
+  service_amount_currency: FreightChargeCurrency;
   origin_port: string | null;
   destination_port: string | null;
   /** Origin port country on the past shipment that held this bid (matches current shipment’s origin country filter). */

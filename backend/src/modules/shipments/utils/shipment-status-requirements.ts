@@ -5,7 +5,7 @@
  * **Ship by** (Sea): only when leaving TRANSPORT_CONFIRMED, not Initiate.
  */
 
-import { isPibTypeBc23 } from "../../../shared/pib-type.js";
+import { isPibTypeBc23, isPibTypeConsignmentNote } from "../../../shared/pib-type.js";
 
 export const SHIPMENT_STATUS_ORDER = [
   "INITIATE_SHIPPING_DOCUMENT",
@@ -79,6 +79,7 @@ const STATUS_DOC_LABELS: Record<string, string> = {
   "doc:bl": "Bill of Lading (Documents)",
   "doc:pib_bc": "PIB / BC (Documents)",
   "doc:sppb": "SPPB (Documents)",
+  "doc:sppbmcp": "SPPBMCP (Documents)",
   "doc:vo": "VO (Documents — required at Ready Pickup when Surveyor is Yes)",
 };
 
@@ -89,6 +90,7 @@ const STATUS_REQUIRED_DOCS: Record<string, string[]> = {
   READY_PICKUP: ["VO (required when Surveyor is Yes)"],
   PICKED_UP: ["Laporan Surveyor (optional)"],
   ON_SHIPMENT: ["Bill of Lading", "COO (optional)", "Insurance (optional)"],
+  /** Hints for non–Consignment Note; Consignment Note uses dynamic list in UI (SPPBMCP only). */
   CUSTOMS_CLEARANCE: ["PIB / BC", "SPPB", "SPPBMCP (optional)"],
   DELIVERED: [],
 };
@@ -401,6 +403,10 @@ function hasSppbDoc(docs: DocumentRowForValidation[]): boolean {
   return docs.some((d) => d.document_type === "SPPB");
 }
 
+function hasSppbmcpDoc(docs: DocumentRowForValidation[]): boolean {
+  return docs.some((d) => d.document_type === "SPPBMCP");
+}
+
 function hasVoDoc(docs: DocumentRowForValidation[]): boolean {
   return docs.some((d) => d.document_type === "VO");
 }
@@ -418,7 +424,8 @@ function addEnforcedDocsForLifecycleStatus(
   statusKey: string,
   docs: DocumentRowForValidation[],
   linked: { intake_id: string }[],
-  surveyor: string | null
+  surveyor: string | null,
+  pibType: string | null | undefined
 ): void {
   if (statusKey === "INITIATE_SHIPPING_DOCUMENT") {
     if (linked.length > 0 && linkedPosMissingPoDoc(docs, linked)) {
@@ -438,8 +445,12 @@ function addEnforcedDocsForLifecycleStatus(
     if (!hasBlDoc(docs)) missing.add("doc:bl");
   }
   if (statusKey === "CUSTOMS_CLEARANCE") {
-    if (!hasPibBcDoc(docs)) missing.add("doc:pib_bc");
-    if (!hasSppbDoc(docs)) missing.add("doc:sppb");
+    if (isPibTypeConsignmentNote(pibType)) {
+      if (!hasSppbmcpDoc(docs)) missing.add("doc:sppbmcp");
+    } else {
+      if (!hasPibBcDoc(docs)) missing.add("doc:pib_bc");
+      if (!hasSppbDoc(docs)) missing.add("doc:sppb");
+    }
   }
 }
 
@@ -451,6 +462,7 @@ export function getMissingRequiredDocuments(
     documents: DocumentRowForValidation[];
     linked_pos: { intake_id: string }[];
     surveyor: string | null;
+    pib_type?: string | null;
   }
 ): string[] {
   const applicable = getApplicableStatuses(incoterm);
@@ -463,11 +475,12 @@ export function getMissingRequiredDocuments(
   const linked = ctx.linked_pos ?? [];
   const singleStep = target === current + 1;
 
+  const pibType = ctx.pib_type;
   if (singleStep) {
-    addEnforcedDocsForLifecycleStatus(missing, currentStatus, docs, linked, ctx.surveyor);
+    addEnforcedDocsForLifecycleStatus(missing, currentStatus, docs, linked, ctx.surveyor, pibType);
   } else {
     for (const s of applicable.slice(current, target + 1)) {
-      addEnforcedDocsForLifecycleStatus(missing, s, docs, linked, ctx.surveyor);
+      addEnforcedDocsForLifecycleStatus(missing, s, docs, linked, ctx.surveyor, pibType);
     }
   }
 

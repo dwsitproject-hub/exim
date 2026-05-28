@@ -79,6 +79,8 @@ function parseListQuery(req: Request): ListShipmentsQuery {
     })(),
     performance_eta_late:
       q.performance_eta_late === "true" || q.performance_eta_late === "1" ? true : undefined,
+    sort_by: typeof q.sort_by === "string" && q.sort_by.trim() ? q.sort_by.trim() : undefined,
+    sort_dir: q.sort_dir === "asc" || q.sort_dir === "desc" ? q.sort_dir : undefined,
   };
 }
 

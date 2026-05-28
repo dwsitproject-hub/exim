@@ -29,6 +29,7 @@ const SHIPMENT_UPDATE_FIELD_LABELS: Record<string, string> = {
   insurance_no: "Insurance no.",
   coo: "COO",
   incoterm_amount: "Incoterm amount",
+  incoterm_currency: "Freight charges currency",
   cbm: "CBM",
   origin_port_name: "Origin port",
   origin_port_country: "Origin country",

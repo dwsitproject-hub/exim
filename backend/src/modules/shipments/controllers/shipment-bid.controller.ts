@@ -26,6 +26,7 @@ function toBidResponse(row: {
   shipment_id: string;
   forwarder_name: string;
   service_amount: number | null;
+  service_amount_currency: string;
   duration: string | null;
   quotation_expires_at: Date | string | null;
   origin_port: string | null;
@@ -41,6 +42,7 @@ function toBidResponse(row: {
     shipment_id: row.shipment_id,
     forwarder_name: row.forwarder_name,
     service_amount: row.service_amount,
+    service_amount_currency: row.service_amount_currency,
     duration: row.duration,
     quotation_expires_at: quotationExpiresAtToYmd(row.quotation_expires_at),
     origin_port: row.origin_port,
@@ -94,6 +96,7 @@ export async function listRecentForwarders(req: Request, res: Response, next: Ne
       duration: row.duration,
       quotation_expires_at: quotationExpiresAtToYmd(row.quotation_expires_at),
       service_amount: row.service_amount,
+      service_amount_currency: row.service_amount_currency,
       origin_port: row.origin_port,
       destination_port: row.destination_port,
       origin_country: row.origin_country,

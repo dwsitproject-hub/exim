@@ -43,7 +43,7 @@ services:
       - "${BACKEND_PORT:-3003}:3003"
     volumes:
       # Host Synology path mounted into backend container.
-      - ${STORAGE_HOST_MOUNT:-/mnt/synology/eos}:/mnt/synology/eos
+      - ${STORAGE_HOST_MOUNT:-/mnt/synology/EXIM/Import}:/mnt/synology/EXIM/Import
 
 volumes:
   postgres_data:

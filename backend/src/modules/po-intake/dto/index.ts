@@ -92,6 +92,9 @@ export interface ListPoIntakeQuery {
   taken_at_dates?: string[];
   created_at_dates?: string[];
   updated_at_dates?: string[];
+  /** Client column id (e.g. `po_number`, `supplier`); server maps to SQL. */
+  sort_by?: string;
+  sort_dir?: "asc" | "desc";
 }
 
 /** GET /po/list-filter-options — distinct values for column filters (full table). */
@@ -135,7 +138,7 @@ export interface PoIntakeRow {
 
 export interface PoIntakeItemRow {
   id: string;
-  intake_id: string;
+  import_purchase_order_id: string;
   line_number: number;
   item_description: string | null;
   qty: number | null;
@@ -183,6 +186,8 @@ export interface PoIntakeDetail {
   updated_at: string;
   items: {
     id: string;
+    /** FK to `import_purchase_order.id` (same as parent detail `id`). */
+    import_purchase_order_id: string;
     line_number: number;
     item_description: string | null;
     qty: number | null;

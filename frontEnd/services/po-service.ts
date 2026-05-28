@@ -13,6 +13,7 @@ import type {
   PoImportCsvResult,
   PoImportHistoryItem,
   PoIntakeActivityItem,
+  ParsedPoResult,
 } from "@/types/po";
 import type { ApiResponse } from "@/types/api";
 import { config } from "@/lib/config";
@@ -44,6 +45,8 @@ function buildQueryString(query: ListPoQuery): string {
   query.taken_at_dates?.forEach((v) => params.append("taken_at_date", v));
   query.created_at_dates?.forEach((v) => params.append("created_at_date", v));
   query.updated_at_dates?.forEach((v) => params.append("updated_at_date", v));
+  if (query.sort_by) params.set("sort_by", query.sort_by);
+  if (query.sort_dir) params.set("sort_dir", query.sort_dir);
   const qs = params.toString();
   return qs ? `?${qs}` : "";
 }
@@ -130,6 +133,20 @@ export async function importPoCsv(
   const form = new FormData();
   form.append("file", file);
   return apiRequest<PoImportCsvResult>("po/import/csv", {
+    method: "POST",
+    body: form,
+    accessToken,
+  });
+}
+
+/** POST /po/import/parse-pdf — OCR a PO PDF and return pre-fill data. Does NOT create a PO. */
+export async function parsePoPdf(
+  file: File,
+  accessToken: string | null
+): Promise<ApiResponse<ParsedPoResult>> {
+  const form = new FormData();
+  form.append("file", file);
+  return apiRequest<ParsedPoResult>("po/import/parse-pdf", {
     method: "POST",
     body: form,
     accessToken,

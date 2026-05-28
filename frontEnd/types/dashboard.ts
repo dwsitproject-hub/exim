@@ -8,6 +8,7 @@ export interface DeliveredManagementItem {
   vendor_name: string | null;
   total_amount_idr: number;
   freight_charge: number | null;
+  freight_charge_currency: string;
   total_qty: number;
 }
 

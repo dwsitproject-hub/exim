@@ -17,6 +17,7 @@ import type {
   ShipmentDocumentListItem,
   ShipmentImportCsvResult,
   ShipmentImportHistoryItem,
+  FreightChargeCurrency,
 } from "@/types/shipments";
 import type { ApiResponse } from "@/types/api";
 import { config } from "@/lib/config";
@@ -70,6 +71,8 @@ function buildQueryString(query: ListShipmentsQuery): string {
   if (query.dormant_remaining_qty) params.set("dormant_remaining_qty", "true");
   if (query.dormant_days != null) params.set("dormant_days", String(query.dormant_days));
   if (query.performance_eta_late) params.set("performance_eta_late", "true");
+  if (query.sort_by) params.set("sort_by", query.sort_by);
+  if (query.sort_dir) params.set("sort_dir", query.sort_dir);
   const qs = params.toString();
   return qs ? `?${qs}` : "";
 }
@@ -114,6 +117,7 @@ export interface UpdateShipmentPayload {
   insurance_no?: string;
   coo?: string;
   incoterm_amount?: number;
+  incoterm_currency?: FreightChargeCurrency;
   cbm?: number | null;
   net_weight_mt?: number;
   gross_weight_mt?: number;
@@ -250,6 +254,7 @@ export async function listRecentShipmentForwarders(
 export interface CreateShipmentBidPayload {
   forwarder_name: string;
   service_amount?: number;
+  service_amount_currency?: FreightChargeCurrency;
   duration?: string;
   /** YYYY-MM-DD; optional. */
   quotation_expires_at?: string;
@@ -269,6 +274,7 @@ export async function createShipmentBid(
 export interface UpdateShipmentBidPayload {
   forwarder_name?: string;
   service_amount?: number;
+  service_amount_currency?: FreightChargeCurrency;
   duration?: string;
   quotation_expires_at?: string | null;
   origin_port?: string;

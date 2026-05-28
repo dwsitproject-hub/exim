@@ -29,7 +29,6 @@ export interface ShipmentAnalyticsClassificationRow {
 export interface ShipmentAnalyticsLogistics {
   air: number;
   sea: number;
-  other: number;
 }
 
 /** Breakdown for Sea shipments only (`shipment_method` = SEA). */
@@ -250,16 +249,11 @@ export class ShipmentAnalyticsRepository {
         ORDER BY COUNT(*) DESC, classification ASC`,
           params
         ),
-        this.pool.query<{ air: string; sea: string; other: string }>(
+        this.pool.query<{ air: string; sea: string }>(
           `${baseCte}
         SELECT
           COUNT(*) FILTER (WHERE UPPER(TRIM(COALESCE(shipment_method, ''))) = 'AIR')::text AS air,
-          COUNT(*) FILTER (WHERE UPPER(TRIM(COALESCE(shipment_method, ''))) = 'SEA')::text AS sea,
-          COUNT(*) FILTER (
-            WHERE UPPER(TRIM(COALESCE(shipment_method, ''))) NOT IN ('AIR', 'SEA')
-              OR shipment_method IS NULL
-              OR TRIM(COALESCE(shipment_method, '')) = ''
-          )::text AS other
+          COUNT(*) FILTER (WHERE UPPER(TRIM(COALESCE(shipment_method, ''))) = 'SEA')::text AS sea
         FROM base`,
           params
         ),
@@ -317,7 +311,6 @@ export class ShipmentAnalyticsRepository {
       logistics: {
         air: parseInt(log?.air ?? "0", 10),
         sea: parseInt(log?.sea ?? "0", 10),
-        other: parseInt(log?.other ?? "0", 10),
       },
       sea_logistics: {
         by_ship_by: seaByRes.rows.map((r) => ({ ship_by: r.mode, count: parseInt(r.count, 10) })),
@@ -371,7 +364,7 @@ export class ShipmentAnalyticsRepository {
         INNER JOIN shipment_po_line_received r
           ON r.shipment_id = m.shipment_id AND r.intake_id = m.intake_id
         INNER JOIN Import_purchase_order_items it
-          ON it.id = r.item_id AND it.intake_id = r.intake_id
+          ON it.id = r.item_id AND it.import_purchase_order_id = r.intake_id
         INNER JOIN Import_purchase_order i ON i.id = r.intake_id
       )
       SELECT

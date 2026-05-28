@@ -21,6 +21,14 @@ export function isPibTypeBc23(stored: string | null | undefined): boolean {
   return canonical === "BC 2.3";
 }
 
+/** Consignment Note (incl. legacy "Consignee Note"): customs docs differ from BC filings. */
+export function isPibTypeConsignmentNote(stored: string | null | undefined): boolean {
+  const v = stored != null ? String(stored).trim() : "";
+  if (!v) return false;
+  const canonical = PIB_TYPE_CANONICAL[v] ?? v;
+  return canonical === "Consignment Note";
+}
+
 /**
  * BC variant folder segment (Plant__{this}). Consignment Note → BC 2.0 per filing rules.
  * Unknown non-empty values are sanitized; empty → Unknown_PIB.

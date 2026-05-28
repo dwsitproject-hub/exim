@@ -9,9 +9,10 @@ import type {
   CreateShipmentBidDto,
   UpdateShipmentBidDto,
 } from "../dto/index.js";
+import { DEFAULT_FREIGHT_CHARGE_CURRENCY } from "../../../shared/freight-currency.js";
 
 const COLUMNS =
-  "id, shipment_id, forwarder_name, service_amount, duration, quotation_expires_at, origin_port, destination_port, ship_via, quotation_file_name, quotation_storage_key, created_at, updated_at";
+  "id, shipment_id, forwarder_name, service_amount, service_amount_currency, duration, quotation_expires_at, origin_port, destination_port, ship_via, quotation_file_name, quotation_storage_key, created_at, updated_at";
 
 export class ShipmentBidRepository {
   private get pool(): Pool {
@@ -46,6 +47,7 @@ export class ShipmentBidRepository {
       duration: string | null;
       quotation_expires_at: Date | null;
       service_amount: number | null;
+      service_amount_currency: string;
       origin_port: string | null;
       destination_port: string | null;
       origin_country: string | null;
@@ -66,6 +68,7 @@ export class ShipmentBidRepository {
       duration: string | null;
       quotation_expires_at: Date | null;
       service_amount: number | null;
+      service_amount_currency: string;
       origin_port: string | null;
       destination_port: string | null;
       origin_country: string | null;
@@ -91,6 +94,7 @@ export class ShipmentBidRepository {
            b.duration,
            b.quotation_expires_at,
            b.service_amount,
+           b.service_amount_currency,
            b.origin_port,
            b.destination_port,
            s.origin_port_country AS origin_country,
@@ -128,13 +132,14 @@ export class ShipmentBidRepository {
 
   async create(shipmentId: string, dto: CreateShipmentBidDto): Promise<ShipmentBidRow> {
     const result = await this.pool.query<ShipmentBidRow>(
-      `INSERT INTO shipment_bids (shipment_id, forwarder_name, service_amount, duration, quotation_expires_at, origin_port, destination_port, ship_via, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
+      `INSERT INTO shipment_bids (shipment_id, forwarder_name, service_amount, service_amount_currency, duration, quotation_expires_at, origin_port, destination_port, ship_via, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
        RETURNING ${COLUMNS}`,
       [
         shipmentId,
         dto.forwarder_name.trim(),
         dto.service_amount ?? null,
+        dto.service_amount_currency ?? DEFAULT_FREIGHT_CHARGE_CURRENCY,
         dto.duration?.trim() ?? null,
         dto.quotation_expires_at ?? null,
         dto.origin_port?.trim() ?? null,
@@ -156,6 +161,10 @@ export class ShipmentBidRepository {
     if (dto.service_amount !== undefined) {
       updates.push(`service_amount = $${idx++}`);
       params.push(dto.service_amount);
+    }
+    if (dto.service_amount_currency !== undefined) {
+      updates.push(`service_amount_currency = $${idx++}`);
+      params.push(dto.service_amount_currency);
     }
     if (dto.duration !== undefined) {
       updates.push(`duration = $${idx++}`);

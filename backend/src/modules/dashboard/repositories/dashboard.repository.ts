@@ -56,6 +56,8 @@ export interface DeliveredManagementRow {
   total_amount_idr: number;
   /** Freight / service & charge from shipment (incoterm_amount). */
   freight_charge: number | null;
+  /** Currency for freight_charge (USD or IDR). */
+  freight_charge_currency: string;
   /** Sum of received quantities across all coupled PO lines on the shipment. */
   total_qty: number;
 }
@@ -87,7 +89,7 @@ export class DashboardRepository {
    * Delivered shipments in month/year (on closed/ata/updated date), with:
    * - PT / plant from primary linked PO (lowest po_number among active mappings)
    * - total_amount_idr: Σ(qty × unit_price) in IDR (FX via mapping currency_rate when PO is not IDR/RP)
-   * - freight_charge: shipment.incoterm_amount
+   * - freight_charge: shipment.incoterm_amount; freight_charge_currency: shipment.incoterm_currency
    * - total_qty: Σ(received_qty)
    * Shipments with no line rows still appear (amount/qty 0).
    */
@@ -110,6 +112,7 @@ export class DashboardRepository {
       vendor_name: string | null;
       total_amount_idr: string;
       freight_charge: string | null;
+      freight_charge_currency: string;
       total_qty: string;
     }>(
       `WITH base AS (
@@ -118,7 +121,8 @@ export class DashboardRepository {
           s.shipment_no AS shipment_number,
           s.vendor_name,
           s.product_classification,
-          s.incoterm_amount
+          s.incoterm_amount,
+          s.incoterm_currency
         FROM shipments s
         WHERE ${shipmentWhere}
       ),
@@ -135,7 +139,7 @@ export class DashboardRepository {
         INNER JOIN shipment_po_line_received r
           ON r.shipment_id = m.shipment_id AND r.intake_id = m.intake_id
         INNER JOIN Import_purchase_order_items it
-          ON it.id = r.item_id AND it.intake_id = r.intake_id
+          ON it.id = r.item_id AND it.import_purchase_order_id = r.intake_id
         INNER JOIN Import_purchase_order po
           ON po.id = r.intake_id
       ),
@@ -177,6 +181,7 @@ export class DashboardRepository {
         NULLIF(TRIM(b.vendor_name), '') AS vendor_name,
         COALESCE(ls.total_amount_idr, 0)::text AS total_amount_idr,
         b.incoterm_amount::text AS freight_charge,
+        b.incoterm_currency AS freight_charge_currency,
         COALESCE(ls.total_qty, 0)::text AS total_qty
       FROM base b
       LEFT JOIN line_sums ls ON ls.shipment_id = b.shipment_id
@@ -194,6 +199,7 @@ export class DashboardRepository {
       vendor_name: row.vendor_name,
       total_amount_idr: parseFloat(row.total_amount_idr),
       freight_charge: row.freight_charge != null ? parseFloat(row.freight_charge) : null,
+      freight_charge_currency: row.freight_charge_currency ?? "IDR",
       total_qty: parseFloat(row.total_qty),
     }));
   }
@@ -242,7 +248,7 @@ export class DashboardRepository {
         INNER JOIN shipment_po_line_received r
           ON r.shipment_id = m.shipment_id AND r.intake_id = m.intake_id
         INNER JOIN Import_purchase_order_items it
-          ON it.id = r.item_id AND it.intake_id = r.intake_id
+          ON it.id = r.item_id AND it.import_purchase_order_id = r.intake_id
         INNER JOIN Import_purchase_order i ON i.id = r.intake_id
         WHERE TRUE ${lineFilterSql}
       ),
@@ -316,7 +322,7 @@ export class DashboardRepository {
         INNER JOIN shipment_po_line_received r
           ON r.shipment_id = m.shipment_id AND r.intake_id = m.intake_id
         INNER JOIN Import_purchase_order_items it
-          ON it.id = r.item_id AND it.intake_id = r.intake_id
+          ON it.id = r.item_id AND it.import_purchase_order_id = r.intake_id
         INNER JOIN Import_purchase_order po ON po.id = r.intake_id
       ),
       valued AS (
@@ -400,7 +406,7 @@ export class DashboardRepository {
         INNER JOIN shipment_po_line_received r
           ON r.shipment_id = m.shipment_id AND r.intake_id = m.intake_id
         INNER JOIN Import_purchase_order_items it
-          ON it.id = r.item_id AND it.intake_id = r.intake_id
+          ON it.id = r.item_id AND it.import_purchase_order_id = r.intake_id
         INNER JOIN Import_purchase_order i ON i.id = r.intake_id
       )
       SELECT

@@ -9,6 +9,7 @@ export const SHIPMENT_CSV_TEMPLATE_HINT_LINES: readonly string[] = [
   "# Incoterm: EXW | FCA | FOB | CIF | DAP | DDP (EXW/FCA/FOB enable transporter bidding in the app)",
   "# Product classification type (dropdown): Chemical | Package | Spare Parts (also accepts Sparepart / Spare parts in CSV)",
   "# PIB type (examples): BC 2.0 | BC 2.3 | Consignment Note | Lartas",
+  "# Freight currency (optional): USD | IDR (default IDR when omitted)",
 ];
 
 export const PO_CSV_TEMPLATE_HINT_LINES: readonly string[] = [

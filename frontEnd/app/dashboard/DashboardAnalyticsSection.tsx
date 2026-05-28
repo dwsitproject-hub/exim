@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronRight, Filter, Plane, Ship, Truck, X } from "lucide-react";
+import { ChevronRight, Filter, Plane, Ship, X } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { can } from "@/lib/permissions";
 import { PT_OPTION_LABELS, getAllPlantsSorted } from "@/lib/po-create-constants";
@@ -36,7 +36,6 @@ import {
   type LogisticsNavigateSync,
   type TransportTab,
 } from "@/components/logistics-detail-table";
-import { OrderFulfillmentVariance } from "@/components/order-fulfillment-variance/OrderFulfillmentVariance";
 import { ShipmentPerformanceCard } from "@/components/shipment-performance/ShipmentPerformanceCard";
 import { ScalingFinancialValue } from "@/components/dashboard/ScalingFinancialValue";
 import { DashboardUsdRateBar } from "@/components/dashboard/DashboardUsdRateBar";
@@ -517,11 +516,7 @@ export function DashboardAnalyticsSection() {
     return `conic-gradient(${parts.join(", ")})`;
   }, [summary?.by_classification]);
 
-  const logisticsTotal =
-    (summary?.logistics.air ?? 0) + (summary?.logistics.sea ?? 0) + (summary?.logistics.other ?? 0) || 1;
-
-  const otherIsDominant =
-    (summary?.logistics.other ?? 0) > (summary?.logistics.air ?? 0) + (summary?.logistics.sea ?? 0);
+  const logisticsTotal = (summary?.logistics.air ?? 0) + (summary?.logistics.sea ?? 0) || 1;
 
   const seaBarSegments = useMemo(() => {
     const sl = summary?.sea_logistics;
@@ -773,7 +768,6 @@ export function DashboardAnalyticsSection() {
                 </button>
               </div>
             </Card>
-            <OrderFulfillmentVariance accessToken={accessToken} allowed={allowed} />
             <Card className={styles.managerialCard}>
               <h3 className={styles.analyticsCardTitle}>Financial visibility</h3>
               <ScalingFinancialValue
@@ -978,24 +972,6 @@ export function DashboardAnalyticsSection() {
                   <p className={styles.logisticsTileValue}>{summary?.logistics.sea ?? 0}</p>
                   <p className={styles.logisticsTileLabel}>Sea</p>
                 </button>
-                <button
-                  type="button"
-                  className={`${styles.logisticsTile} ${styles.analyticsCardInnerStop} ${
-                    otherIsDominant ? styles.logisticsTileOtherDominant : ""
-                  }`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    goLogisticsDetail("BULK");
-                  }}
-                >
-                  <div className={styles.logisticsIconWrap}>
-                    <Truck size={22} strokeWidth={1.75} aria-hidden />
-                  </div>
-                  <p className={styles.logisticsTileValue}>{summary?.logistics.other ?? 0}</p>
-                  <p className={styles.logisticsTileLabel}>
-                    {otherIsDominant ? "Other modes (road, etc.)" : "Other"}
-                  </p>
-                </button>
               </div>
               <div className={styles.logisticsStackBar}>
                 <div
@@ -1005,10 +981,6 @@ export function DashboardAnalyticsSection() {
                 <div
                   className={styles.logisticsStackSegSea}
                   style={{ width: `${((summary?.logistics.sea ?? 0) / logisticsTotal) * 100}%` }}
-                />
-                <div
-                  className={styles.logisticsStackSegOther}
-                  style={{ width: `${((summary?.logistics.other ?? 0) / logisticsTotal) * 100}%` }}
                 />
               </div>
               {summary?.sea_logistics && (summary.logistics.sea ?? 0) > 0 && (

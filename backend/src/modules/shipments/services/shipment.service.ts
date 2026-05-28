@@ -70,6 +70,10 @@ import {
   stripBom,
 } from "../../../shared/csv-import-utils.js";
 import { SHIPMENT_CSV_TEMPLATE_HINT_LINES } from "../../../shared/shipment-csv-template-hints.js";
+import {
+  DEFAULT_FREIGHT_CHARGE_CURRENCY,
+  normalizeFreightChargeCurrency,
+} from "../../../shared/freight-currency.js";
 
 const poIntakeRepo = new PoIntakeRepository();
 
@@ -162,6 +166,7 @@ function combinedRowToCreateDto(sf: UpdateShipmentDto): CreateShipmentDto {
     insurance_no: sf.insurance_no,
     coo: sf.coo,
     incoterm_amount: sf.incoterm_amount,
+    incoterm_currency: sf.incoterm_currency,
     cbm: sf.cbm,
     product_classification: sf.product_classification ?? undefined,
   };
@@ -338,6 +343,7 @@ function toDetail(
     insurance_no: row.insurance_no ?? null,
     coo: row.coo ?? null,
     incoterm_amount: row.incoterm_amount ?? null,
+    incoterm_currency: row.incoterm_currency ?? DEFAULT_FREIGHT_CHARGE_CURRENCY,
     cbm: row.cbm ?? null,
     net_weight_mt: row.net_weight_mt ?? null,
     gross_weight_mt: row.gross_weight_mt ?? null,
@@ -728,6 +734,23 @@ export class ShipmentService {
 
       const cbm = optNonNeg("cbm", "cbm");
       const incoterm_amount = optNonNeg("incoterm_amount", "incoterm_amount (Service & Charge)");
+      const incoterm_currency_cell = csvCell(cells, idx("incoterm_currency")).trim();
+      let incoterm_currencyFromCsv: UpdateShipmentDto["incoterm_currency"] | undefined;
+      if (incoterm_currency_cell) {
+        const cur = normalizeFreightChargeCurrency(incoterm_currency_cell);
+        if (!cur) {
+          errors.push({
+            row,
+            field: "incoterm_currency",
+            shipment_no: groupLabel,
+            po_number: poRefLabel,
+            message: `${SHIPMENT_CSV_CANONICAL_TO_DETAIL_LABEL.incoterm_currency} must be USD or IDR`,
+          });
+          rowFieldErrors = true;
+        } else {
+          incoterm_currencyFromCsv = cur;
+        }
+      }
       const net_weight_mt = optNonNeg("net_weight_mt", "net_weight_mt");
       const gross_weight_mt = optNonNeg("gross_weight_mt", "gross_weight_mt");
 
@@ -758,6 +781,7 @@ export class ShipmentService {
         coo: csvCell(cells, idx("coo")).trim() || undefined,
         cbm,
         incoterm_amount,
+        ...(incoterm_currencyFromCsv !== undefined ? { incoterm_currency: incoterm_currencyFromCsv } : {}),
         net_weight_mt,
         gross_weight_mt,
         closed_at: delivered_at,

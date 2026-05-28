@@ -5,6 +5,7 @@
 import type { Request } from "express";
 import type { ErrorField } from "../../../shared/response.js";
 import type { UpdateShipmentDto } from "../dto/index.js";
+import { normalizeFreightChargeCurrency } from "../../../shared/freight-currency.js";
 
 function parseDate(v: unknown): Date | null {
   if (v === null || v === undefined) return null;
@@ -91,6 +92,11 @@ export function validateUpdateShipmentBody(
     const n = Number(body.incoterm_amount);
     if (!Number.isFinite(n) || n < 0) errors.push({ field: "incoterm_amount", message: "Must be a non-negative number" });
     else data.incoterm_amount = n;
+  }
+  if (body?.incoterm_currency != null && String(body.incoterm_currency).trim() !== "") {
+    const cur = normalizeFreightChargeCurrency(body.incoterm_currency);
+    if (!cur) errors.push({ field: "incoterm_currency", message: "Must be USD or IDR" });
+    else data.incoterm_currency = cur;
   }
   if (body?.cbm === null) {
     data.cbm = null;

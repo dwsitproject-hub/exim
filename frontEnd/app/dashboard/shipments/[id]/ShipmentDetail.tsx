@@ -84,6 +84,7 @@ import type {
   ShipmentNote,
   ShipmentActivityItem,
   ShipmentDocumentListItem,
+  FreightChargeCurrency,
 } from "@/types/shipments";
 import type { PoDetail, PoItemSummary } from "@/types/po";
 import { config } from "@/lib/config";
@@ -137,6 +138,8 @@ function docKeyForDocumentType(documentType: string): string | null {
       return "doc:pib_bc";
     case "SPPB":
       return "doc:sppb";
+    case "SPPBMCP":
+      return "doc:sppbmcp";
     case "VO":
       return "doc:vo";
     default:
@@ -328,6 +331,12 @@ function getForwarderQuotationExpiryMeta(
 
 function formatRupiah(value: number | null | undefined): string {
   return `Rp ${formatDecimal(value ?? 0)}`;
+}
+
+function formatFreightChargeLine(amount: number | null | undefined, currency: FreightChargeCurrency): string {
+  if (amount == null) return "—";
+  const n = formatDecimal(amount);
+  return currency === "USD" ? `$${n}` : `Rp ${n}`;
 }
 
 type PoLineItemsEditorBlockProps = {
@@ -772,6 +781,7 @@ export function ShipmentDetail({ id }: { id: string }) {
   const [editPackageCount, setEditPackageCount] = useState("");
   const [editContainerCount20IsoTank, setEditContainerCount20IsoTank] = useState("");
   const [editIncotermAmount, setEditIncotermAmount] = useState("");
+  const [editIncotermCurrency, setEditIncotermCurrency] = useState<FreightChargeCurrency>("IDR");
   const [editBmTotal, setEditBmTotal] = useState("");
   const [editPpnTotal, setEditPpnTotal] = useState("");
   const [editPphTotal, setEditPphTotal] = useState("");
@@ -785,6 +795,7 @@ export function ShipmentDetail({ id }: { id: string }) {
   const [loadingRecentForwarders, setLoadingRecentForwarders] = useState(false);
   const [bidForwarder, setBidForwarder] = useState("");
   const [bidServiceAmount, setBidServiceAmount] = useState("");
+  const [bidServiceCurrency, setBidServiceCurrency] = useState<FreightChargeCurrency>("IDR");
   const [bidQuotationExpiresAt, setBidQuotationExpiresAt] = useState("");
   const [bidDestinationPort, setBidDestinationPort] = useState("");
   const [bidShipVia, setBidShipVia] = useState("");
@@ -792,6 +803,7 @@ export function ShipmentDetail({ id }: { id: string }) {
   const [editingBidId, setEditingBidId] = useState<string | null>(null);
   const [editBidForwarder, setEditBidForwarder] = useState("");
   const [editBidServiceAmount, setEditBidServiceAmount] = useState("");
+  const [editBidServiceCurrency, setEditBidServiceCurrency] = useState<FreightChargeCurrency>("IDR");
   const [editBidQuotationExpiresAt, setEditBidQuotationExpiresAt] = useState("");
   const [editBidDestinationPort, setEditBidDestinationPort] = useState("");
   const [editBidShipVia, setEditBidShipVia] = useState("");
@@ -1017,6 +1029,7 @@ export function ShipmentDetail({ id }: { id: string }) {
           )
         : ""
     );
+    setEditIncotermCurrency(detail.incoterm_currency ?? "IDR");
     setEditBmTotal(detail.bm != null && detail.bm !== 0 ? String(detail.bm) : "");
     setEditPpnTotal(detail.ppn != null && detail.ppn !== 0 ? String(detail.ppn) : "");
     setEditPphTotal(detail.pph != null && detail.pph !== 0 ? String(detail.pph) : "");
@@ -1196,6 +1209,7 @@ export function ShipmentDetail({ id }: { id: string }) {
           const n = parseCommaFormattedDecimal(bidServiceAmount);
           return n != null ? roundTo2Decimals(n) : undefined;
         })(),
+        service_amount_currency: bidServiceCurrency,
         quotation_expires_at: bidQuotationExpiresAt.trim() || undefined,
         origin_port: lanePort || undefined,
         destination_port: bidDestinationPort.trim() || undefined,
@@ -1212,6 +1226,7 @@ export function ShipmentDetail({ id }: { id: string }) {
         if (res.data) setBids((prev) => [...prev, res.data!]);
         setBidForwarder("");
         setBidServiceAmount("");
+        setBidServiceCurrency("IDR");
         setBidQuotationExpiresAt("");
         setBidDestinationPort("");
         setBidShipVia("");
@@ -1257,6 +1272,7 @@ export function ShipmentDetail({ id }: { id: string }) {
     setEditBidQuotationExpiresAt(bid.quotation_expires_at?.trim().slice(0, 10) ?? "");
     setEditBidDestinationPort(bid.destination_port ?? "");
     setEditBidShipVia(bid.ship_via ?? "");
+    setEditBidServiceCurrency(bid.service_amount_currency ?? "IDR");
   }
 
   function handleSaveBid(e: React.FormEvent) {
@@ -1279,6 +1295,7 @@ export function ShipmentDetail({ id }: { id: string }) {
           const n = parseCommaFormattedDecimal(editBidServiceAmount);
           return n != null ? roundTo2Decimals(n) : undefined;
         })(),
+        service_amount_currency: editBidServiceCurrency,
         quotation_expires_at: editBidQuotationExpiresAt.trim() || null,
         origin_port: lanePort || undefined,
         destination_port: editBidDestinationPort.trim() || undefined,
@@ -1403,11 +1420,27 @@ export function ShipmentDetail({ id }: { id: string }) {
   }
 
   function handleShipmentDocumentDownload(doc: ShipmentDocumentListItem) {
-    if (!accessToken || !id) return;
+    if (!id) return;
     const base = config.apiBaseUrl.replace(/\/$/, "");
     const url = `${base}/shipments/${id}/documents/${doc.id}/download`;
-    fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
-      .then((r) => {
+    const downloadWithAuth = () =>
+      fetch(url, {
+        credentials: "include",
+      });
+
+    downloadWithAuth()
+      .then(async (r) => {
+        if (r.status === 401) {
+          const refreshUrl = `${base}/auth/refresh`;
+          const refresh = await fetch(refreshUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({}),
+            credentials: "include",
+          });
+          if (!refresh.ok) throw new Error("download failed");
+          r = await downloadWithAuth();
+        }
         if (!r.ok) throw new Error("download failed");
         return r.blob();
       })
@@ -1747,6 +1780,7 @@ export function ShipmentDetail({ id }: { id: string }) {
       destination_port_name: editDestinationPortName.trim() || detail.destination_port_name,
       destination_port_country: DESTINATION_PORT_COUNTRY,
       incoterm_amount,
+      incoterm_currency: editIncotermCurrency,
       atd: editAtd.trim() || detail.atd,
       bl_awb: editBlAwb.trim() || detail.bl_awb,
       no_request_pib: editNoRequestPib.trim() || detail.no_request_pib,
@@ -1777,6 +1811,7 @@ export function ShipmentDetail({ id }: { id: string }) {
     editSurveyor,
     editDestinationPortName,
     editIncotermAmount,
+    editIncotermCurrency,
     editAtd,
     editBlAwb,
     editNoRequestPib,
@@ -1842,6 +1877,7 @@ export function ShipmentDetail({ id }: { id: string }) {
         documents: shipmentDocuments,
         linked_pos: detailForStatusValidation.linked_pos ?? [],
         surveyor: detailForStatusValidation.surveyor,
+        pib_type: detailForStatusValidation.pib_type,
       }
     );
     return [...fields, ...docs];
@@ -1852,7 +1888,8 @@ export function ShipmentDetail({ id }: { id: string }) {
     return getRequiredDocsForTransition(
       detailForStatusValidation.current_status,
       newStatus.trim(),
-      detailForStatusValidation.incoterm
+      detailForStatusValidation.incoterm,
+      detailForStatusValidation.pib_type
     );
   }, [detailForStatusValidation, newStatus]);
 
@@ -2503,6 +2540,7 @@ export function ShipmentDetail({ id }: { id: string }) {
       incoterm_amount: editIncotermAmount.trim()
         ? roundTo2Decimals(Number(stripCommaThousands(editIncotermAmount.trim())))
         : undefined,
+      incoterm_currency: editIncotermCurrency,
       cbm:
         !sea || editShipBy.trim() !== "LCL"
           ? null
@@ -2833,6 +2871,19 @@ export function ShipmentDetail({ id }: { id: string }) {
                       />
                     </div>
                     <div className={styles.field}>
+                      <label className={styles.fieldLabel} htmlFor="bid-service-currency">Currency</label>
+                      <select
+                        id="bid-service-currency"
+                        className={styles.input}
+                        value={bidServiceCurrency}
+                        onChange={(e) => setBidServiceCurrency(e.target.value as FreightChargeCurrency)}
+                        aria-label="Service amount currency"
+                      >
+                        <option value="IDR">IDR</option>
+                        <option value="USD">USD</option>
+                      </select>
+                    </div>
+                    <div className={styles.field}>
                       <label className={styles.fieldLabel} htmlFor="bid-quotation-expires">
                         Quotation expires (optional)
                       </label>
@@ -2909,6 +2960,18 @@ export function ShipmentDetail({ id }: { id: string }) {
                               />
                             </div>
                             <div className={styles.field}>
+                              <span className={styles.fieldLabel}>Currency</span>
+                              <select
+                                className={styles.input}
+                                value={editBidServiceCurrency}
+                                onChange={(e) => setEditBidServiceCurrency(e.target.value as FreightChargeCurrency)}
+                                aria-label="Service amount currency"
+                              >
+                                <option value="IDR">IDR</option>
+                                <option value="USD">USD</option>
+                              </select>
+                            </div>
+                            <div className={styles.field}>
                               <span className={styles.fieldLabel} id={`edit-bid-quotation-expires-label-${bid.id}`}>
                                 Quotation expires (optional)
                               </span>
@@ -2952,7 +3015,12 @@ export function ShipmentDetail({ id }: { id: string }) {
                           <div className={styles.bidCardGrid}>
                             <div className={styles.field}>
                               <span className={styles.fieldLabel}>Service amount</span>
-                              <span className={styles.fieldValue}>{bid.service_amount != null ? formatDecimal(bid.service_amount) : "—"}</span>
+                              <span className={styles.fieldValue}>
+                                {formatFreightChargeLine(
+                                  bid.service_amount ?? undefined,
+                                  bid.service_amount_currency ?? "IDR"
+                                )}
+                              </span>
                             </div>
                             <div className={styles.field}>
                               <span className={styles.fieldLabel}>Quotation expires</span>
@@ -3631,10 +3699,24 @@ export function ShipmentDetail({ id }: { id: string }) {
               />
             ) : (
               <span className={styles.fieldValue}>
-                {formatDecimal(detail.incoterm_amount ?? undefined)}
+                {formatFreightChargeLine(detail.incoterm_amount, detail.incoterm_currency ?? "IDR")}
               </span>
             )}
           </div>
+          {isUpdatingShipment ? (
+            <div className={styles.field} data-status-field="incoterm_currency">
+              <span className={styles.fieldLabel}>Freight currency</span>
+              <select
+                className={styles.input}
+                value={editIncotermCurrency}
+                onChange={(e) => setEditIncotermCurrency(e.target.value as FreightChargeCurrency)}
+                aria-label="Freight charges currency"
+              >
+                <option value="IDR">IDR</option>
+                <option value="USD">USD</option>
+              </select>
+            </div>
+          ) : null}
           <div className={styles.field}>
             <span className={styles.fieldLabel}>Total Invoice amount</span>
             <span className={styles.fieldValue}>{formatRupiah(detail.total_items_amount)}</span>

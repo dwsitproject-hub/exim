@@ -1,6 +1,7 @@
 import type { Request } from "express";
 import type { ErrorField } from "../../../shared/response.js";
 import type { CreateShipmentBidDto } from "../dto/index.js";
+import { normalizeFreightChargeCurrency } from "../../../shared/freight-currency.js";
 
 function parseDateOnlyYmd(raw: string): string | null {
   const s = raw.trim();
@@ -42,6 +43,11 @@ export function validateCreateBidBody(
     const n = Number(body.service_amount);
     if (Number.isFinite(n) && n >= 0) data.service_amount = n;
   }
+  if (body?.service_amount_currency != null && String(body.service_amount_currency).trim() !== "") {
+    const cur = normalizeFreightChargeCurrency(body.service_amount_currency);
+    if (!cur) errors.push({ field: "service_amount_currency", message: "Must be USD or IDR" });
+    else data.service_amount_currency = cur;
+  }
   if (typeof body?.duration === "string") data.duration = body.duration.trim() || undefined;
   if (typeof body?.origin_port === "string") data.origin_port = body.origin_port.trim() || undefined;
   if (typeof body?.destination_port === "string") data.destination_port = body.destination_port.trim() || undefined;
@@ -50,6 +56,8 @@ export function validateCreateBidBody(
     const parsed = parseDateOnlyYmd(body.quotation_expires_at);
     if (parsed) data.quotation_expires_at = parsed;
   }
+
+  if (errors.length > 0) return { ok: false, errors };
 
   return { ok: true, data };
 }

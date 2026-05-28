@@ -119,6 +119,40 @@ export const config = {
     })(),
     saasApiBaseUrl: getEnvOptional("SAAS_PO_API_BASE_URL"),
   },
+  /** Coupa: `purchase_orders` → `import_purchase_order` (OAuth2 client credentials or static token). */
+  coupa: {
+    enabled: (getEnvOptional("COUPA_STAGING_INTEGRATION_ENABLED", "false") ?? "false") === "true",
+    baseUrl: (getEnvOptional("COUPA_BASE_URL", "") ?? "").replace(/\/+$/, ""),
+    /** Optional when using OAuth2 client credentials (COUPA_CLIENT_ID / COUPA_CLIENT_SECRET). */
+    accessToken: getEnvOptional("COUPA_API_ACCESS_TOKEN", "") ?? "",
+    clientId: getEnvOptional("COUPA_CLIENT_ID", "") ?? "",
+    clientSecret: getEnvOptional("COUPA_CLIENT_SECRET", "") ?? "",
+    /**
+     * OAuth2 token URL. If empty, dev uses `COUPA_BASE_URL` + `/oauth2/tokens` (confirm in Coupa API docs for your host).
+     */
+    oauthTokenUrl: getEnvOptional("COUPA_OAUTH_TOKEN_URL", "") ?? "",
+    oauthScope: getEnvOptional("COUPA_OAUTH_SCOPE", "") ?? "",
+    /**
+     * Full URL or path relative to COUPA_BASE_URL, e.g. /api/purchase_orders?status=issued
+     * (exact path depends on your Coupa tenant API version).
+     */
+    issuedListPathOrUrl: getEnvOptional("COUPA_ISSUED_POS_PATH", "/") ?? "/",
+    requestTimeoutMs: (() => {
+      const raw = getEnvOptional("COUPA_REQUEST_TIMEOUT_MS", "30000") ?? "30000";
+      const n = parseInt(raw, 10);
+      return Number.isNaN(n) ? 30000 : Math.max(5000, n);
+    })(),
+    ingestIntervalMs: (() => {
+      const raw = getEnvOptional("COUPA_INGEST_INTERVAL_MS", "300000") ?? "300000";
+      const n = parseInt(raw, 10);
+      return Number.isNaN(n) ? 5 * 60 * 1000 : Math.max(60000, n);
+    })(),
+    processorIntervalMs: (() => {
+      const raw = getEnvOptional("COUPA_PROCESSOR_INTERVAL_MS", "120000") ?? "120000";
+      const n = parseInt(raw, 10);
+      return Number.isNaN(n) ? 120_000 : Math.max(30_000, n);
+    })(),
+  },
   /** Registration: allow any email when true (e.g. development); otherwise only ALLOWED_EMAIL_DOMAIN. */
   auth: {
     allowAnyEmail: (getEnvOptional("ALLOW_ANY_EMAIL", "false") ?? "false").toLowerCase() === "true",

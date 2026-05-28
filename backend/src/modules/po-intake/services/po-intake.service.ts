@@ -150,6 +150,7 @@ async function buildDetail(
         qty > 0 && receivedQty > qty ? ((receivedQty - qty) / qty) * 100 : null;
       return {
         id: it.id,
+        import_purchase_order_id: it.import_purchase_order_id,
         line_number: it.line_number,
         item_description: it.item_description,
         qty: qtyN,

@@ -437,6 +437,9 @@ export function PoDetail({ id }: { id: string }) {
           {can(user, "UPDATE_PO_INTAKE") && poEditLockedByShipment && (
             <p className={styles.editLockedNote}>{PO_EDIT_BLOCKED_BY_SHIPMENT_MESSAGE}</p>
           )}
+          <Link href="/dashboard/po/new" className={styles.actionOutline}>
+            Create Purchase Order
+          </Link>
           {canTake && canClaimAndCreateShipment && (
             <Button
               type="button"
