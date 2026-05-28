@@ -91,7 +91,7 @@ export function ShippingInstructionDocument({
         <hr className={styles.rule} />
       </header>
 
-      <div className={styles.messrsTitleRow}>
+      <div className={styles.messrsTitleBlock}>
         <div className={styles.messrsBlock}>
           <p className={styles.messrsLabel}>MESSRS</p>
           <p className={styles.messrsAgency}>{dash(si.messrs)}</p>
@@ -102,7 +102,6 @@ export function ShippingInstructionDocument({
             No.: <span>{si.si_number?.trim() || "—"}</span>
           </p>
         </div>
-        <div aria-hidden />
       </div>
 
       <section className={styles.bodyGrid} aria-label="Shipping instruction details">

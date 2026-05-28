@@ -114,7 +114,7 @@ export function AgentList() {
   if (!allowed) {
     return (
       <section>
-        <PageHeader title="Master Agent" backHref="/" backLabel="Home" />
+        <PageHeader title="Master Agent" backHref="/admin/dashboard" backLabel="Dashboard" />
         <p className={styles.denied}>You do not have permission to manage agents.</p>
       </section>
     );
@@ -124,8 +124,8 @@ export function AgentList() {
     <section>
       <PageHeader
         title="Master Agent"
-        backHref="/"
-        backLabel="Home"
+        backHref="/admin/dashboard"
+        backLabel="Dashboard"
         subtitle="Manage forwarding agents used in export bulking Commercial Terms."
       />
 

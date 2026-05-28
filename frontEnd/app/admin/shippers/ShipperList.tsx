@@ -177,7 +177,7 @@ export function ShipperList() {
   if (!allowed) {
     return (
       <section>
-        <PageHeader title="Master Shipper" backHref="/" backLabel="Home" />
+        <PageHeader title="Master Shipper" backHref="/admin/dashboard" backLabel="Dashboard" />
         <p className={styles.denied}>You do not have permission to manage shippers.</p>
       </section>
     );
@@ -187,8 +187,8 @@ export function ShipperList() {
     <section>
       <PageHeader
         title="Master Shipper"
-        backHref="/"
-        backLabel="Home"
+        backHref="/admin/dashboard"
+        backLabel="Dashboard"
         subtitle="Manage shippers and their load ports."
       />
 

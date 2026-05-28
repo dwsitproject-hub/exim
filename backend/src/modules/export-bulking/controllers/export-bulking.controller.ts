@@ -298,7 +298,12 @@ export async function createPL(req: Request, res: Response, next: NextFunction):
 
 export async function updatePL(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const data = await service.updatePackingList(req.params.plId, req.body, userUuidFromRequest(req));
+    const data = await service.updatePackingList(
+      req.params.plId,
+      req.body,
+      userUuidFromRequest(req),
+      req.params.id,
+    );
     if (!data) {
       sendError(res, "Packing list not found", { statusCode: 404 });
       return;

@@ -7,7 +7,9 @@
   padding: var(--spacing-3, 16px) var(--spacing-4, 24px);
   margin: 0;
   background-color: var(--color-bg-lighter, var(--color-primitive-background-lighter, #fafafa));
-  transition: flex-basis var(--animation-duration-slow, 250ms) var(--animation-easing-default, ease-out);
+  transition:
+    flex-basis var(--animation-duration-slow, 250ms) var(--animation-easing-default, ease-out),
+    max-width var(--animation-duration-slow, 250ms) var(--animation-easing-default, ease-out);
 }
 
 @media (min-width: 768px) {
@@ -23,5 +25,15 @@
     margin-left: 0;
     padding-left: var(--spacing-5, 32px);
     padding-right: var(--spacing-5, 32px);
+  }
+}
+
+/* Reclaim horizontal space when the navigation sidebar is collapsed (desktop). */
+@media (min-width: 1024px) {
+  :global(.eos-sidebar-collapsed) .main {
+    max-width: none;
+    width: 100%;
+    flex: 1 1 auto;
+    padding: var(--spacing-4, 24px);
   }
 }

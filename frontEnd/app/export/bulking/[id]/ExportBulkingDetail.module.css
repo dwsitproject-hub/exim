@@ -19,7 +19,7 @@
 }
 
 .sidebarContent {
-  width: 272px;
+  width: 300px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -373,6 +373,16 @@
   display: none;
 }
 
+.sectionFlat {
+  margin-bottom: 0;
+}
+
+.sectionFlatActions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--spacing-2, 8px);
+}
+
 /* ── Nomination groups ── */
 
 .nominationGroup {
@@ -430,8 +440,23 @@
   min-width: 0;
 }
 
-.fieldGrid > * {
+/* Wider minimum — prevents date/range fields from squeezing into 3 columns */
+.fieldGridDates {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--spacing-3, 16px);
+  margin-bottom: var(--spacing-3, 16px);
   min-width: 0;
+}
+
+.fieldGrid > *,
+.fieldGridDates > * {
+  min-width: 0;
+}
+
+/* Laycan date-range spans 2 columns so the "from – to" display is never truncated */
+.fieldSpan2 {
+  grid-column: span 2;
 }
 
 .field {
@@ -446,6 +471,7 @@
 .fieldFullRow {
   grid-column: 1 / -1;
 }
+
 
 .fieldLabel {
   font-size: 12px;
@@ -506,26 +532,6 @@
   margin-bottom: var(--spacing-2, 8px);
 }
 
-.invoiceColDesc {
-  width: 25%;
-}
-
-.invoiceColPrice {
-  width: 10%;
-}
-
-.invoiceColTotal {
-  width: 9%;
-}
-
-.invoiceColContract {
-  width: 17.5%;
-}
-
-.invoiceColSo {
-  width: 17.5%;
-}
-
 .plColDesc {
   width: 32%;
 }
@@ -540,54 +546,6 @@
 
 .plColPacking {
   width: 19%;
-}
-
-.invoiceSoComboWrap {
-  width: 100%;
-  min-width: 0;
-}
-
-/* Combobox inside spreadsheet cells — override ComboboxSelect default chrome */
-.invoiceSoComboWrap input {
-  display: block;
-  width: 100%;
-  min-width: 0;
-  box-sizing: border-box;
-  font-size: 13px;
-  line-height: 1.35;
-  text-align: left;
-  padding: 7px 28px 7px 8px;
-  margin: 0;
-  border: 1px solid transparent;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  transition:
-    border-color var(--animation-duration-fast, 150ms),
-    background-color var(--animation-duration-fast, 150ms),
-    box-shadow var(--animation-duration-fast, 150ms);
-}
-
-.invoiceSoComboWrap input:not(:focus) {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.invoiceSoComboWrap input:focus {
-  outline: none;
-  border-color: var(--color-semantic-primary-default, #c43a31);
-  background: var(--color-primitive-background-white, #fff);
-  box-shadow: inset 0 0 0 1px rgba(196, 58, 49, 0.15);
-}
-
-.spreadsheetSectionLabel {
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--color-primitive-text-steel, #6b6b6b);
-  margin: 0 0 var(--spacing-2, 8px);
 }
 
 .fieldInput {
@@ -1002,6 +960,43 @@ select.fieldInput {
   white-space: nowrap;
 }
 
+.cargoRowConfirmInline {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  min-width: 120px;
+}
+
+.cargoRowConfirmMsg {
+  font-size: 11px;
+  font-weight: 500;
+  color: #dc2626;
+  white-space: nowrap;
+}
+
+.cargoDeleteConfirmBtn {
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  background: #dc2626;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.cargoDeleteConfirmBtn:hover:not(:disabled) {
+  background: #b91c1c;
+}
+
+.cargoDeleteConfirmBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .cargoRowRemove {
   display: inline-flex;
   align-items: center;
@@ -1152,6 +1147,23 @@ select.fieldInput {
   background: var(--color-primitive-background-white, #ffffff);
 }
 
+.siCargoRow {
+  margin-bottom: var(--spacing-3, 16px);
+}
+
+.siCargoRowDivider {
+  height: 1px;
+  background: var(--color-primitive-border-light, #e0e0e0);
+  margin: 0 0 var(--spacing-3, 16px);
+}
+
+.siCargoRowHeading {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+  margin: 0 0 var(--spacing-2, 8px);
+}
+
 .siCargoBlockTitle {
   font-size: 12px;
   font-weight: 700;
@@ -1233,6 +1245,204 @@ textarea.fieldInputReadonly:focus {
 .statusVoyageOps {
   background-color: #e8f5e9;
   color: #2e7d32;
+}
+
+.statusArrival {
+  background-color: #e8eaf6;
+  color: #283593;
+}
+
+.statusAtBerth {
+  background-color: #e0f2f1;
+  color: #00695c;
+}
+
+.statusLoading {
+  background-color: #fff3e0;
+  color: #e65100;
+}
+
+.statusNpe {
+  background-color: #fce4ec;
+  color: #ad1457;
+}
+
+.statusCaseOff {
+  background-color: #e8f5e9;
+  color: #1b5e20;
+}
+
+/* ── Stage Card (progressive disclosure) ── */
+
+.stageTimeline {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3, 16px);
+  margin-bottom: var(--spacing-5, 32px);
+}
+
+.stageCard {
+  border-radius: var(--borderRadius-md, 8px);
+  border: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  background: var(--color-primitive-background-white, #fff);
+  overflow: hidden;
+  transition: box-shadow 0.15s ease;
+}
+
+.stageCardActive {
+  border-color: var(--color-semantic-primary-default, #c43a31);
+  box-shadow: 0 0 0 2px rgba(196, 58, 49, 0.12);
+}
+
+.stageCardCompleted {
+  border-color: #c8e6c9;
+  background: #fafff9;
+}
+
+.stageCardUpcoming {
+  border-color: var(--color-primitive-border-light, #e0e0e0);
+  background: #fafafa;
+  opacity: 0.8;
+}
+
+.stageCardHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+}
+
+.stageCardCompleted .stageCardHeader,
+.stageCardUpcoming .stageCardHeader {
+  cursor: pointer;
+  user-select: none;
+}
+
+.stageCardCompleted .stageCardHeader:hover {
+  background: #f0fdf0;
+}
+
+.stageCardUpcoming .stageCardHeader:hover {
+  background: #f5f5f5;
+}
+
+.stageCardDot {
+  font-size: 18px;
+  line-height: 1;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  flex-shrink: 0;
+  width: 22px;
+  text-align: center;
+}
+
+.stageCardDotDone {
+  color: #16a34a;
+  font-size: 15px;
+}
+
+.stageCardDotActive {
+  color: var(--color-semantic-primary-default, #c43a31);
+}
+
+.stageCardTitleWrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.stageCardIcon {
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  display: flex;
+  align-items: center;
+}
+
+.stageCardActive .stageCardIcon {
+  color: var(--color-semantic-primary-default, #c43a31);
+}
+
+.stageCardCompleted .stageCardIcon {
+  color: #16a34a;
+}
+
+.stageCardTitle {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+  line-height: 1.2;
+}
+
+.stageCardUpcoming .stageCardTitle {
+  color: var(--color-primitive-text-steel, #6b6b6b);
+}
+
+.stageCardSummary {
+  font-size: 12px;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  font-weight: 400;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stageCardBadge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--borderRadius-full, 999px);
+  background: #f0f0f0;
+  color: #616161;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.stageCardBadgeActive {
+  background: rgba(196, 58, 49, 0.1);
+  color: var(--color-semantic-primary-default, #c43a31);
+}
+
+.stageCardBody {
+  padding: 0 16px 16px;
+  border-top: 1px solid var(--color-primitive-border-light, #e0e0e0);
+}
+
+.stageCardActive .stageCardBody {
+  border-top-color: rgba(196, 58, 49, 0.2);
+}
+
+.stageCardEditNote {
+  font-size: 12px;
+  color: #92400e;
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+  border-radius: var(--borderRadius-sm, 4px);
+  padding: 6px 10px;
+  margin: 12px 0 8px;
+}
+
+.stageCardUpcomingNote {
+  font-size: 12px;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  background: #f5f5f5;
+  border: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  border-radius: var(--borderRadius-sm, 4px);
+  padding: 6px 10px;
+  margin: 12px 0 8px;
+}
+
+.stageCardUpcoming .stageCardBody {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.stageCardAdvanceRow {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: var(--spacing-3, 16px);
+  border-top: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  margin-top: var(--spacing-2, 8px);
 }
 
 .docStatusBadge {
@@ -1432,4 +1642,476 @@ textarea.fieldInputReadonly:focus {
   text-transform: none;
   letter-spacing: normal;
   color: var(--color-primitive-text-steel, #6b6b6b);
+}
+
+/* ── Demurrage Simulation sidebar ── */
+
+.simSection {
+  margin-bottom: var(--spacing-2, 8px);
+}
+
+.simSectionLabel {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  margin-bottom: 10px;
+}
+
+.simFieldGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.simField {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.simLabel {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+}
+
+.simInput {
+  font-family: inherit;
+  font-size: 12px;
+  padding: 5px 7px;
+  border: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  border-radius: var(--borderRadius-sm, 6px);
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+  background: var(--color-primitive-background-white, #fff);
+  width: 100%;
+  box-sizing: border-box;
+  transition: border-color 150ms;
+}
+
+.simInput:focus {
+  outline: none;
+  border-color: var(--color-semantic-primary-default, #c43a31);
+  box-shadow: 0 0 0 2px rgba(196, 58, 49, 0.10);
+}
+
+/* Lookup (read-only) rows inside the Inputs section */
+.simLookupGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: var(--color-primitive-background-subtle, #f8f8f8);
+  border: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  border-radius: var(--borderRadius-sm, 6px);
+}
+
+.simLookupRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.simLookupLabel {
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  white-space: nowrap;
+}
+
+.simLookupValue {
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+  font-weight: 600;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.simDivider {
+  height: 1px;
+  background: var(--color-primitive-border-light, #e0e0e0);
+  margin: 12px 0;
+}
+
+.simRows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.simRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.simRowLabel {
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.simRowValue {
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+  text-align: right;
+  word-break: break-word;
+  font-variant-numeric: tabular-nums;
+}
+
+.simAmountBlock {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: var(--color-primitive-background-subtle, #f8f8f8);
+  border: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  border-radius: var(--borderRadius-sm, 6px);
+  padding: 10px 12px;
+}
+
+.simAmountLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  white-space: nowrap;
+}
+
+.simAmountValue {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* ── Actual Demurrage block (Case Off section) ── */
+
+.demToggleRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.demToggleLabel {
+  font-size: 12px;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  white-space: nowrap;
+}
+
+.demTogglePills {
+  display: flex;
+  gap: 4px;
+}
+
+.demTogglePill {
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 12px;
+  border-radius: 20px;
+  border: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  background: var(--color-primitive-background-white, #fff);
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  cursor: pointer;
+  transition: all 150ms;
+}
+
+.demTogglePill:hover {
+  border-color: var(--color-semantic-primary-default, #c43a31);
+  color: var(--color-semantic-primary-default, #c43a31);
+}
+
+.demTogglePillActive {
+  background: var(--color-semantic-primary-default, #c43a31);
+  border-color: var(--color-semantic-primary-default, #c43a31);
+  color: #fff;
+}
+
+.demTogglePillActive:hover {
+  color: #fff;
+}
+
+.demResultBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--color-primitive-background-subtle, #f8f8f8);
+  border: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  border-radius: var(--borderRadius-sm, 6px);
+  padding: 12px 14px;
+  margin-bottom: 16px;
+}
+
+.demResultRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.demResultLabel {
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  white-space: nowrap;
+}
+
+.demResultValue {
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.demResultRowTotal {
+  padding-top: 8px;
+  margin-top: 4px;
+  border-top: 1px solid var(--color-primitive-border-light, #e0e0e0);
+}
+
+.demResultLabelBold {
+  font-weight: 700;
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+  white-space: nowrap;
+}
+
+.demResultAmountValue {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--color-semantic-primary-default, #c43a31);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* ── Per-cargo quantity reconciliation table (Loading section) ── */
+
+.reconTableWrap {
+  width: 100%;
+  overflow-x: auto;
+  margin-bottom: var(--spacing-3, 16px);
+  border: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  border-radius: var(--borderRadius-md, 8px);
+  background: var(--color-primitive-background-white, #fff);
+}
+
+.reconTable {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.reconTable thead {
+  background: var(--color-primitive-background-lighter, #fafafa);
+  border-bottom: 1px solid var(--color-primitive-border-light, #e0e0e0);
+}
+
+.reconTable th {
+  padding: 8px 10px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  white-space: nowrap;
+}
+
+.reconTable tbody tr {
+  border-bottom: 1px solid var(--color-primitive-border-light, #e8e8e8);
+}
+
+.reconTable tbody tr:last-child {
+  border-bottom: none;
+}
+
+.reconTable td {
+  padding: 6px 8px;
+  vertical-align: middle;
+}
+
+.reconCargoCell {
+  min-width: 140px;
+}
+
+.reconCargoName {
+  display: block;
+  font-weight: 600;
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+}
+
+.reconCargoDesc {
+  display: block;
+  font-size: 11px;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  margin-top: 2px;
+  word-break: break-word;
+}
+
+.reconInput {
+  font-family: inherit;
+  font-size: 13px;
+  padding: 6px 8px;
+  border: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  border-radius: var(--borderRadius-sm, 6px);
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+  background: var(--color-primitive-background-white, #fff);
+  width: 100%;
+  min-width: 90px;
+  box-sizing: border-box;
+}
+
+.reconInput:focus {
+  outline: none;
+  border-color: var(--color-semantic-primary-default, #c43a31);
+  box-shadow: 0 0 0 2px rgba(196, 58, 49, 0.10);
+}
+
+.reconReadonly {
+  display: inline-block;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  padding: 6px 4px;
+  white-space: nowrap;
+}
+
+/* ── Widescreen layout when navigation sidebar is collapsed ── */
+
+@media (min-width: 1024px) {
+  :global(.eos-sidebar-collapsed) .page {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  :global(.eos-sidebar-collapsed) .pageLayout {
+    width: 100%;
+    align-items: stretch;
+    padding: 0 var(--spacing-4, 24px) var(--spacing-5, 32px);
+  }
+
+  :global(.eos-sidebar-collapsed) .mainContent {
+    flex: 1 1 auto;
+    width: 100%;
+    min-width: 0;
+  }
+
+  :global(.eos-sidebar-collapsed) .sidebarContent {
+    display: flex;
+    flex-direction: column;
+    width: 300px;
+    flex-shrink: 0;
+  }
+
+  :global(.eos-sidebar-collapsed) .sidebarCard {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  :global(.eos-sidebar-collapsed) .checklistWrap {
+    width: auto;
+    margin: 0 var(--spacing-4, 24px) var(--spacing-4, 24px);
+  }
+
+  :global(.eos-sidebar-collapsed) .checklistWrap > * {
+    width: 100%;
+  }
+
+  :global(.eos-sidebar-collapsed) .stepperWrap {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  :global(.eos-sidebar-collapsed) .overviewStrip {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  :global(.eos-sidebar-collapsed) .overviewStripMain {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: var(--spacing-3, 12px) var(--spacing-5, 32px);
+  }
+
+  :global(.eos-sidebar-collapsed) .overviewFactValue {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  :global(.eos-sidebar-collapsed) .overviewFactWide .overviewFactValue {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
+
+  :global(.eos-sidebar-collapsed) .fieldGrid {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  }
+
+  :global(.eos-sidebar-collapsed) .fieldGridDates {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  }
+
+  :global(.eos-sidebar-collapsed) .summaryRow {
+    width: 100%;
+  }
+
+  :global(.eos-sidebar-collapsed) .summaryValue {
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  :global(.eos-sidebar-collapsed) .stageCard,
+  :global(.eos-sidebar-collapsed) .tableWrap,
+  :global(.eos-sidebar-collapsed) .cargoTableWrap,
+  :global(.eos-sidebar-collapsed) .reconTableWrap {
+    width: 100%;
+  }
+
+  :global(.eos-sidebar-collapsed) .fieldInput,
+  :global(.eos-sidebar-collapsed) .cellInput {
+    width: 100%;
+    max-width: 100%;
+  }
+}
+
+@media (min-width: 1400px) {
+  :global(.eos-sidebar-collapsed) .overviewStripMain {
+    grid-template-columns: minmax(0, 2fr) repeat(4, minmax(0, 1fr)) minmax(0, 2fr);
+  }
+}
+
+/* ── View-only detail mode (?mode=view) ── */
+
+.readOnlyPage input,
+.readOnlyPage select,
+.readOnlyPage textarea {
+  pointer-events: none;
+  cursor: default;
+  background: var(--color-primitive-background-subtle, #f4f4f4) !important;
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+}
+
+.readOnlyPage .actions,
+.readOnlyPage .stageCardAdvanceRow,
+.readOnlyPage .stepperActions,
+.readOnlyPage .unsavedBanner,
+.readOnlyPage .cargoTableFooter,
+.readOnlyPage .cargoRowRemove,
+.readOnlyPage .btnDanger,
+.readOnlyPage .btnDangerSm,
+.readOnlyPage .milestoneToggleBtn,
+.readOnlyPage .siLineToolbar,
+.readOnlyPage .loadportConfirm,
+.readOnlyPage .siDocumentPreviewActions {
+  display: none;
 }

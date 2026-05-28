@@ -65,7 +65,7 @@ export class ShipperService {
     }
     const existing = await this.repo.findLoadportByName(shipperId, dto.name);
     if (existing) {
-      throw new AppError(`Load port "${dto.name.trim()}" already exists for this shipper`, 409);
+      return existing;
     }
     return this.repo.createLoadport(shipperId, dto);
   }

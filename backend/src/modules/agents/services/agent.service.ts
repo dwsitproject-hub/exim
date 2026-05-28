@@ -24,7 +24,7 @@ export class AgentService {
     }
     const existing = await this.repo.findAgentByName(dto.name);
     if (existing) {
-      throw new AppError(`Agent "${dto.name.trim()}" already exists`, 409);
+      return existing;
     }
     return this.repo.createAgent(dto);
   }

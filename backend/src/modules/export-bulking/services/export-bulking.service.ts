@@ -11,6 +11,7 @@ import {
   type ShippingInstructionDto,
   type InvoiceDto,
   type PackingListDto,
+  type PackingListLineDto,
 } from "../dto/index.js";
 import { getMissingRequirementLabels } from "../utils/export-status-requirements.js";
 
@@ -83,7 +84,7 @@ export class ExportBulkingService {
       laytime_rate_mtph: shipment.laytime_rate_mtph,
       demurrage_rate_pdpr: shipment.demurrage_rate_pdpr,
       cargo_count: shipment.cargo_count,
-      cargo_lines: cargo_lines as { id: string }[],
+      cargo_lines: cargo_lines as { id: string; quantity?: number | null }[],
       shipping_instructions: shipping_instructions as {
         messrs?: string | null;
         bill_of_lading_option?: string | null;
@@ -99,7 +100,7 @@ export class ExportBulkingService {
       throw new AppError(`Cannot advance status: ${missing.join(", ")}`, 409);
     }
 
-    return this.repo.updateStatus(id, newStatus, userId);
+    return this.repo.updateStatus(id, newStatus, userId, current);
   }
 
   async softDelete(id: string): Promise<ExportBulkingShipmentRow | null> {
@@ -202,15 +203,62 @@ export class ExportBulkingService {
 
   /* ───── packing lists ───── */
 
+  private async assertPackingListLinesValid(
+    shipmentId: string,
+    lines: PackingListLineDto[] | undefined,
+    excludePackingListId?: string,
+  ): Promise<void> {
+    if (lines === undefined) return;
+    if (lines.length > 1) {
+      throw new AppError("A packing list can only have one cargo line", 400);
+    }
+    if (lines.length === 0) return;
+
+    const cargoId = lines[0].cargo_line_id?.trim();
+    if (!cargoId) {
+      throw new AppError("Cargo line is required for packing list", 400);
+    }
+
+    const cargoLines = (await this.repo.listCargoLines(shipmentId)) as { id: string }[];
+    if (!cargoLines.some((c) => c.id === cargoId)) {
+      throw new AppError("Cargo line does not belong to this shipment", 400);
+    }
+
+    const packingLists = (await this.repo.listPackingLists(shipmentId)) as {
+      id: string;
+      lines: { cargo_line_id?: string | null }[];
+    }[];
+    for (const pl of packingLists) {
+      if (excludePackingListId && pl.id === excludePackingListId) continue;
+      for (const line of pl.lines) {
+        if (line.cargo_line_id === cargoId) {
+          throw new AppError("This cargo already has a packing list", 400);
+        }
+      }
+    }
+  }
+
   async listPackingLists(shipmentId: string): Promise<unknown[]> {
     return this.repo.listPackingLists(shipmentId);
   }
 
   async createPackingList(shipmentId: string, dto: PackingListDto, userId?: string | null): Promise<unknown> {
+    await this.assertPackingListLinesValid(shipmentId, dto.lines);
     return this.repo.createPackingList(shipmentId, dto, userId);
   }
 
-  async updatePackingList(id: string, dto: PackingListDto, actingUserId?: string | null): Promise<unknown> {
+  async updatePackingList(
+    id: string,
+    dto: PackingListDto,
+    actingUserId?: string | null,
+    shipmentId?: string,
+  ): Promise<unknown> {
+    if (dto.lines !== undefined) {
+      if (!shipmentId) {
+        throw new AppError("Shipment id is required to update packing list lines", 400);
+      }
+      await this.assertPackingListLinesValid(shipmentId, dto.lines, id);
+    }
     return this.repo.updatePackingList(id, dto, actingUserId);
   }
 

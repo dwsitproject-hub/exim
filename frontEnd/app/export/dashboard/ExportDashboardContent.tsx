@@ -53,15 +53,14 @@ import styles from "./ExportDashboardContent.module.css";
 
 
 const STATUS_PILL_CLASS: Record<string, string> = {
-
   SHIPMENT_PLANNING: "#52525b",
-
   NOMINATION: "#1d4ed8",
-
   SI_RECEIVE: "#92400e",
-
-  VOYAGE_OPERATIONS: "#15803d",
-
+  ARRIVAL: "#283593",
+  AT_BERTH: "#00695c",
+  LOADING: "#e65100",
+  NPE: "#ad1457",
+  CASE_OFF: "#1b5e20",
 };
 
 
@@ -194,7 +193,7 @@ export function ExportDashboardContent() {
 
 
 
-  const voyageCount = statusCounts.VOYAGE_OPERATIONS ?? 0;
+  const voyageCount = (statusCounts.ARRIVAL ?? 0) + (statusCounts.AT_BERTH ?? 0) + (statusCounts.LOADING ?? 0) + (statusCounts.NPE ?? 0) + (statusCounts.CASE_OFF ?? 0);
 
 
 
@@ -310,11 +309,11 @@ export function ExportDashboardContent() {
 
               <StatsCard
 
-                label="Voyage / port ops"
+                label="Port operations"
 
                 value={voyageCount}
 
-                href="/export/bulking?view=operations&statuses=VOYAGE_OPERATIONS"
+                href="/export/bulking?view=operations&statuses=ARRIVAL,AT_BERTH,LOADING,NPE,CASE_OFF"
 
                 icon={<IconCheck />}
 

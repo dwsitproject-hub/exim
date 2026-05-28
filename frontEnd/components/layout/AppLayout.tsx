@@ -39,7 +39,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const toggleSidebarCollapsed = useCallback(() => setSidebarCollapsed((c) => !c), []);
 
   return (
-    <div className={styles.wrapper}>
+    <div
+      className={`${styles.wrapper}${sidebarCollapsed ? " eos-sidebar-collapsed" : ""}`}
+    >
       <Header onMenuClick={openMenu} />
       <div className={styles.body}>
         <Sidebar

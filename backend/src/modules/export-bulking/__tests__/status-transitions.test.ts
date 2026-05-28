@@ -67,14 +67,18 @@ function baseShipment(overrides: Partial<ExportBulkingForStatusValidation> = {})
 
 console.log("Export Bulking — Status transition tests\n");
 
-assert(EXPORT_BULKING_STATUSES.length === 4, "4 statuses defined");
+assert(EXPORT_BULKING_STATUSES.length === 8, "8 statuses defined");
 assert(EXPORT_BULKING_STATUSES[0] === "SHIPMENT_PLANNING", "first status is SHIPMENT_PLANNING");
-assert(EXPORT_BULKING_STATUSES[3] === "VOYAGE_OPERATIONS", "last status is VOYAGE_OPERATIONS");
+assert(EXPORT_BULKING_STATUSES[7] === "CASE_OFF", "last status is CASE_OFF");
 
 assert(STATUS_TRANSITIONS.SHIPMENT_PLANNING === "NOMINATION", "SHIPMENT_PLANNING -> NOMINATION");
 assert(STATUS_TRANSITIONS.NOMINATION === "SI_RECEIVE", "NOMINATION -> SI_RECEIVE");
-assert(STATUS_TRANSITIONS.SI_RECEIVE === "VOYAGE_OPERATIONS", "SI_RECEIVE -> VOYAGE_OPERATIONS");
-assert(STATUS_TRANSITIONS.VOYAGE_OPERATIONS === null, "VOYAGE_OPERATIONS is terminal");
+assert(STATUS_TRANSITIONS.SI_RECEIVE === "ARRIVAL", "SI_RECEIVE -> ARRIVAL");
+assert(STATUS_TRANSITIONS.ARRIVAL === "AT_BERTH", "ARRIVAL -> AT_BERTH");
+assert(STATUS_TRANSITIONS.AT_BERTH === "LOADING", "AT_BERTH -> LOADING");
+assert(STATUS_TRANSITIONS.LOADING === "NPE", "LOADING -> NPE");
+assert(STATUS_TRANSITIONS.NPE === "CASE_OFF", "NPE -> CASE_OFF");
+assert(STATUS_TRANSITIONS.CASE_OFF === null, "CASE_OFF is terminal");
 
 for (const status of EXPORT_BULKING_STATUSES) {
   assert(status in STATUS_TRANSITIONS, `STATUS_TRANSITIONS has entry for ${status}`);
@@ -97,6 +101,12 @@ function validateTransition(current: string, next: string): boolean {
 assert(validateTransition("SHIPMENT_PLANNING", "NOMINATION") === true, "validate: SHIPMENT_PLANNING -> NOMINATION allowed");
 assert(validateTransition("SHIPMENT_PLANNING", "SI_RECEIVE") === false, "validate: SHIPMENT_PLANNING -> SI_RECEIVE blocked");
 assert(validateTransition("NOMINATION", "SHIPMENT_PLANNING") === false, "validate: backward NOMINATION -> SHIPMENT_PLANNING blocked");
+assert(validateTransition("SI_RECEIVE", "ARRIVAL") === true, "validate: SI_RECEIVE -> ARRIVAL allowed");
+assert(validateTransition("ARRIVAL", "AT_BERTH") === true, "validate: ARRIVAL -> AT_BERTH allowed");
+assert(validateTransition("AT_BERTH", "LOADING") === true, "validate: AT_BERTH -> LOADING allowed");
+assert(validateTransition("LOADING", "NPE") === true, "validate: LOADING -> NPE allowed");
+assert(validateTransition("NPE", "CASE_OFF") === true, "validate: NPE -> CASE_OFF allowed");
+assert(validateTransition("CASE_OFF", "NOMINATION") === false, "validate: CASE_OFF -> NOMINATION blocked");
 
 console.log("\nAdvance requirements — SHIPMENT_PLANNING -> NOMINATION");
 
@@ -109,6 +119,15 @@ assert(
 assert(
   getMissingRequirementsForAdvance(baseShipment({ total_quantity: null })).includes("total_quantity"),
   "planning blocked without total quantity",
+);
+assert(
+  getMissingRequirementsForAdvance(
+    baseShipment({
+      total_quantity: null,
+      cargo_lines: [{ id: "cargo-1", quantity: 5000 }],
+    }),
+  ).length === 0,
+  "planning complete when total quantity comes from cargo line quantities",
 );
 assert(
   getMissingRequirementsForAdvance(baseShipment({ cargo_count: 0 })).includes("has_cargo_lines"),
@@ -183,7 +202,7 @@ assert(
   "nomination labels include Laycan",
 );
 
-console.log("\nAdvance requirements — SI_RECEIVE -> VOYAGE_OPERATIONS");
+console.log("\nAdvance requirements — SI_RECEIVE -> ARRIVAL");
 
 const siReady = baseShipment({
   current_status: "SI_RECEIVE",
@@ -220,41 +239,58 @@ assert(
   "SI receive blocked when cargo lines / B/L split missing",
 );
 
-console.log("\nVoyage completion requirements — VOYAGE_OPERATIONS");
-
-const voyageReady = baseShipment({
-  current_status: "VOYAGE_OPERATIONS",
-  eta: "2024-05-20",
-  ata: "2024-05-21",
-  etb: "2024-05-22",
-  atb: "2024-05-23",
-  laycan_from: "2024-05-15",
-  laycan_to: "2024-05-20",
-  commence_loading: "2024-05-23T08:00:00Z",
-  etc: "2024-05-24",
-  atc: "2024-05-25",
-  td: "2024-05-26",
-});
-
-assert(getMissingRequirementsForAdvance(voyageReady).length === 0, "voyage complete with all milestone fields");
+console.log("\nAdvance requirements — ARRIVAL -> AT_BERTH");
 assert(
-  getMissingRequirementsForAdvance(baseShipment({ current_status: "VOYAGE_OPERATIONS", eta: "2024-05-20" })).includes("ata"),
-  "voyage completion blocked without ATA",
+  getMissingRequirementsForAdvance(baseShipment({ current_status: "ARRIVAL" })).includes("ata"),
+  "ARRIVAL blocked without ATA",
+);
+assert(
+  getMissingRequirementsForAdvance(baseShipment({ current_status: "ARRIVAL", ata: "2024-05-21", etb: "2024-05-22" })).length === 0,
+  "ARRIVAL complete with ATA and ETB",
+);
+
+console.log("\nAdvance requirements — AT_BERTH -> LOADING");
+assert(
+  getMissingRequirementsForAdvance(baseShipment({ current_status: "AT_BERTH" })).includes("atb"),
+  "AT_BERTH blocked without ATB",
+);
+assert(
+  getMissingRequirementsForAdvance(baseShipment({ current_status: "AT_BERTH", atb: "2024-05-23" })).length === 0,
+  "AT_BERTH complete with ATB",
+);
+
+console.log("\nAdvance requirements — LOADING -> NPE");
+assert(
+  getMissingRequirementsForAdvance(baseShipment({ current_status: "LOADING" })).includes("commence_loading"),
+  "LOADING blocked without commence_loading",
 );
 assert(
   getMissingRequirementsForAdvance(baseShipment({
-    current_status: "VOYAGE_OPERATIONS",
-    eta: "2024-05-20",
-    ata: "2024-05-21",
-    etb: "2024-05-22",
-    atb: "2024-05-23",
-    laycan_from: "2024-05-15",
-    laycan_to: "2024-05-20",
+    current_status: "LOADING",
     commence_loading: "2024-05-23T08:00:00Z",
     etc: "2024-05-24",
-    atc: "2024-05-25",
-  })).includes("td"),
-  "voyage completion blocked without time of departure",
+  })).length === 0,
+  "LOADING complete with commence_loading and ETC",
+);
+
+console.log("\nAdvance requirements — NPE -> CASE_OFF");
+assert(
+  getMissingRequirementsForAdvance(baseShipment({ current_status: "NPE" })).includes("atc"),
+  "NPE blocked without ATC",
+);
+assert(
+  getMissingRequirementsForAdvance(baseShipment({ current_status: "NPE", atc: "2024-05-25" })).length === 0,
+  "NPE complete with ATC",
+);
+
+console.log("\nCase Off completion requirements — CASE_OFF (terminal)");
+assert(
+  getMissingRequirementsForAdvance(baseShipment({ current_status: "CASE_OFF" })).includes("td"),
+  "CASE_OFF blocked without TD",
+);
+assert(
+  getMissingRequirementsForAdvance(baseShipment({ current_status: "CASE_OFF", td: "2024-05-26" })).length === 0,
+  "CASE_OFF complete with TD",
 );
 
 console.log(`\nResults: ${passed} passed, ${failed} failed`);

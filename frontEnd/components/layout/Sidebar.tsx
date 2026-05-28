@@ -48,6 +48,7 @@ const EXPORT_NAV: NavItem[] = [
 ];
 
 const ADMIN_NAV: NavItem[] = [
+  { href: "/admin/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/admin/users", label: "User management", icon: Users },
   { href: "/admin/shippers", label: "Master Shipper", icon: Anchor },
   { href: "/admin/agents", label: "Master Agent", icon: Briefcase },
@@ -135,7 +136,7 @@ export function Sidebar({
       ? "/import/dashboard"
       : section === "export"
         ? "/export/dashboard"
-        : "/admin/users";
+        : "/admin/dashboard";
 
   return (
     <aside className={asideClass} aria-label="Main navigation">

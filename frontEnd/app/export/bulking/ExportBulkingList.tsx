@@ -12,7 +12,7 @@ import {
 } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { RotateCw, Plus, Check, Search, CalendarRange, ChevronRight, ChevronDown } from "lucide-react";
+import { RotateCw, Plus, Check, Search, CalendarRange, ChevronRight, ChevronDown, Pencil, Eye } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import {
   useTableColumnVisibility,
@@ -58,6 +58,7 @@ import {
   type BulkingExpandDocsData,
 } from "./ExportBulkingListExpandDocs";
 import { isApiError } from "@/types/api";
+import { equalsIgnoreCase, findMatchingOption } from "@/lib/string-match";
 import type { ApiSuccess } from "@/types/api";
 import type {
   ExportBulkingListItem,
@@ -71,7 +72,7 @@ const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 25;
 const BACKLOG_FETCH_LIMIT = 100;
 
-const TABLE_COLUMNS_KEY = "eos.export.bulkingGrid.tableColumns.v8";
+const TABLE_COLUMNS_KEY = "eos.export.bulkingGrid.tableColumns.v9";
 
 /* ────────── column metadata ────────── */
 
@@ -97,6 +98,7 @@ const BASE_COLUMNS: GridColumnDef[] = [
   { id: "si_no", label: "SI No.", width: 120, multiValue: true, defaultVisible: false },
   { id: "invoice_no", label: "Invoice No.", width: 128, multiValue: true, defaultVisible: false },
   { id: "pl_no", label: "PL No.", width: 120, multiValue: true, defaultVisible: false },
+  { id: "_actions", label: "", locked: true, width: 72 },
 ];
 
 function renderMultiValueTags(values: string[] | null | undefined): ReactNode {
@@ -171,16 +173,15 @@ function formatShortDate(iso: string | null | undefined): string {
 
 function statusPillClass(status: string | null | undefined): string {
   switch (status) {
-    case "SHIPMENT_PLANNING":
-      return styles.statusPlanning;
-    case "NOMINATION":
-      return styles.statusNomination;
-    case "SI_RECEIVE":
-      return styles.statusSiReceive;
-    case "VOYAGE_OPERATIONS":
-      return styles.statusVoyageOps;
-    default:
-      return styles.statusPlanning;
+    case "SHIPMENT_PLANNING": return styles.statusPlanning;
+    case "NOMINATION": return styles.statusNomination;
+    case "SI_RECEIVE": return styles.statusSiReceive;
+    case "ARRIVAL": return styles.statusArrival;
+    case "AT_BERTH": return styles.statusAtBerth;
+    case "LOADING": return styles.statusLoading;
+    case "NPE": return styles.statusNpe;
+    case "CASE_OFF": return styles.statusCaseOff;
+    default: return styles.statusPlanning;
   }
 }
 
@@ -189,7 +190,11 @@ function shortStatusLabel(raw: string): string {
     case "SHIPMENT_PLANNING": return "Planning";
     case "NOMINATION": return "Nomination";
     case "SI_RECEIVE": return "SI Recv";
-    case "VOYAGE_OPERATIONS": return "Voyage";
+    case "ARRIVAL": return "Arrival";
+    case "AT_BERTH": return "At Berth";
+    case "LOADING": return "Loading";
+    case "NPE": return "Pre-ship";
+    case "CASE_OFF": return "Case Off";
     default: return formatExportBulkingStatus(raw);
   }
 }
@@ -500,8 +505,9 @@ export function ExportBulkingList() {
 
   /* ── navigation & interaction handlers ── */
 
-  function navigateToDetail(id: string) {
-    router.push(`/export/bulking/${id}`);
+  function navigateToDetail(id: string, mode: "view" | "edit" = "edit") {
+    const suffix = mode === "view" ? "?mode=view" : "";
+    router.push(`/export/bulking/${id}${suffix}`);
   }
 
   async function loadRowExpandedData(rowId: string) {
@@ -560,6 +566,7 @@ export function ExportBulkingList() {
   /* ── inline editing ── */
 
   function startEditing(rowIdx: number, colIdx: number) {
+    if (!canEditCargo) return;
     const col = visibleColumns[colIdx] as GridColumnDef;
     if (!col?.editable) return;
     const row = displayItems[rowIdx];
@@ -615,7 +622,13 @@ export function ExportBulkingList() {
       patchPayload = { [col.dbField]: num };
     } else {
       const originalValue = getCellValue(row, col.id);
-      if (valueToSave === originalValue.trim()) {
+      if (col.id === "loadport") {
+        valueToSave = findMatchingOption(inlineLoadportOptions, valueToSave) ?? valueToSave;
+        if (equalsIgnoreCase(valueToSave, originalValue)) {
+          setEditingCell(null);
+          return;
+        }
+      } else if (valueToSave === originalValue.trim()) {
         setEditingCell(null);
         return;
       }
@@ -752,21 +765,21 @@ export function ExportBulkingList() {
   function handleCellClick(rowIdx: number, colIdx: number, e: React.MouseEvent) {
     e.stopPropagation();
     const col = visibleColumns[colIdx] as GridColumnDef;
-    if (col?.id === "_expand") return;
+    if (col?.id === "_expand" || col?.id === "_actions") return;
     if (col?.id === "shipment_no" || col?.id === "progress") {
       const row = displayItems[rowIdx];
-      if (row) navigateToDetail(row.id);
+      if (row) navigateToDetail(row.id, canEditCargo ? "edit" : "view");
       return;
     }
 
-    if (col?.editable) {
+    if (col?.editable && canEditCargo) {
       // If already editing this exact cell, do nothing — don't steal focus from combobox
       if (editingCell?.row === rowIdx && editingCell?.col === colIdx) return;
       // Single-click starts editing immediately
       startEditing(rowIdx, colIdx);
     } else {
       const row = displayItems[rowIdx];
-      if (row) navigateToDetail(row.id);
+      if (row) navigateToDetail(row.id, "view");
     }
   }
 
@@ -790,11 +803,18 @@ export function ExportBulkingList() {
         const shipper = row.shipper ?? "";
         const match = shipperList.find((s) => s.name === shipper);
         if (!match || !accessToken) return false;
-        // Store what needs to be created; the inline confirm banner handles the API call
+        const canonical = findMatchingOption(inlineLoadportOptions, name);
+        if (canonical) {
+          setEditValue(canonical);
+          return true;
+        }
         inlineLpResolveRef.current = async (ok: boolean) => {
           if (ok) {
             const res = await createShipperLoadport(match.id, { name }, accessToken);
             if (!isApiError(res)) {
+              const created = (res as ApiSuccess<ShipperLoadport>).data;
+              const canonicalName = created?.name ?? findMatchingOption(inlineLoadportOptions, name) ?? name;
+              setEditValue(canonicalName);
               const refreshRes = await listShipperLoadports(match.id, accessToken);
               if (!isApiError(refreshRes)) {
                 setInlineLoadportOptions((refreshRes as ApiSuccess<ShipperLoadport[]>).data?.map((lp) => lp.name) ?? []);
@@ -812,7 +832,10 @@ export function ExportBulkingList() {
         <ComboboxSelectCreatable
           options={inlineLoadportOptions}
           value={inlinePendingLp?.name ?? editValue}
-          onChange={(v) => setEditValue(v)}
+          onChange={(v) => {
+            const canonical = findMatchingOption(inlineLoadportOptions, v) ?? v;
+            setEditValue(canonical);
+          }}
           onCreateOption={handleCreateLoadport}
           placeholder="Select load port…"
           externallyManaged={!!inlinePendingLp}
@@ -848,7 +871,8 @@ export function ExportBulkingList() {
   function cellClassName(rowIdx: number, colIdx: number, col: GridColumnDef, row: ExportBulkingListItem): string {
     const parts: string[] = [];
     if (col.id === "_expand") parts.push(styles.expandCol);
-    if (col.editable) parts.push(styles.editableCell);
+    if (col.id === "_actions") parts.push(styles.actionsCol);
+    if (col.editable && canEditCargo) parts.push(styles.editableCell);
     if (activeCell?.row === rowIdx && activeCell?.col === colIdx && !editingCell) parts.push(styles.cellActive);
 
     const cellKey = `${row.id}:${col.id}`;
@@ -883,7 +907,7 @@ export function ExportBulkingList() {
       case "shipment_no":
         return (
           <Link
-            href={`/export/bulking/${row.id}`}
+            href={canEditCargo ? `/export/bulking/${row.id}` : `/export/bulking/${row.id}?mode=view`}
             className={`${styles.shipmentNoCell} ${styles.cellLink}`}
             onClick={(e) => e.stopPropagation()}
           >
@@ -953,6 +977,37 @@ export function ExportBulkingList() {
         return renderMultiValueTags(row.invoice_numbers);
       case "pl_no":
         return renderMultiValueTags(row.pl_numbers);
+      case "_actions":
+        return (
+          <div className={styles.rowActions}>
+            <button
+              type="button"
+              className={styles.rowActionBtn}
+              title="View shipment"
+              aria-label={`View ${row.shipment_no || "shipment"}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                navigateToDetail(row.id, "view");
+              }}
+            >
+              <Eye size={15} strokeWidth={2} aria-hidden />
+            </button>
+            {canEditCargo && (
+              <button
+                type="button"
+                className={styles.rowActionBtn}
+                title="Edit shipment"
+                aria-label={`Edit ${row.shipment_no || "shipment"}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigateToDetail(row.id, "edit");
+                }}
+              >
+                <Pencil size={14} strokeWidth={2} aria-hidden />
+              </button>
+            )}
+          </div>
+        );
       default:
         return <span className={styles.cellEmpty}>—</span>;
     }
@@ -1180,7 +1235,7 @@ export function ExportBulkingList() {
                           : undefined
                       }
                     >
-                      {col.id === "_expand" ? (
+                      {col.id === "_expand" || col.id === "_actions" ? (
                         <span className={styles.headerExpandSpacer} aria-hidden />
                       ) : (
                       <div className={styles.headerCellInner}>
@@ -1342,10 +1397,15 @@ function CreateShipmentModal({
   const handleCreateLoadport = useCallback(
     (name: string): boolean => {
       if (!selectedShipperId || !accessToken) return false;
+      const canonical = findMatchingOption(loadportOptions, name);
+      if (canonical) {
+        setLoadport(canonical);
+        return true;
+      }
       setPendingLoadportName(name);
-      return false; // tell combobox: don't commit yet, parent will handle
+      return false;
     },
-    [selectedShipperId, accessToken],
+    [selectedShipperId, accessToken, loadportOptions],
   );
 
   const confirmCreateLoadport = useCallback(async () => {
@@ -1353,14 +1413,16 @@ function CreateShipmentModal({
     const res = await createShipperLoadport(selectedShipperId, { name: pendingLoadportName }, accessToken);
     const ok = !isApiError(res);
     if (ok) {
+      const created = (res as ApiSuccess<ShipperLoadport>).data;
+      const canonicalName = created?.name ?? findMatchingOption(loadportOptions, pendingLoadportName) ?? pendingLoadportName;
       const refreshRes = await listShipperLoadports(selectedShipperId, accessToken);
       if (!isApiError(refreshRes)) {
         setLoadportOptions((refreshRes as ApiSuccess<ShipperLoadport[]>).data?.map((lp) => lp.name) ?? []);
       }
-      setLoadport(pendingLoadportName);
+      setLoadport(canonicalName);
     }
     setPendingLoadportName(null);
-  }, [pendingLoadportName, selectedShipperId, accessToken]);
+  }, [pendingLoadportName, selectedShipperId, accessToken, loadportOptions]);
 
   const cancelCreateLoadport = useCallback(() => {
     setPendingLoadportName(null);
@@ -1403,7 +1465,7 @@ function CreateShipmentModal({
       vessel_name: vesselName.trim(),
       voyage_number: voyageNumber.trim(),
       shipper: shipperName.trim(),
-      loadport_name: loadport.trim(),
+      loadport_name: findMatchingOption(loadportOptions, loadport.trim()) ?? loadport.trim(),
       total_quantity: qty,
     });
   }
@@ -1425,21 +1487,6 @@ function CreateShipmentModal({
       }
     >
       <form id="create-shipment-form" onSubmit={handleSubmit} className={styles.createForm}>
-
-        {/* Progress context */}
-        <div className={styles.formProgress}>
-          <div className={styles.formProgressMeta}>
-            <span className={styles.formProgressStep}>Step 1 of 1 — Basic Information</span>
-            <div className={styles.formProgressDots}>
-              {[0, 1, 2, 3].map((i) => (
-                <span key={i} className={`${styles.formProgressDot} ${i === 0 ? styles.formProgressDotActive : ""}`} />
-              ))}
-            </div>
-          </div>
-          <p className={styles.formProgressHint}>
-            After creating, you&apos;ll be taken to the shipment detail to fill in dates, cargo lines, and documents.
-          </p>
-        </div>
 
         <div className={styles.formField}>
           <label className={`${styles.formLabel} ${styles.formLabelRequired}`}>Vessel name</label>
@@ -1480,7 +1527,11 @@ function CreateShipmentModal({
           <ComboboxSelectCreatable
             options={loadportOptions}
             value={pendingLoadportName ?? loadport}
-            onChange={(v) => { setLoadport(v); if (fieldErrors.loadport_name) setFieldErrors((p) => { const n = { ...p }; delete n.loadport_name; return n; }); }}
+            onChange={(v) => {
+              const canonical = findMatchingOption(loadportOptions, v) ?? v;
+              setLoadport(canonical);
+              if (fieldErrors.loadport_name) setFieldErrors((p) => { const n = { ...p }; delete n.loadport_name; return n; });
+            }}
             onCreateOption={handleCreateLoadport}
             placeholder={selectedShipperId ? "Select or type to create…" : "Select a shipper first…"}
             disabled={!selectedShipperId}

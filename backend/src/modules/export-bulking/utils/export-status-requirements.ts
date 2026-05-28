@@ -40,13 +40,31 @@ export type ExportBulkingForStatusValidation = {
   commence_loading?: string | null;
   etc?: string | null;
   atc?: string | null;
+  hose_off?: string | null;
+  bl_figure?: number | null;
+  ship_figure?: number | null;
+  npe_date?: string | null;
   td?: string | null;
   laytime_rate_mtph: number | null;
   demurrage_rate_pdpr: number | null;
   cargo_count?: number;
-  cargo_lines?: { id: string }[];
+  cargo_lines?: { id: string; quantity?: number | null }[];
   shipping_instructions?: SiForRequirements[];
 };
+
+function resolveEffectiveTotalQuantity(data: ExportBulkingForStatusValidation): number | null {
+  if (data.total_quantity != null && !Number.isNaN(Number(data.total_quantity))) {
+    const n = Number(data.total_quantity);
+    if (n > 0) return n;
+  }
+  const lines = data.cargo_lines ?? [];
+  if (lines.length === 0) return null;
+  const sum = lines.reduce((acc, line) => {
+    const q = line.quantity != null ? Number(line.quantity) : 0;
+    return acc + (Number.isNaN(q) ? 0 : q);
+  }, 0);
+  return sum > 0 ? sum : null;
+}
 
 export const EXPORT_STATUS_FIELD_LABELS: Record<string, string> = {
   total_quantity: "Total quantity (MT)",
@@ -75,6 +93,10 @@ export const EXPORT_STATUS_FIELD_LABELS: Record<string, string> = {
   commence_loading: "Commence loading",
   etc: "ETC (estimated completion)",
   atc: "ATC (actual completion)",
+  hose_off: "Hose off",
+  bl_figure: "B/L figure",
+  ship_figure: "Ship figure",
+  npe_date: "NPE date",
   td: "Time of departure",
 };
 
@@ -116,17 +138,11 @@ const REQUIREMENTS_BEFORE_ADVANCE: Record<ExportBulkingStatus, string[]> = {
     ...SI_HEADER_FIELD_KEYS,
     "si_cargo_lines",
   ],
-  VOYAGE_OPERATIONS: [
-    "eta",
-    "ata",
-    "etb",
-    "atb",
-    "laycan",
-    "commence_loading",
-    "etc",
-    "atc",
-    "td",
-  ],
+  ARRIVAL: ["ata", "etb"],
+  AT_BERTH: ["atb"],
+  LOADING: ["commence_loading", "etc"],
+  NPE: ["npe_date"],
+  CASE_OFF: ["td"],
 };
 
 function hasCargoLines(data: ExportBulkingForStatusValidation): boolean {
@@ -158,8 +174,10 @@ function fieldSatisfied(key: string, data: ExportBulkingForStatusValidation): bo
   switch (key) {
     case "loadport_name":
       return Boolean(data.loadport_name?.trim());
-    case "total_quantity":
-      return data.total_quantity != null && Number(data.total_quantity) > 0;
+    case "total_quantity": {
+      const total = resolveEffectiveTotalQuantity(data);
+      return total != null && total > 0;
+    }
     case "has_cargo_lines":
       return hasCargoLines(data);
     case "received_nomination":
@@ -197,6 +215,8 @@ function fieldSatisfied(key: string, data: ExportBulkingForStatusValidation): bo
       return Boolean(data.etc);
     case "atc":
       return Boolean(data.atc);
+    case "npe_date":
+      return Boolean(data.npe_date);
     case "td":
       return Boolean(data.td);
     default:

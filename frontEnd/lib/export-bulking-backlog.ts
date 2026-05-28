@@ -33,6 +33,7 @@ export function listItemToCompletionInput(row: ExportBulkingListItem): ExportCom
     total_quantity: row.total_quantity,
     received_nomination: row.received_nomination,
     eta: row.eta,
+    ata: row.ata,
     td: row.td,
     cargo_count: row.cargo_count,
     si_numbers: row.si_numbers,
@@ -135,6 +136,8 @@ export function getDefaultBulkingView(user: AuthUser | null | undefined): Export
   return "all";
 }
 
+const VOYAGE_STATUSES = new Set(["ARRIVAL", "AT_BERTH", "LOADING", "NPE", "CASE_OFF"]);
+
 export function getOpsAttentionReason(row: ExportBulkingListItem): string | null {
   const summary = buildExportCompletionSummary(listItemToCompletionInput(row));
   if (summary.isBusinessComplete) return null;
@@ -149,7 +152,8 @@ export function getOpsAttentionReason(row: ExportBulkingListItem): string | null
 
   if ((row.cargo_count ?? 0) === 0) return "No cargo lines";
   if (!row.received_nomination && row.current_status === "NOMINATION") return "Nomination date missing";
-  if (!row.td && row.current_status === "VOYAGE_OPERATIONS") return "TD not recorded";
+  if (!row.td && row.current_status === "CASE_OFF") return "TD not recorded";
+  if (VOYAGE_STATUSES.has(row.current_status) && !row.ata) return "ATA not recorded";
 
   if (summary.percent < 50) return "Early setup incomplete";
 
@@ -161,24 +165,17 @@ export function getDocsAttentionReason(row: ExportBulkingListItem): string | nul
   const summary = buildExportCompletionSummary(input);
   if (summary.isBusinessComplete) return null;
 
+  const inDocsOrVoyage =
+    row.current_status === "SI_RECEIVE" || VOYAGE_STATUSES.has(row.current_status);
+
   if (!hasSi(input)) {
-    if (row.current_status === "SI_RECEIVE" || row.current_status === "VOYAGE_OPERATIONS") {
-      return "No shipping instruction";
-    }
+    if (inDocsOrVoyage) return "No shipping instruction";
     if (row.current_status !== "SHIPMENT_PLANNING") return "SI not recorded";
   }
 
-  if (!hasInvoice(input) && (row.current_status === "SI_RECEIVE" || row.current_status === "VOYAGE_OPERATIONS")) {
-    return "No invoice";
-  }
-
-  if (!hasPl(input) && row.current_status === "VOYAGE_OPERATIONS") {
-    return "No packing list";
-  }
-
-  if (!docsComplete(input) && row.current_status === "VOYAGE_OPERATIONS") {
-    return "Document set incomplete";
-  }
+  if (!hasInvoice(input) && inDocsOrVoyage) return "No invoice";
+  if (!hasPl(input) && VOYAGE_STATUSES.has(row.current_status)) return "No packing list";
+  if (!docsComplete(input) && VOYAGE_STATUSES.has(row.current_status)) return "Document set incomplete";
 
   return null;
 }

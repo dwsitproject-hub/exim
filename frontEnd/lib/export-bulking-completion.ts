@@ -29,6 +29,7 @@ export type ExportCompletionListInput = {
   total_quantity: number | null;
   received_nomination?: string | null;
   eta?: string | null;
+  ata?: string | null;
   td?: string | null;
   cargo_count?: number;
   si_numbers?: string[] | null;
@@ -63,8 +64,12 @@ function siDone(d: ExportCompletionListInput): boolean {
   return (d.si_numbers?.length ?? 0) > 0 || statusAtLeast(d.current_status, "SI_RECEIVE");
 }
 
-function voyageDone(d: ExportCompletionListInput): boolean {
-  return statusAtLeast(d.current_status, "VOYAGE_OPERATIONS");
+function arrivalDone(d: ExportCompletionListInput): boolean {
+  return Boolean(d.ata) || statusAtLeast(d.current_status, "ARRIVAL");
+}
+
+function loadingDone(d: ExportCompletionListInput): boolean {
+  return statusAtLeast(d.current_status, "LOADING");
 }
 
 function docsDone(d: ExportCompletionListInput): boolean {
@@ -76,7 +81,7 @@ function docsDone(d: ExportCompletionListInput): boolean {
 }
 
 function businessComplete(d: ExportCompletionListInput): boolean {
-  return voyageDone(d) && Boolean(d.td) && docsDone(d);
+  return statusAtLeast(d.current_status, "CASE_OFF") && Boolean(d.td) && docsDone(d);
 }
 
 export function buildExportCompletionSummary(
@@ -102,16 +107,22 @@ export function buildExportCompletionSummary(
       hint: "At least one SI",
     },
     {
-      id: "voyage",
-      label: "Voyage / port ops",
-      done: voyageDone(input),
-      hint: "Status at voyage operations",
+      id: "arrival",
+      label: "Vessel arrival (ATA)",
+      done: arrivalDone(input),
+      hint: "Record ATA at Arrival stage",
+    },
+    {
+      id: "loading",
+      label: "Loading commenced",
+      done: loadingDone(input),
+      hint: "Status at Loading stage",
     },
     {
       id: "departure",
       label: "Time of departure (TD)",
       done: Boolean(input.td),
-      hint: "Record TD in nomination section",
+      hint: "Record TD at Case Off stage",
     },
     {
       id: "documents",
@@ -142,6 +153,7 @@ export function detailToCompletionInput(d: ExportBulkingShipmentDetail): ExportC
     total_quantity: d.total_quantity,
     received_nomination: d.received_nomination,
     eta: d.eta,
+    ata: d.ata,
     td: d.td,
     cargo_count: d.cargo_lines.length,
     si_numbers: d.shipping_instructions.map((s) => s.si_number).filter(Boolean) as string[],

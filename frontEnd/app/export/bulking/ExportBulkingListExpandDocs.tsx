@@ -87,7 +87,7 @@ function buildCargoUpsertPayload(
     line_order: idx + 1,
     cargo_name: r.draft.cargo_name.trim() || "Untitled",
     quantity: r.draft.quantity.trim() ? Number(r.draft.quantity) : null,
-    unit: null,
+    unit: "MT",
     item_description: r.draft.item_description.trim() || null,
     destination_port: r.draft.destination_port.trim() || null,
   }));
@@ -214,11 +214,11 @@ function CargoLineManager({
               </span>
               <button
                 type="button"
-                className={styles.cargoSaveBtn}
+                className={styles.cargoDeleteConfirmBtn}
                 onClick={() => void handleDelete(line.id)}
                 disabled={busy}
               >
-                Yes
+                Yes, remove
               </button>
               <button
                 type="button"

@@ -2,7 +2,11 @@ export const EXPORT_BULKING_STATUSES = [
   "SHIPMENT_PLANNING",
   "NOMINATION",
   "SI_RECEIVE",
-  "VOYAGE_OPERATIONS",
+  "ARRIVAL",
+  "AT_BERTH",
+  "LOADING",
+  "NPE",
+  "CASE_OFF",
 ] as const;
 
 export type ExportBulkingStatus = (typeof EXPORT_BULKING_STATUSES)[number];
@@ -10,8 +14,12 @@ export type ExportBulkingStatus = (typeof EXPORT_BULKING_STATUSES)[number];
 export const STATUS_TRANSITIONS: Record<ExportBulkingStatus, ExportBulkingStatus | null> = {
   SHIPMENT_PLANNING: "NOMINATION",
   NOMINATION: "SI_RECEIVE",
-  SI_RECEIVE: "VOYAGE_OPERATIONS",
-  VOYAGE_OPERATIONS: null,
+  SI_RECEIVE: "ARRIVAL",
+  ARRIVAL: "AT_BERTH",
+  AT_BERTH: "LOADING",
+  LOADING: "NPE",
+  NPE: "CASE_OFF",
+  CASE_OFF: null,
 };
 
 export interface CreateExportBulkingShipmentDto {
@@ -39,11 +47,44 @@ export interface UpdateExportBulkingShipmentDto {
   est_cargo_readiness_period?: string;
   eta?: string;
   ata?: string;
+  nor?: string;
   etb?: string;
   atb?: string;
   commence_loading?: string;
   etc?: string;
   atc?: string;
+  hose_off?: string;
+  bl_figure?: number;
+  ship_figure?: number;
+  npe_date?: string;
+  quantity_spb?: number;
+  spb?: string;
+  delivery_order_pgi?: string;
+  spr?: string;
+  bill_of_lading_no?: string;
+  bill_of_lading_date?: string;
+  bill_of_lading_nn_obl?: string;
+  sent_bl?: string;
+  sent_coo?: string;
+  sent_phyto?: string;
+  sent_hc?: string;
+  sent_sr?: string;
+  sent_sustainability?: string;
+  present_docs?: string;
+  peb_request_no?: string;
+  peb_no?: string;
+  peb_date?: string;
+  pe_no?: string;
+  pe_date?: string;
+  hs_code?: string;
+  currency_tax?: number;
+  biaya_keluar_price_usd_mt?: number;
+  biaya_keluar_amount_idr?: number;
+  biaya_keluar_billing_no?: string;
+  levy_price_usd_mt?: number;
+  levy_amount_idr?: number;
+  levy_billing_no?: string;
+  billing_to_gl?: string;
   td?: string;
   surveyor?: string;
   surveyor_reason?: string;
@@ -80,11 +121,44 @@ export interface ExportBulkingShipmentRow {
   est_cargo_readiness_period: string | null;
   eta: string | null;
   ata: string | null;
+  nor: string | null;
   etb: string | null;
   atb: string | null;
   commence_loading: string | null;
   etc: string | null;
   atc: string | null;
+  hose_off: string | null;
+  bl_figure: number | null;
+  ship_figure: number | null;
+  npe_date: string | null;
+  quantity_spb: number | null;
+  spb: string | null;
+  delivery_order_pgi: string | null;
+  spr: string | null;
+  bill_of_lading_no: string | null;
+  bill_of_lading_date: string | null;
+  bill_of_lading_nn_obl: string | null;
+  sent_bl: string | null;
+  sent_coo: string | null;
+  sent_phyto: string | null;
+  sent_hc: string | null;
+  sent_sr: string | null;
+  sent_sustainability: string | null;
+  present_docs: string | null;
+  peb_request_no: string | null;
+  peb_no: string | null;
+  peb_date: string | null;
+  pe_no: string | null;
+  pe_date: string | null;
+  hs_code: string | null;
+  currency_tax: number | null;
+  biaya_keluar_price_usd_mt: number | null;
+  biaya_keluar_amount_idr: number | null;
+  biaya_keluar_billing_no: string | null;
+  levy_price_usd_mt: number | null;
+  levy_amount_idr: number | null;
+  levy_billing_no: string | null;
+  billing_to_gl: string | null;
   td: string | null;
   surveyor: string | null;
   surveyor_reason: string | null;
@@ -114,6 +188,9 @@ export interface CargoLineDto {
   destination_port?: string;
   destination_country?: string;
   country_area?: string;
+  quantity_delivered?: number;
+  bl_figure?: number;
+  ship_figure?: number;
 }
 
 export interface ShippingInstructionDto {

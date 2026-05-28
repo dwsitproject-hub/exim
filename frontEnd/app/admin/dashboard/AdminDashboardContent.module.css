@@ -1,0 +1,54 @@
+.loading {
+  margin-top: var(--spacing-4, 24px);
+}
+
+.denied {
+  margin-top: var(--spacing-4, 24px);
+  color: var(--color-primitive-text-steel, #6b6b6b);
+}
+
+.cardGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--spacing-4, 24px);
+  margin-top: var(--spacing-4, 24px);
+}
+
+.configCard {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-3, 16px);
+  padding: var(--spacing-4, 24px);
+  border: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  border-radius: var(--borderRadius-lg, 12px);
+  background: var(--color-primitive-background-white, #ffffff);
+  text-decoration: none;
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+  transition:
+    border-color var(--animation-duration-fast, 150ms) var(--animation-easing-default, ease-out),
+    box-shadow var(--animation-duration-fast, 150ms) var(--animation-easing-default, ease-out);
+}
+
+.configCard:hover {
+  border-color: var(--color-semantic-primary-default, #c43a31);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.configCardTitle {
+  display: block;
+  font-size: var(--typography-fontSize-large, 18px);
+  font-weight: var(--typography-fontWeight-semibold, 600);
+  margin-bottom: var(--spacing-1, 4px);
+}
+
+.configCardDesc {
+  display: block;
+  font-size: var(--typography-fontSize-small, 14px);
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  line-height: 1.5;
+}
+
+.empty {
+  margin-top: var(--spacing-4, 24px);
+  color: var(--color-primitive-text-steel, #6b6b6b);
+}

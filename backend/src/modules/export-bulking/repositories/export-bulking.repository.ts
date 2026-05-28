@@ -41,8 +41,14 @@ async function assertShippingInstructionMatchesShipment(
 const SHIPMENT_COLUMNS = `id, shipment_no, current_status, vessel_name, voyage_number, shipper,
   loadport_name, received_nomination, received_shipping_instruction,
   incoterms, laycan, laycan_from, laycan_to, est_cargo_readiness, est_cargo_readiness_period,
-  eta, ata, etb, atb, commence_loading,
-  etc, atc, td, surveyor, surveyor_reason, agent, laytime_rate_mtph, demurrage_rate_pdpr, total_quantity,
+  eta, ata, nor, etb, atb, commence_loading,
+  etc, atc, hose_off, bl_figure, ship_figure, npe_date,
+  quantity_spb, spb, delivery_order_pgi, spr, bill_of_lading_no, bill_of_lading_date,
+  bill_of_lading_nn_obl, sent_bl, sent_coo, sent_phyto, sent_hc, sent_sr,
+  sent_sustainability, present_docs, peb_request_no, peb_no, peb_date, pe_no, pe_date,
+  hs_code, currency_tax, biaya_keluar_price_usd_mt, biaya_keluar_amount_idr, biaya_keluar_billing_no,
+  levy_price_usd_mt, levy_amount_idr, levy_billing_no, billing_to_gl, td,
+  surveyor, surveyor_reason, agent, laytime_rate_mtph, demurrage_rate_pdpr, total_quantity,
   remarks, created_by, created_at, updated_at`;
 
 export class ExportBulkingRepository {
@@ -217,8 +223,15 @@ export class ExportBulkingRepository {
       "vessel_name", "voyage_number", "shipper", "loadport_name",
       "received_nomination", "received_shipping_instruction", "incoterms", "laycan",
       "laycan_from", "laycan_to", "est_cargo_readiness", "est_cargo_readiness_period",
-      "eta", "ata", "etb", "atb", "commence_loading",
-      "etc", "atc", "td", "surveyor", "surveyor_reason", "agent", "remarks",
+      "eta", "ata", "nor", "etb", "atb", "commence_loading",
+      "etc", "atc", "hose_off", "bl_figure", "ship_figure", "npe_date",
+      "quantity_spb", "spb", "delivery_order_pgi", "spr", "bill_of_lading_no",
+      "bill_of_lading_date", "bill_of_lading_nn_obl", "sent_bl", "sent_coo", "sent_phyto",
+      "sent_hc", "sent_sr", "sent_sustainability", "present_docs", "peb_request_no", "peb_no",
+      "peb_date", "pe_no", "pe_date",
+      "hs_code", "currency_tax", "biaya_keluar_price_usd_mt", "biaya_keluar_amount_idr", "biaya_keluar_billing_no",
+      "levy_price_usd_mt", "levy_amount_idr", "levy_billing_no", "billing_to_gl", "td",
+      "surveyor", "surveyor_reason", "agent", "remarks",
     ];
 
     for (const field of fields) {
@@ -250,22 +263,37 @@ export class ExportBulkingRepository {
     return result.rows[0] ?? null;
   }
 
-  async updateStatus(id: string, newStatus: string, userId?: string): Promise<ExportBulkingShipmentRow | null> {
-    const result = await this.pool.query<ExportBulkingShipmentRow>(
-      `UPDATE export_bulking_shipments SET current_status = $1, updated_at = NOW()
-       WHERE id = $2 AND deleted_at IS NULL
-       RETURNING ${SHIPMENT_COLUMNS}`,
-      [newStatus, id],
-    );
-    const row = result.rows[0] ?? null;
-    if (row) {
-      await this.pool.query(
-        `INSERT INTO export_bulking_status_events (shipment_id, status, changed_by, created_at)
-         VALUES ($1, $2, $3, NOW())`,
-        [id, newStatus, userId ?? null],
+  async updateStatus(
+    id: string,
+    newStatus: string,
+    userId?: string,
+    oldStatus?: string,
+  ): Promise<ExportBulkingShipmentRow | null> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await client.query<ExportBulkingShipmentRow>(
+        `UPDATE export_bulking_shipments SET current_status = $1, updated_at = NOW()
+         WHERE id = $2 AND deleted_at IS NULL
+         RETURNING ${SHIPMENT_COLUMNS}`,
+        [newStatus, id],
       );
+      const row = result.rows[0] ?? null;
+      if (row) {
+        await client.query(
+          `INSERT INTO export_bulking_status_events (shipment_id, old_status, new_status, changed_by, changed_at)
+           VALUES ($1, $2, $3, $4, NOW())`,
+          [id, oldStatus ?? null, newStatus, userId ?? null],
+        );
+      }
+      await client.query("COMMIT");
+      return row;
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
     }
-    return row;
   }
 
   async softDelete(id: string): Promise<ExportBulkingShipmentRow | null> {
@@ -316,10 +344,10 @@ export class ExportBulkingRepository {
 
   async getStatusEvents(shipmentId: string): Promise<unknown[]> {
     const result = await this.pool.query(
-      `SELECT id, shipment_id, status, changed_by, created_at
+      `SELECT id, shipment_id, old_status, new_status, changed_by, changed_at, remarks
        FROM export_bulking_status_events
        WHERE shipment_id = $1
-       ORDER BY created_at ASC`,
+       ORDER BY changed_at ASC`,
       [shipmentId],
     );
     return result.rows;
@@ -331,6 +359,7 @@ export class ExportBulkingRepository {
     const result = await this.pool.query(
       `SELECT id, shipment_id, line_order, cargo_name, quantity, unit,
               item_description, destination_port, destination_country, country_area,
+              quantity_delivered, bl_figure, ship_figure,
               created_at, updated_at
        FROM export_bulking_cargo_lines
        WHERE shipment_id = $1
@@ -355,12 +384,14 @@ export class ExportBulkingRepository {
             `UPDATE export_bulking_cargo_lines SET
               line_order=$1, cargo_name=$2, quantity=$3, unit=$4,
               item_description=$5, destination_port=$6, destination_country=$7, country_area=$8,
+              quantity_delivered=$9, bl_figure=$10, ship_figure=$11,
               updated_at=NOW()
-             WHERE id=$9 AND shipment_id=$10
+             WHERE id=$12 AND shipment_id=$13
              RETURNING *`,
             [order, line.cargo_name, line.quantity ?? null, line.unit ?? null,
              line.item_description ?? null, line.destination_port ?? null,
              line.destination_country ?? null, line.country_area ?? null,
+             line.quantity_delivered ?? null, line.bl_figure ?? null, line.ship_figure ?? null,
              line.id, shipmentId],
           );
           if (res.rows[0]) results.push(res.rows[0]);
@@ -368,12 +399,14 @@ export class ExportBulkingRepository {
           const res = await client.query(
             `INSERT INTO export_bulking_cargo_lines
               (shipment_id, line_order, cargo_name, quantity, unit,
-               item_description, destination_port, destination_country, country_area, created_at, updated_at)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW(),NOW())
+               item_description, destination_port, destination_country, country_area,
+               quantity_delivered, bl_figure, ship_figure, created_at, updated_at)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW(),NOW())
              RETURNING *`,
             [shipmentId, order, line.cargo_name, line.quantity ?? null, line.unit ?? null,
              line.item_description ?? null, line.destination_port ?? null,
-             line.destination_country ?? null, line.country_area ?? null],
+             line.destination_country ?? null, line.country_area ?? null,
+             line.quantity_delivered ?? null, line.bl_figure ?? null, line.ship_figure ?? null],
           );
           if (res.rows[0]) results.push(res.rows[0]);
         }

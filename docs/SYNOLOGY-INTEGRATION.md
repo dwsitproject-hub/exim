@@ -1,158 +1,61 @@
 # Synology integration (EOS)
 
-This guide walks through connecting EOS to a **Synology NAS** shared folder so uploaded documents are stored on the NAS while PostgreSQL keeps only metadata (`storage_key` and related fields).
+This guide is for **developers integrating EOS with the shared Synology storage**. The NAS, SMB share, and server mount are already configured by IT/infra — you only need to set the correct **environment variables** in this project so uploads land in the right folder.
 
 **What you get**
 
-- Files live on the Synology share (not duplicated as a second full copy inside the app server when the mount is bound into Docker correctly).
+- Uploaded documents are stored on the Synology share; PostgreSQL keeps metadata only (`storage_key` and related fields).
 - The API resolves the storage root from environment variables (**Option B** recommended):  
   `{STORAGE_SYNOLOGY_ROOT}/{STORAGE_DEPLOYMENT}/{STORAGE_PROJECT_SLUG}`  
-  Example: `/mnt/synology/eos/dev/EOS` for development integration.
+  Example: `/mnt/synology/eos/dev/EOS` for the EOS development integration.
 
 For general EOS setup (Node, DB, migrations), see [SETUP.md](./SETUP.md).
 
 ---
 
-## 1. Prerequisites
+## 1. Before you start
 
-| Item | Notes |
-|------|--------|
-| Network | App server can reach Synology on the LAN (or VPN if the server is in the cloud). **SMB TCP 445** allowed. |
-| Synology | DSM access; permission to create or use a shared folder and SMB user. |
-| Ubuntu server | CIFS client; Docker used if the backend runs in containers (e.g. staging). |
-| Information to collect | NAS host/IP, share name (e.g. `APPs`), SMB username/password, desired folder layout under the share. |
+Ask your team lead or infra contact for the values that apply to your environment. You typically need:
 
----
+| What to confirm | Example |
+|-----------------|--------|
+| Mount path on the app server (and the same path **inside Docker**, if used) | `/mnt/synology/eos` |
+| Deployment folder under the share | `dev` or `prod` |
+| Project slug for this app | `EOS` |
+| Synology File Station path (for manual checks) | `APPs → dev → EOS` |
 
-## 2. Synology (DSM) configuration
-
-1. **Control Panel → File Services**  
-   - Enable **SMB**.  
-   - Prefer SMB 2.1 or 3.x; disable SMB1 if policy allows.
-
-2. **Shared folder**  
-   - Use or create a folder (example name: `APPs`).  
-   - EOS will use subfolders such as `dev/EOS` or `prod/EOS` under that share—see section 4.
-
-3. **User for the application**  
-   - Create a dedicated user (e.g. `eos_app`) or use LDAP/AD per IT policy.  
-   - Grant **Read/Write** on the shared folder used by EOS (inheritance usually covers subfolders).
-
-4. **Record for the Linux mount**  
-   - UNC-style path: `//<NAS_HOST_OR_IP>/<ShareName>`  
-   - Example: `//172.30.1.94/APPs`
+If any of these are wrong, uploads may succeed locally but files will not appear where the team expects on the NAS.
 
 ---
 
-## 3. Ubuntu: mount the share (CIFS)
+## 2. How paths are resolved
 
-### 3.1 Install CIFS utilities
+The backend builds the upload root in this order (see `backend/src/config/index.ts`):
 
-```bash
-sudo apt update && sudo apt install -y cifs-utils
-```
+1. **`STORAGE_LOCAL_PATH`** — if set, this path is used as-is (overrides everything else).
+2. **Option B** — if `STORAGE_SYNOLOGY_ROOT`, `STORAGE_DEPLOYMENT`, and `STORAGE_PROJECT_SLUG` are all set:  
+   `{root}/{deployment}/{project}/`
+3. **Default** — `./uploads` (local folder in the backend working directory).
 
-### 3.2 Create a mount point
-
-```bash
-sudo mkdir -p /mnt/synology/eos
-```
-
-(You can use another host path; keep it consistent with `STORAGE_SYNOLOGY_ROOT` in EOS.)
-
-### 3.3 Credentials file (root-only)
-
-```bash
-sudo nano /etc/smb-eos.creds
-```
-
-Example contents:
-
-```ini
-username=YOUR_SMB_USER
-password=YOUR_SMB_PASSWORD
-domain=
-```
-
-If the NAS is joined to a domain, set `domain=` as provided by IT.
-
-```bash
-sudo chmod 600 /etc/smb-eos.creds
-sudo chown root:root /etc/smb-eos.creds
-```
-
-### 3.4 Test mount (one line)
-
-Replace host and share name:
-
-```bash
-sudo mount -t cifs //172.30.1.94/APPs /mnt/synology/eos -o credentials=/etc/smb-eos.creds,vers=3.0,uid=$(id -u),gid=$(id -g),iocharset=utf8
-```
-
-There must be a **space** between `//host/share` and `/mnt/synology/eos`. If mount fails, try `vers=2.1` or `vers=3.1.1` per DSM/IT.
-
-### 3.5 Persistent mount (`/etc/fstab`)
-
-Use the UID/GID of the user that runs the Node process (or match Docker volume ownership later).
-
-Example line:
-
-```fstab
-//172.30.1.94/APPs /mnt/synology/eos cifs credentials=/etc/smb-eos.creds,uid=1000,gid=1000,vers=3.0,iocharset=utf8,_netdev,nofail 0 0
-```
-
-Then:
-
-```bash
-sudo mount -a
-```
-
-### 3.6 Verify read/write
-
-```bash
-ls -la /mnt/synology/eos
-touch /mnt/synology/eos/.eos-write-test && rm /mnt/synology/eos/.eos-write-test
-```
-
----
-
-## 4. Folder layout on the share (recommended)
-
-Keep environments and projects separated on the same share:
+Recommended layout on the share (already provisioned on the server):
 
 ```text
-APPs/
+APPs/                    ← Synology shared folder (name may differ)
   dev/
-    EOS/          ← development integration (this app)
+    EOS/                 ← this app (development)
   prod/
-    EOS/          ← example production tree
+    EOS/                 ← this app (production)
 ```
 
-EOS **Option B** maps this to:
-
-| Variable | Example (dev) |
-|----------|----------------|
-| `STORAGE_SYNOLOGY_ROOT` | `/mnt/synology/eos` |
-| `STORAGE_DEPLOYMENT` | `dev` |
-| `STORAGE_PROJECT_SLUG` | `EOS` |
-
-Resolved base path: **`/mnt/synology/eos/dev/EOS`**
-
-Create the folders on the NAS (File Station) or after first mount:
-
-```bash
-sudo mkdir -p /mnt/synology/eos/dev/EOS
-```
-
-Another application later can use e.g. `dev/OTHER_APP/` with its own `STORAGE_PROJECT_SLUG`.
+Another application on the same share uses its own slug, e.g. `dev/OTHER_APP/`, via a different `STORAGE_PROJECT_SLUG`.
 
 ---
 
-## 5. EOS backend configuration
+## 3. Configure `backend/.env`
 
-### 5.1 Option B (recommended)
+Copy from **`backend/.env.example`** if you do not have a local file yet.
 
-In **`backend/.env`** (or project root `.env` when running Node without Docker—see [config loading](../backend/src/config/index.ts)):
+### Option B (recommended for Synology)
 
 ```env
 STORAGE_TYPE=local
@@ -161,17 +64,25 @@ STORAGE_DEPLOYMENT=dev
 STORAGE_PROJECT_SLUG=EOS
 ```
 
-Do **not** set `STORAGE_LOCAL_PATH` when using Option B unless you intend to override the composed path.
+Resolved base path: **`/mnt/synology/eos/dev/EOS`**
 
-**Local development without a NAS:** comment out the three variables above and set:
+Do **not** set `STORAGE_LOCAL_PATH` when using Option B unless you intentionally want to override the composed path.
+
+Use `STORAGE_DEPLOYMENT=prod` and the production values provided by your team for production/staging that mirrors prod.
+
+### Local development without NAS
+
+On a laptop or machine without the Synology mount, comment out the three Option B variables and use a local folder:
 
 ```env
 STORAGE_LOCAL_PATH=./uploads
 ```
 
-### 5.2 Option A — explicit path
+Documents stay on your machine; they are not synced to the NAS.
 
-If you prefer a single variable:
+### Option A — explicit path
+
+If your team gives you a single full path instead of Option B:
 
 ```env
 STORAGE_LOCAL_PATH=/mnt/synology/eos/dev/EOS
@@ -179,35 +90,26 @@ STORAGE_LOCAL_PATH=/mnt/synology/eos/dev/EOS
 
 If `STORAGE_LOCAL_PATH` is set, it **wins** over Option B.
 
-Full reference: **`backend/.env.example`**.
+Full variable reference: **`backend/.env.example`**.
 
 ---
 
-## 6. Docker (staging / production backend)
+## 4. Docker (staging / production)
 
-The backend container must see the **same** files as the host mount. Otherwise `/mnt/synology/eos/...` inside the container is only local disk, not the NAS.
+When the backend runs in Docker, **`STORAGE_SYNOLOGY_ROOT` must match the path inside the container**, not only on the host. Compose bind-mounts the host NAS path into the container — see:
 
-### 6.1 Bind mount
+- `docker-compose.staging.backend.yml`
+- `docker-compose.production.backend.yml`
 
-In **`docker-compose.staging.backend.yml`** and **`docker-compose.production.backend.yml`** the host path is bound into the container:
+### Root `.env` (Compose)
 
-```yaml
-volumes:
-  - ${STORAGE_HOST_MOUNT:-/mnt/synology/eos}:/mnt/synology/eos
-```
+If the host mount path differs from the default, set **`STORAGE_HOST_MOUNT`** in the project root **`.env`** (see root **`.env.example`**). Compose substitutes this into the volume bind.
 
-- Set **`STORAGE_HOST_MOUNT`** in the project **`.env`** (Compose substitutes variables) if the host uses a path other than `/mnt/synology/eos`.
+### `backend/.env` for Compose stacks
 
-### 6.2 Env file for Compose
+Staging and production backend compose files load **`./backend/.env`**. Ensure it contains database/JWT settings **and** the storage variables from section 3, aligned with the bind mount in the compose file.
 
-`docker-compose.staging.backend.yml` and `docker-compose.production.backend.yml` load **`./backend/.env`**. Ensure it contains:
-
-- Database and JWT settings, and  
-- **Option B** storage variables (or `STORAGE_LOCAL_PATH`), matching the path under `/mnt/synology/eos/...`.
-
-Copy from **`backend/.env.example`** and adjust secrets.
-
-### 6.3 Recreate the backend after changes
+After changing storage env vars or bind mounts, recreate the backend:
 
 ```bash
 docker compose -f docker-compose.staging.backend.yml up -d --force-recreate backend
@@ -217,56 +119,48 @@ docker compose -f docker-compose.staging.backend.yml up -d --force-recreate back
 docker compose -f docker-compose.production.backend.yml up -d --force-recreate backend
 ```
 
-### 6.4 Verify inside the container
+### Quick check inside the container
+
+Replace the path with your resolved base path (e.g. `.../dev/EOS`):
 
 ```bash
 docker exec eos-backend-staging ls -la /mnt/synology/eos/dev/EOS
 ```
 
-This should match **`ls`** on the host for the same path.
+You should see the same content as on the host for that path. If the container directory is empty but uploads “work”, the bind mount or `STORAGE_*` values likely do not match — ask infra or compare with the compose `volumes` section.
 
 ---
 
-## 7. End-to-end verification
+## 5. Verify your integration
 
-1. **API running** with correct env (see logs for config errors).  
-2. **Upload** a shipment document from the UI or API.  
-3. **Host:**  
-   `ls -R /mnt/synology/eos/dev/EOS`  
-4. **Synology File Station:** browse `APPs → dev → EOS → …` (filing subfolders are created by the app).  
-5. **Download** the same document in the app.
+1. Start the API with the updated **`backend/.env`** (no config errors in logs).
+2. **Upload** a document from the UI or API (e.g. shipment document).
+3. Confirm the file under your resolved path, e.g. `.../dev/EOS/...` (on the server host or via `docker exec`).
+4. Optionally open **Synology File Station** and browse to the folder your team gave you (e.g. `APPs → dev → EOS`); subfolders are created by the app.
+5. **Download** the same document in the app to confirm read access.
 
 ---
 
-## 8. Troubleshooting
+## 6. Troubleshooting (configuration)
 
 | Symptom | What to check |
 |---------|----------------|
-| Mount fails | Firewall **TCP 445**; correct share name; `vers=`; credentials file permissions (`600`). |
-| `mount error (16) Device or resource busy` | Share already mounted; `umount` or use another mount point; see `mount \| grep cifs`. |
-| Files in `docker exec` but not in File Station | Missing **bind mount**; container was writing to its own filesystem. Fix compose volumes and recreate. |
-| Explorer shows empty folder | Wrong subfolder (e.g. `Exim` vs `EOS`); confirm `STORAGE_*` and actual path under `APPs`. |
-| Wrong file type on DSM for PDFs | Resolved in app: stored name uses **`name_<uuid>.pdf`** (UUID before extension). Old `name.pdf_<uuid>` files may look odd in DSM until renamed or re-uploaded. |
-| Cloud server cannot reach NAS | Use site-to-site VPN or private network; do not expose SMB on the public internet. |
+| Upload succeeds but File Station is empty | Wrong `STORAGE_DEPLOYMENT` or `STORAGE_PROJECT_SLUG`; typo in slug (e.g. `Exim` vs `EOS`). |
+| Files in `docker exec` but not on NAS | Container writing to its own disk — bind mount missing or wrong; fix compose + recreate backend. |
+| Works on server, not on laptop | Expected if NAS is not mounted locally; use `STORAGE_LOCAL_PATH=./uploads` for local dev. |
+| Wrong file type on DSM for PDFs | App stores names as **`name_<uuid>.pdf`** (UUID before extension). Older `name.pdf_<uuid>` files may look odd until re-uploaded. |
+
+Server-side mount, firewall, or DSM issues are handled by IT/infra — escalate with the host path and share name you were given.
 
 ---
 
-## 9. Security notes
-
-- Restrict the SMB user to the minimum folders required.  
-- Keep `/etc/smb-eos.creds` mode `600`.  
-- Rotate passwords if leaked.  
-- Prefer backup/snapshots on the Synology per IT policy.
-
----
-
-## 10. Related files
+## 7. Related files
 
 | File | Purpose |
 |------|---------|
-| `backend/.env.example` | Storage variables (Option B, A, C) |
-| Root `.env.example` | `STORAGE_HOST_MOUNT` / `STORAGE_HOST_BIND` for Compose |
+| `backend/.env.example` | Storage variables (Option B, A, local dev) |
+| Root `.env.example` | `STORAGE_HOST_MOUNT` for Compose bind mounts |
 | `docker-compose.staging.backend.yml` | Staging backend + NAS bind |
-| `docker-compose.production.backend.yml` | Production backend + Postgres + NAS bind |
-| `docker-compose.production.frontend.yml` | Production frontend-only stack (for separate frontend host) |
+| `docker-compose.production.backend.yml` | Production backend + NAS bind |
+| `backend/src/config/index.ts` | How `STORAGE_LOCAL_PATH` is resolved |
 | `docs/TSD.md` | Broader document storage strategy |

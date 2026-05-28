@@ -109,7 +109,7 @@ export function UserList() {
   if (!allowed) {
     return (
       <section>
-        <PageHeader title="User management" backHref="/import/dashboard" backLabel="Dashboard" />
+        <PageHeader title="User management" backHref="/admin/dashboard" backLabel="Dashboard" />
         <p className={styles.denied}>You do not have permission to manage users.</p>
       </section>
     );
@@ -119,7 +119,7 @@ export function UserList() {
     <section>
       <PageHeader
         title="User management"
-        backHref="/import/dashboard"
+        backHref="/admin/dashboard"
         backLabel="Dashboard"
         subtitle="Create users, assign roles and permissions, import from CSV."
       />

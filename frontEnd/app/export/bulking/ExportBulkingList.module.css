@@ -352,6 +352,56 @@
   padding-right: 0 !important;
 }
 
+.actionsCol {
+  width: 72px !important;
+  min-width: 72px !important;
+  max-width: 72px !important;
+  padding: 4px 2px !important;
+  text-align: center;
+  cursor: default;
+}
+
+.grid thead th.actionsCol {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+.rowActions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.rowActionBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  border-radius: var(--borderRadius-sm, 6px);
+  background: var(--color-primitive-background-white, #fff);
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  cursor: pointer;
+  transition:
+    border-color var(--animation-duration-fast, 150ms),
+    color var(--animation-duration-fast, 150ms),
+    background-color var(--animation-duration-fast, 150ms);
+}
+
+.rowActionBtn:hover {
+  border-color: var(--color-semantic-primary-default, #c43a31);
+  color: var(--color-semantic-primary-default, #c43a31);
+  background: #fff5f4;
+}
+
+.rowActionBtn:focus-visible {
+  outline: 2px solid var(--color-semantic-primary-default, #c43a31);
+  outline-offset: 1px;
+}
+
 .grid thead th {
   background: var(--color-primitive-background-white, #fff);
   font-weight: var(--typography-fontWeight-semibold, 600);
@@ -1045,6 +1095,28 @@
 
 .cargoDeleteBtn:hover { color: #dc2626; }
 
+.cargoDeleteConfirmBtn {
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  background: #dc2626;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.cargoDeleteConfirmBtn:hover:not(:disabled) {
+  background: #b91c1c;
+}
+
+.cargoDeleteConfirmBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .cargoAddRow {
   padding: 4px 0;
 }
@@ -1233,6 +1305,31 @@
   background: #f0fdf4;
 }
 
+.statusArrival {
+  color: #283593;
+  background: #e8eaf6;
+}
+
+.statusAtBerth {
+  color: #00695c;
+  background: #e0f2f1;
+}
+
+.statusLoading {
+  color: #e65100;
+  background: #fff3e0;
+}
+
+.statusNpe {
+  color: #ad1457;
+  background: #fce4ec;
+}
+
+.statusCaseOff {
+  color: #1b5e20;
+  background: #e8f5e9;
+}
+
 /* ── Cell helpers ── */
 
 .cellEmpty {
@@ -1360,52 +1457,6 @@
   display: flex;
   flex-direction: column;
   gap: var(--spacing-3, 16px);
-}
-
-/* Progress context at top of form */
-.formProgress {
-  padding: 10px 12px;
-  background: #f8fafc;
-  border: 1px solid var(--color-primitive-border-light, #e0e0e0);
-  border-radius: var(--borderRadius-sm, 6px);
-}
-
-.formProgressMeta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 6px;
-}
-
-.formProgressStep {
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--color-primitive-text-steel, #6b6b6b);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.formProgressDots {
-  display: flex;
-  gap: 4px;
-}
-
-.formProgressDot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--color-primitive-border-medium, #c4c4c4);
-}
-
-.formProgressDotActive {
-  background: var(--color-semantic-primary-default, #c43a31);
-}
-
-.formProgressHint {
-  font-size: 12px;
-  color: var(--color-primitive-text-steel, #6b6b6b);
-  margin: 0;
-  line-height: 1.5;
 }
 
 .formField {

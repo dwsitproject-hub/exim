@@ -231,4 +231,4 @@ Use a process manager (e.g. systemd, PM2) or orchestration (e.g. Kubernetes) in 
 
 ## Synology / shared storage
 
-For step-by-step NAS integration (CIFS mount, `dev/EOS` layout, Docker bind, Option B env vars), see **[SYNOLOGY-INTEGRATION.md](./SYNOLOGY-INTEGRATION.md)**.
+For Synology storage env vars and Docker bind alignment (when the NAS is already mounted on the server), see **[SYNOLOGY-INTEGRATION.md](./SYNOLOGY-INTEGRATION.md)**.

@@ -2,7 +2,11 @@ export const EXPORT_BULKING_STATUSES = [
   "SHIPMENT_PLANNING",
   "NOMINATION",
   "SI_RECEIVE",
-  "VOYAGE_OPERATIONS",
+  "ARRIVAL",
+  "AT_BERTH",
+  "LOADING",
+  "NPE",
+  "CASE_OFF",
 ] as const;
 
 export type ExportBulkingStatus = (typeof EXPORT_BULKING_STATUSES)[number];
@@ -11,7 +15,11 @@ export const EXPORT_BULKING_STATUS_LABELS: Record<ExportBulkingStatus, string> =
   SHIPMENT_PLANNING: "Shipment Planning",
   NOMINATION: "Nomination",
   SI_RECEIVE: "SI Received",
-  VOYAGE_OPERATIONS: "Voyage / Port Operations",
+  ARRIVAL: "Arrival",
+  AT_BERTH: "At Berth",
+  LOADING: "Loading",
+  NPE: "Pre-shipment",
+  CASE_OFF: "Case Off",
 };
 
 export function formatExportBulkingStatus(raw: string | null | undefined): string {
@@ -65,11 +73,44 @@ export interface ExportBulkingShipmentDetail {
   est_cargo_readiness_period: string | null;
   eta: string | null;
   ata: string | null;
+  nor: string | null;
   etb: string | null;
   atb: string | null;
   commence_loading: string | null;
   etc: string | null;
   atc: string | null;
+  hose_off: string | null;
+  bl_figure: number | null;
+  ship_figure: number | null;
+  npe_date: string | null;
+  quantity_spb: number | null;
+  spb: string | null;
+  delivery_order_pgi: string | null;
+  spr: string | null;
+  bill_of_lading_no: string | null;
+  bill_of_lading_date: string | null;
+  bill_of_lading_nn_obl: string | null;
+  sent_bl: string | null;
+  sent_coo: string | null;
+  sent_phyto: string | null;
+  sent_hc: string | null;
+  sent_sr: string | null;
+  sent_sustainability: string | null;
+  present_docs: string | null;
+  peb_request_no: string | null;
+  peb_no: string | null;
+  peb_date: string | null;
+  pe_no: string | null;
+  pe_date: string | null;
+  hs_code: string | null;
+  currency_tax: number | null;
+  biaya_keluar_price_usd_mt: number | null;
+  biaya_keluar_amount_idr: number | null;
+  biaya_keluar_billing_no: string | null;
+  levy_price_usd_mt: number | null;
+  levy_amount_idr: number | null;
+  levy_billing_no: string | null;
+  billing_to_gl: string | null;
   td: string | null;
   surveyor: string | null;
   surveyor_reason: string | null;
@@ -98,6 +139,9 @@ export interface CargoLine {
   destination_port: string | null;
   destination_country: string | null;
   country_area: string | null;
+  quantity_delivered: number | null;
+  bl_figure: number | null;
+  ship_figure: number | null;
 }
 
 /** Body items for PUT .../cargos (full rows may include id; new rows omit id). */
@@ -111,6 +155,9 @@ export type CargoLineUpsertPayload = {
   destination_port: string | null;
   destination_country?: string | null;
   country_area?: string | null;
+  quantity_delivered?: number | null;
+  bl_figure?: number | null;
+  ship_figure?: number | null;
 };
 
 export interface ShippingInstruction {
