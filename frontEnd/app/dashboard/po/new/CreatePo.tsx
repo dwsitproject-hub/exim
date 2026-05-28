@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
@@ -14,6 +14,7 @@ import { INCOTERM_OPTIONS } from "@/lib/incoterms";
 import { PT_OPTION_LABELS, PO_ITEM_UNIT_OPTIONS, getPlantConfigForPt } from "@/lib/po-create-constants";
 import { isApiError } from "@/types/api";
 import type { CreateTestPoPayload } from "@/types/po";
+import { PoPdfUpload, type ApplyPoData } from "./PoPdfUpload";
 import styles from "./CreatePo.module.css";
 
 type CreatePoFormState = Omit<CreateTestPoPayload, "external_id" | "items"> & {
@@ -38,7 +39,7 @@ const UNIT_OPTIONS: string[] = PO_ITEM_UNIT_OPTIONS.filter(
 );
 const UNIT_OPTION_SET = new Set<string>(UNIT_OPTIONS);
 
-/** Allow partial decimal input while typing (qty only — no thousands separator). */
+/** Allow partial decimal input while typing (qty only ΓÇö no thousands separator). */
 const DECIMAL_INPUT_PATTERN = /^\d*\.?\d*$/;
 
 const initialItem = (): ItemFormLine => ({
@@ -77,6 +78,7 @@ export function CreatePo() {
   const { pushToast } = useToast();
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [pdfApplied, setPdfApplied] = useState(false);
   const [form, setForm] = useState<CreatePoFormState>({
     pt: "",
     po_number: "",
@@ -88,6 +90,59 @@ export function CreatePo() {
     currency: "USD",
     items: [initialItem()],
   });
+
+  /**
+   * Called when user clicks "Apply to form" in the PDF upload review panel.
+   * Merges extracted data into form state; skips null/undefined values so
+   * manually-filled fields are not accidentally overwritten.
+   */
+  function applyParsedPo(data: ApplyPoData) {
+    setForm((prev) => {
+      const next: CreatePoFormState = { ...prev };
+
+      if (data.po_number) next.po_number = data.po_number;
+      if (data.supplier_name) next.supplier_name = data.supplier_name;
+      if (data.currency) next.currency = data.currency;
+      if (data.delivery_location) next.delivery_location = data.delivery_location;
+      if (data.kawasan_berikat) next.kawasan_berikat = data.kawasan_berikat;
+
+      // Incoterm: strip location part so only the code (e.g. "FOB") goes into the select
+      if (data.incoterm_location) {
+        const code = data.incoterm_location.split(/\s+/)[0] ?? "";
+        next.incoterm_location = INCOTERM_OPTIONS.includes(code as typeof INCOTERM_OPTIONS[number])
+          ? code
+          : data.incoterm_location;
+      }
+
+      // PT / Plant: only apply if non-null (parser currently always returns null for PT)
+      if (data.pt && PT_OPTION_LABELS.includes(data.pt as typeof PT_OPTION_LABELS[number])) {
+        next.pt = data.pt;
+        const config = getPlantConfigForPt(data.pt);
+        if (config?.mode === "fixed") next.plant = config.plant;
+        else if (data.plant) next.plant = data.plant;
+      }
+
+      // Items: replace only if at least one item was extracted
+      if (data.items.length > 0) {
+        next.items = data.items.map((it) => ({
+          item_description: it.item_description,
+          qtyText: String(it.qty),
+          unit: it.unit,
+          priceText: formatPriceInputWithCommas(String(it.value), 3),
+        }));
+      }
+
+      return next;
+    });
+
+    setPdfApplied(true);
+    pushToast("Extracted data applied to form. Review and submit when ready.", "success");
+
+    // Scroll down to the form cards so user can see pre-filled data
+    requestAnimationFrame(() => {
+      document.getElementById("po-general-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
 
   function updateField<K extends keyof CreatePoFormState>(field: K, value: string | undefined) {
     setForm((prev) => ({ ...prev, [field]: value ?? "" }));
@@ -236,8 +291,8 @@ export function CreatePo() {
         }
         pushToast("Purchase Order created.", "success");
         const data = res.data as { id?: string };
-        if (data?.id) router.push(`/dashboard/po/${data.id}`);
-        else router.push("/dashboard/po");
+        if (data?.id) router.push(`/import/po/${data.id}`);
+        else router.push("/import/po");
       })
       .finally(() => setSubmitting(false));
   }
@@ -247,12 +302,21 @@ export function CreatePo() {
 
   return (
     <section className={styles.section}>
-      <PageHeader title="Create Purchase Order" backHref="/dashboard/po" backLabel="Purchase Order" />
+      <PageHeader title="Create Purchase Order" backHref="/import/po" backLabel="Purchase Order" />
+
+      {/* PDF upload + review panel ΓÇö sits outside the form so its buttons don't submit */}
+      <PoPdfUpload accessToken={accessToken} onApply={applyParsedPo} />
 
       <form onSubmit={handleSubmit} className={styles.form}>
         {submitError && <p className={styles.formError}>{submitError}</p>}
 
-        <Card className={styles.cardSpacing}>
+        {pdfApplied && (
+          <div className={styles.pdfAppliedBanner} role="status">
+            Γ£à Form pre-filled from document ΓÇö review all fields before submitting.
+          </div>
+        )}
+
+        <Card id="po-general-card" className={styles.cardSpacing}>
           <h2 className={styles.sectionTitle}>General</h2>
           <div className={styles.grid}>
             <div className={styles.field}>
@@ -267,7 +331,7 @@ export function CreatePo() {
                 required
                 aria-label="PT"
               >
-                <option value="">— Select PT —</option>
+                <option value="">ΓÇö Select PT ΓÇö</option>
                 {PT_OPTION_LABELS.map((label) => (
                   <option key={label} value={label}>
                     {label}
@@ -311,7 +375,7 @@ export function CreatePo() {
                   required
                   aria-label="Plant"
                 >
-                  <option value="">— Select plant —</option>
+                  <option value="">ΓÇö Select plant ΓÇö</option>
                   {plantConfig.plants.map((p) => (
                     <option key={p} value={p}>
                       {p}
@@ -372,7 +436,7 @@ export function CreatePo() {
                 onChange={(e) => updateField("incoterm_location", e.target.value || undefined)}
                 aria-label="Incoterm"
               >
-                <option value="">— Select —</option>
+                <option value="">ΓÇö Select ΓÇö</option>
                 {INCOTERM_OPTIONS.map((code) => (
                   <option key={code} value={code}>
                     {code}
@@ -410,7 +474,7 @@ export function CreatePo() {
                 required
                 aria-label="Kawasan berikat"
               >
-                <option value="">— Select —</option>
+                <option value="">ΓÇö Select ΓÇö</option>
                 <option value="Yes">Yes</option>
                 <option value="No">No</option>
               </select>
@@ -490,7 +554,7 @@ export function CreatePo() {
                               value={item.unit ?? ""}
                               onChange={(v) => updateItem(index, "unit", v)}
                               allowEmpty
-                              emptyLabel="—"
+                              emptyLabel="ΓÇö"
                               placeholder=""
                               aria-label="Unit"
                             />
@@ -513,7 +577,7 @@ export function CreatePo() {
                             readOnly
                             tabIndex={-1}
                             className={styles.totalAmountReadonly}
-                            value={totalDisplay || "—"}
+                            value={totalDisplay || "ΓÇö"}
                             title={totalTitle}
                             aria-label={`Total amount ${poCurrency}${totalTitle ? `: ${totalTitle}` : ""}`}
                           />
@@ -545,11 +609,11 @@ export function CreatePo() {
 
         <div className={styles.stickyFormActions}>
           <div className={styles.stickyFormActionsInner}>
-            <Link href="/dashboard/po" className={styles.cancelOutline}>
+            <Link href="/import/po" className={styles.cancelOutline}>
               Cancel
             </Link>
             <Button type="submit" variant="primary" disabled={submitting} className={styles.createPrimary}>
-              {submitting ? "Creating…" : "Create Purchase Order"}
+              {submitting ? "CreatingΓÇª" : "Create Purchase Order"}
             </Button>
           </div>
         </div>
