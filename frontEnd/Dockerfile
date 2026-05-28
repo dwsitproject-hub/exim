@@ -15,9 +15,14 @@ RUN npm ci
 FROM base AS builder
 ARG NEXT_PUBLIC_API_URL=http://localhost:3003/api/v1
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+# Bust the COPY cache when the deployed commit changes
+ARG GIT_SHA=unknown
+ENV GIT_SHA=$GIT_SHA
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
+# Cap heap to 1.5 GB so the build does not exhaust server RAM and trigger OOM kills
+ENV NODE_OPTIONS="--max-old-space-size=1536"
 RUN npm run build
 
 # Runner (works with default Next.js; no standalone required)
