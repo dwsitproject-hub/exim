@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
@@ -39,7 +39,7 @@ const UNIT_OPTIONS: string[] = PO_ITEM_UNIT_OPTIONS.filter(
 );
 const UNIT_OPTION_SET = new Set<string>(UNIT_OPTIONS);
 
-/** Allow partial decimal input while typing (qty only ΓÇö no thousands separator). */
+/** Allow partial decimal input while typing (qty only — no thousands separator). */
 const DECIMAL_INPUT_PATTERN = /^\d*\.?\d*$/;
 
 const initialItem = (): ItemFormLine => ({
@@ -304,7 +304,7 @@ export function CreatePo() {
     <section className={styles.section}>
       <PageHeader title="Create Purchase Order" backHref="/import/po" backLabel="Purchase Order" />
 
-      {/* PDF upload + review panel ΓÇö sits outside the form so its buttons don't submit */}
+      {/* PDF upload + review panel — sits outside the form so its buttons don't submit */}
       <PoPdfUpload accessToken={accessToken} onApply={applyParsedPo} />
 
       <form onSubmit={handleSubmit} className={styles.form}>
@@ -312,7 +312,7 @@ export function CreatePo() {
 
         {pdfApplied && (
           <div className={styles.pdfAppliedBanner} role="status">
-            Γ£à Form pre-filled from document ΓÇö review all fields before submitting.
+            ✅ Form pre-filled from document — review all fields before submitting.
           </div>
         )}
 
@@ -331,7 +331,7 @@ export function CreatePo() {
                 required
                 aria-label="PT"
               >
-                <option value="">ΓÇö Select PT ΓÇö</option>
+                <option value="">— Select PT —</option>
                 {PT_OPTION_LABELS.map((label) => (
                   <option key={label} value={label}>
                     {label}
@@ -375,7 +375,7 @@ export function CreatePo() {
                   required
                   aria-label="Plant"
                 >
-                  <option value="">ΓÇö Select plant ΓÇö</option>
+                  <option value="">— Select plant —</option>
                   {plantConfig.plants.map((p) => (
                     <option key={p} value={p}>
                       {p}
@@ -436,7 +436,7 @@ export function CreatePo() {
                 onChange={(e) => updateField("incoterm_location", e.target.value || undefined)}
                 aria-label="Incoterm"
               >
-                <option value="">ΓÇö Select ΓÇö</option>
+                <option value="">— Select —</option>
                 {INCOTERM_OPTIONS.map((code) => (
                   <option key={code} value={code}>
                     {code}
@@ -474,7 +474,7 @@ export function CreatePo() {
                 required
                 aria-label="Kawasan berikat"
               >
-                <option value="">ΓÇö Select ΓÇö</option>
+                <option value="">— Select —</option>
                 <option value="Yes">Yes</option>
                 <option value="No">No</option>
               </select>
@@ -554,7 +554,7 @@ export function CreatePo() {
                               value={item.unit ?? ""}
                               onChange={(v) => updateItem(index, "unit", v)}
                               allowEmpty
-                              emptyLabel="ΓÇö"
+                              emptyLabel="—"
                               placeholder=""
                               aria-label="Unit"
                             />
@@ -577,7 +577,7 @@ export function CreatePo() {
                             readOnly
                             tabIndex={-1}
                             className={styles.totalAmountReadonly}
-                            value={totalDisplay || "ΓÇö"}
+                            value={totalDisplay || "—"}
                             title={totalTitle}
                             aria-label={`Total amount ${poCurrency}${totalTitle ? `: ${totalTitle}` : ""}`}
                           />
@@ -613,7 +613,7 @@ export function CreatePo() {
               Cancel
             </Link>
             <Button type="submit" variant="primary" disabled={submitting} className={styles.createPrimary}>
-              {submitting ? "CreatingΓÇª" : "Create Purchase Order"}
+              {submitting ? "Creating…" : "Create Purchase Order"}
             </Button>
           </div>
         </div>

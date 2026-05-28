@@ -1,6 +1,6 @@
-﻿/* PoPdfUpload ΓÇö upload zone, scanning state, and review modal */
+/* PoPdfUpload — upload zone, scanning state, and review modal */
 
-/* ΓöÇΓöÇ Hidden file input ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ */
+/* ── Hidden file input ─────────────────────────────────────── */
 .hiddenInput {
   position: absolute;
   width: 1px;
@@ -9,7 +9,7 @@
   pointer-events: none;
 }
 
-/* ΓöÇΓöÇ Upload zone (idle / scanning / error) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ */
+/* ── Upload zone (idle / scanning / error) ────────────────── */
 .uploadZone {
   border: 2px dashed var(--color-primitive-border-medium, #c4c4c4);
   border-radius: var(--borderRadius-md, 8px);
@@ -118,7 +118,7 @@
   background-color: rgba(196, 58, 49, 0.07);
 }
 
-/* ΓöÇΓöÇ Upload title with inline badge (scan complete zone) ΓöÇΓöÇΓöÇΓöÇ */
+/* ── Upload title with inline badge (scan complete zone) ──── */
 .uploadTitle {
   font-size: var(--typography-fontSize-base, 16px);
   font-weight: var(--typography-fontWeight-semibold, 600);
@@ -129,7 +129,7 @@
   gap: var(--spacing-1, 6px);
 }
 
-/* ΓöÇΓöÇ Modal overlay + panel ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ */
+/* ── Modal overlay + panel ────────────────────────────────── */
 .modalOverlay {
   position: fixed;
   inset: 0;
