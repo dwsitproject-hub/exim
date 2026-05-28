@@ -5,13 +5,14 @@ services:
       dockerfile: Dockerfile
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api/backend}
+        GIT_SHA: ${GIT_SHA:-unknown}
     container_name: eos-frontend-staging
     restart: unless-stopped
     env_file:
       - ./frontEnd/.env
     environment:
-      NODE_ENV: development
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api/backend}
       BACKEND_INTERNAL_URL: ${BACKEND_INTERNAL_URL}
     ports:
       - "3020:3000"
