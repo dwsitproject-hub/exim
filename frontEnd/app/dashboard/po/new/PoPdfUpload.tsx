@@ -1,13 +1,13 @@
-﻿"use client";
+"use client";
 
 /**
- * PoPdfUpload ΓÇö "Upload PO Document" button + interactive review modal.
+ * PoPdfUpload — "Upload PO Document" button + interactive review modal.
  *
  * Flow:
- *  1. User clicks "Choose PDF" ΓåÆ hidden file input opens.
- *  2. File selected ΓåÆ POST /po/import/parse-pdf ΓåÆ loading state.
- *  3. Success ΓåÆ compact "scan complete" zone inline + review modal opens automatically.
- *  4. User reviews in modal, clicks "Apply to form" ΓåÆ onApply() fires + modal closes.
+ *  1. User clicks "Choose PDF" → hidden file input opens.
+ *  2. File selected → POST /po/import/parse-pdf → loading state.
+ *  3. Success → compact "scan complete" zone inline + review modal opens automatically.
+ *  4. User reviews in modal, clicks "Apply to form" → onApply() fires + modal closes.
  *  5. User can re-open the modal or dismiss/re-scan at any time.
  */
 
@@ -48,7 +48,7 @@ type ScanStatus = "idle" | "scanning" | "done" | "error";
 const CONFIDENCE_LABEL: Record<string, string> = {
   high: "High confidence",
   medium: "Medium confidence",
-  low: "Low confidence ΓÇö review carefully",
+  low: "Low confidence — review carefully",
 };
 
 const CONFIDENCE_STYLE: Record<string, string> = {
@@ -73,7 +73,7 @@ function ItemsPreview({ items }: { items: ParsedPoItem[] }) {
   if (items.length === 0) {
     return (
       <p className={styles.noItems}>
-        No line items extracted ΓÇö please enter them manually in the Items section below.
+        No line items extracted — please enter them manually in the Items section below.
       </p>
     );
   }
@@ -220,7 +220,7 @@ export function PoPdfUpload({ accessToken, onApply }: Props) {
     setFileName(null);
   }
 
-  // ΓöÇΓöÇ Idle ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+  // ── Idle ──────────────────────────────────────────────────────────────────
   if (status === "idle") {
     return (
       <div className={styles.uploadZone}>
@@ -233,7 +233,7 @@ export function PoPdfUpload({ accessToken, onApply }: Props) {
           aria-label="Upload PO PDF document"
         />
         <div className={styles.uploadContent}>
-          <span className={styles.uploadIcon} aria-hidden>≡ƒôä</span>
+          <span className={styles.uploadIcon} aria-hidden>📄</span>
           <div className={styles.uploadText}>
             <span className={styles.uploadTitle}>Upload PO Document</span>
             <span className={styles.uploadHint}>
@@ -252,16 +252,16 @@ export function PoPdfUpload({ accessToken, onApply }: Props) {
     );
   }
 
-  // ΓöÇΓöÇ Scanning ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+  // ── Scanning ──────────────────────────────────────────────────────────────
   if (status === "scanning") {
     return (
       <div className={styles.uploadZone}>
         <div className={styles.uploadContent}>
           <span className={styles.spinner} aria-hidden />
           <div className={styles.uploadText}>
-            <span className={styles.uploadTitle}>Reading documentΓÇª</span>
+            <span className={styles.uploadTitle}>Reading document…</span>
             <span className={styles.uploadHint}>
-              Running OCR on <strong>{fileName}</strong>. This may take 10ΓÇô30 seconds.
+              Running OCR on <strong>{fileName}</strong>. This may take 10–30 seconds.
             </span>
           </div>
         </div>
@@ -269,7 +269,7 @@ export function PoPdfUpload({ accessToken, onApply }: Props) {
     );
   }
 
-  // ΓöÇΓöÇ Error ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+  // ── Error ─────────────────────────────────────────────────────────────────
   if (status === "error") {
     return (
       <div className={`${styles.uploadZone} ${styles.uploadZoneError}`}>
@@ -282,7 +282,7 @@ export function PoPdfUpload({ accessToken, onApply }: Props) {
           aria-label="Upload PO PDF document"
         />
         <div className={styles.uploadContent}>
-          <span className={styles.uploadIcon} aria-hidden>ΓÜá∩╕Å</span>
+          <span className={styles.uploadIcon} aria-hidden>⚠️</span>
           <div className={styles.uploadText}>
             <span className={styles.uploadTitle}>Scan failed</span>
             <span className={styles.uploadHint}>{errorMsg}</span>
@@ -300,13 +300,13 @@ export function PoPdfUpload({ accessToken, onApply }: Props) {
     );
   }
 
-  // ΓöÇΓöÇ Done ΓÇö compact inline zone + review modal ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+  // ── Done — compact inline zone + review modal ─────────────────────────────
   if (status === "done" && result) {
     const confStyle = CONFIDENCE_STYLE[result.confidence] ?? "badgeMedium";
 
     return (
       <>
-        {/* Compact inline zone ΓÇö visible behind/beneath the modal */}
+        {/* Compact inline zone — visible behind/beneath the modal */}
         <div className={`${styles.uploadZone} ${styles.uploadZoneDone}`}>
           <input
             ref={fileRef}
@@ -317,7 +317,7 @@ export function PoPdfUpload({ accessToken, onApply }: Props) {
             aria-label="Upload PO PDF document"
           />
           <div className={styles.uploadContent}>
-            <span className={styles.uploadIcon} aria-hidden>Γ£à</span>
+            <span className={styles.uploadIcon} aria-hidden>✅</span>
             <div className={styles.uploadText}>
               <span className={styles.uploadTitle}>
                 Scan complete
@@ -345,7 +345,7 @@ export function PoPdfUpload({ accessToken, onApply }: Props) {
           </div>
         </div>
 
-        {/* Review modal ΓÇö rendered via portal to escape form stacking context */}
+        {/* Review modal — rendered via portal to escape form stacking context */}
         {reviewOpen && createPortal(
           <div
             className={styles.modalOverlay}
@@ -364,7 +364,7 @@ export function PoPdfUpload({ accessToken, onApply }: Props) {
               {/* Modal header */}
               <div className={styles.modalHeader}>
                 <div className={styles.reviewHeaderLeft}>
-                  <span className={styles.reviewIcon} aria-hidden>Γ£à</span>
+                  <span className={styles.reviewIcon} aria-hidden>✅</span>
                   <span className={styles.reviewTitle}>Document scanned</span>
                   <span className={`${styles.confidenceBadge} ${styles[confStyle]}`}>
                     {CONFIDENCE_LABEL[result.confidence]}
@@ -376,7 +376,7 @@ export function PoPdfUpload({ accessToken, onApply }: Props) {
                   onClick={() => setReviewOpen(false)}
                   aria-label="Close review"
                 >
-                  Γ£ò
+                  ✕
                 </button>
               </div>
 
@@ -419,7 +419,7 @@ export function PoPdfUpload({ accessToken, onApply }: Props) {
               {/* Warnings */}
               {result.warnings.length > 0 && (
                 <div className={styles.warningsBox}>
-                  <p className={styles.warningsTitle}>ΓÜá∩╕Å Notes &amp; warnings</p>
+                  <p className={styles.warningsTitle}>⚠️ Notes &amp; warnings</p>
                   <ul className={styles.warningsList}>
                     {result.warnings.map((w, i) => (
                       <li key={i}>{w}</li>
@@ -446,7 +446,7 @@ export function PoPdfUpload({ accessToken, onApply }: Props) {
                     className={styles.applyBtn}
                     onClick={handleApply}
                   >
-                    Apply to form ΓåÆ
+                    Apply to form →
                   </button>
                 </div>
               </div>

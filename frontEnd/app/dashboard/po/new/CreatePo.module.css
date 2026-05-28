@@ -1,4 +1,4 @@
-﻿/* Create Purchase Order ΓÇö 3-col general grid; items table; sticky actions */
+/* Create Purchase Order — 3-col general grid; items table; sticky actions */
 
 .section {
   padding-bottom: calc(88px + var(--spacing-6, 40px));
@@ -20,7 +20,7 @@
   margin-bottom: var(--spacing-5, 32px);
 }
 
-/* 3-column grid ΓÇö more horizontal space per field */
+/* 3-column grid — more horizontal space per field */
 .grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -283,7 +283,7 @@
   color: var(--color-primitive-text-charcoal, #2b2b2b);
   border: 1px solid var(--color-primitive-border-light, #e8e8e8);
   border-radius: var(--borderRadius-md, 8px);
-  /* slate-50 ΓÇö read-only calculated field */
+  /* slate-50 — read-only calculated field */
   background-color: #f8fafc;
   cursor: default;
   box-sizing: border-box;
@@ -325,7 +325,7 @@
   border-color: var(--color-semantic-primary-default, #c43a31);
 }
 
-/* Sticky footer ΓÇö viewport bottom; offset for sidebar on desktop */
+/* Sticky footer — viewport bottom; offset for sidebar on desktop */
 .stickyFormActions {
   position: fixed;
   bottom: 0;
