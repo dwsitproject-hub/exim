@@ -11,10 +11,15 @@ export { login, logout, refresh, getMe } from "./auth-service";
 export {
   getPoDashboardCounts,
   getShipmentDashboardCounts,
-  getProductSpecificationSummary,
+  getDeliveredManagementSummary,
+  getDeliveredByPtPlantAgg,
+  getDeliveredByClassificationAgg,
+  getProcurementPlantReport,
+  getShipmentAnalytics,
 } from "./dashboard-service";
 export {
   listPo,
+  getPoListFilterOptions,
   getPoDetail,
   takeOwnership,
   createShipmentFromPo,

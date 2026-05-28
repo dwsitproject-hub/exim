@@ -1,6 +1,6 @@
 /**
- * PPN / PPH rates for shipment duty calculations (percent, e.g. 11 = 11%).
- * Configure via environment; defaults match prior product behavior.
+ * Default PPN / PPH rates when a shipment row has NULL `ppn_percentage` / `pph_percentage`.
+ * Per-shipment overrides are stored on `shipments`; env is the fallback only.
  */
 
 function parsePct(envKey: string, defaultVal: number): number {

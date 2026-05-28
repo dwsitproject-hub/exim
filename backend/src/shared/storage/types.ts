@@ -7,6 +7,12 @@ export interface StorageUploadOptions {
   versionId: string;
   fileName: string;
   mimeType?: string;
+  /**
+   * When set, storage key is `{directoryPrefix}/{leaf}` where leaf is `{stem}_{versionId}{ext}`
+   * when `fileName` has an extension (keeps `.pdf` etc. as the real extension).
+   * When omitted, `{documentId}/{leaf}`.
+   */
+  directoryPrefix?: string;
 }
 
 export interface StorageUploadResult {
@@ -22,6 +28,11 @@ export interface StorageDownloadResult {
 
 export interface IStorageService {
   upload(content: Buffer, options: StorageUploadOptions): Promise<StorageUploadResult>;
+  /**
+   * Stream from a temp file path into storage, then delete the temp file.
+   * Prefer this for large uploads to avoid holding the full file in memory.
+   */
+  uploadFromPath(sourcePath: string, options: StorageUploadOptions): Promise<StorageUploadResult>;
   download(storageKey: string): Promise<StorageDownloadResult | null>;
   delete(storageKey: string): Promise<void>;
   exists(storageKey: string): Promise<boolean>;

@@ -58,7 +58,8 @@ export function errorHandler(
     return;
   }
 
-  const isDev = config.nodeEnv !== "production";
+  /** Only true local dev should return raw error messages; staging/deployment must not leak internals. */
+  const isDev = config.nodeEnv === "development";
   const message = err instanceof Error ? err.message : "Internal server error";
   const statusCode = 500;
 

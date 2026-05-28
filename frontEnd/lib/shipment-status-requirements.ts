@@ -1,17 +1,20 @@
 /**
  * Required fields per shipment status for status-update UX.
- * When moving to a status (or skipping ahead), all required fields for that status
- * and any intermediate statuses must be filled.
- *
- * Document checks (uploaded files on the shipment) use the same transition path;
- * optional documents are listed in STATUS_REQUIRED_DOCS but do not block updates.
+ * Before advancing **current → target**, only **current** status rules apply (fields + enforced docs).
+ * Requirements for the **target** status are satisfied while that status is current, before the next move.
  *
  * Incoterm-based rules:
- * - EXW / FCA / FOB: Buyer arranges transport → BIDDING_TRANSPORTER exists.
- * - CFR / CIF / CPT / CIP / DAP / DPU / DDP: Other party arranges transport → BIDDING_TRANSPORTER is skipped.
+ * - EXW / FCA / FOB: BIDDING_TRANSPORTER exists in the chain.
+ * - CFR / CIF / CPT / CIP / DAP / DPU / DDP: BIDDING_TRANSPORTER is skipped.
+ *
+ * **Ship by** when **Ship via** is **Sea**: required only when leaving **TRANSPORT_CONFIRMED** (not Initiate).
+ *
+ * **Single-step** forward (next status only): enforce **current** status fields + docs (+ `closed_at` when target is Delivered).
+ * **Multi-skip**: enforce fields + docs for **every** status from current through target (inclusive on the applicable chain).
  */
 
 import type { ShipmentDocumentListItem } from "@/types/shipments";
+import { isPibTypeBc23, isPibTypeConsignmentNote } from "@/lib/pib-type-label";
 
 export const SHIPMENT_STATUS_ORDER = [
   "INITIATE_SHIPPING_DOCUMENT",
@@ -39,6 +42,11 @@ function hasBiddingTransporterStep(incoterm: string | null | undefined): boolean
   return INCOTERMS_WITH_BIDDING_TRANSPORTER.includes(n as (typeof INCOTERMS_WITH_BIDDING_TRANSPORTER)[number]);
 }
 
+/** Ship by (Bulk / LCL / FCL) applies to Sea only; Air does not use Ship by. */
+export function isShipmentMethodSea(shipmentMethod: string | null | undefined): boolean {
+  return (shipmentMethod ?? "").trim().toUpperCase() === "SEA";
+}
+
 /**
  * Returns the list of statuses that apply for this shipment based on incoterm.
  * When incoterm is CFR/CIF/CPT/CIP/DAP/DPU/DDP, BIDDING_TRANSPORTER is excluded.
@@ -53,6 +61,7 @@ export const STATUS_FIELD_LABELS: Record<string, string> = {
   ship_by: "Ship by",
   pib_type: "PIB type",
   no_request_pib: "PIB Doc No",
+  ppjk_mkl: "PPJK/EMKL",
   nopen: "Nopen",
   nopen_date: "Nopen Date",
   coo: "COO (Certificate of Origin)",
@@ -60,7 +69,7 @@ export const STATUS_FIELD_LABELS: Record<string, string> = {
   origin_port_country: "Origin port country",
   etd: "ETD (Est. time departure)",
   eta: "ETA (Est. time arrival)",
-  forwarder_name: "Forwarder name",
+  forwarder_name: "Forwarder / liner",
   shipment_method: "Ship via (Air / Sea)",
   destination_port_name: "Destination port name",
   destination_port_country: "Destination port country",
@@ -73,9 +82,9 @@ export const STATUS_FIELD_LABELS: Record<string, string> = {
   has_bidding_participant: "At least one Forwarder Bidding participant",
   has_received_this_shipment: "Delivered Qty on group PO lines",
   has_currency_rate: "Currency rate on group PO",
-  bm_percentage: "BM rate (%)",
+  line_duty_percentages: "BM%, PPN%, and PPH% on each delivered line item",
   closed_at: "Delivered at",
-  incoterm_amount: "Service & charge (incoterm amount)",
+  incoterm_amount: "Freight charges",
   product_classification: "Product classification type",
   surveyor: "Surveyor",
 };
@@ -88,6 +97,7 @@ export const STATUS_DOC_REQUIREMENT_LABELS: Record<string, string> = {
   "doc:bl": "Bill of Lading (Documents)",
   "doc:pib_bc": "PIB / BC (Documents)",
   "doc:sppb": "SPPB (Documents)",
+  "doc:sppbmcp": "SPPBMCP (Documents)",
   "doc:vo": "VO (Documents — required at Ready Pickup when Surveyor is Yes)",
 };
 
@@ -100,8 +110,9 @@ export const STATUS_REQUIRED_DOCS: Record<string, string[]> = {
   BIDDING_TRANSPORTER: ["Quotation from each forwarder (optional)"],
   TRANSPORT_CONFIRMED: [],
   READY_PICKUP: ["VO (required when Surveyor is Yes)"],
-  PICKED_UP: ["Bill of Lading", "Laporan Surveyor (optional)"],
-  ON_SHIPMENT: ["COO (optional)", "Insurance (optional)"],
+  PICKED_UP: ["Laporan Surveyor (optional)"],
+  ON_SHIPMENT: ["Bill of Lading", "COO (optional)", "Insurance (optional)"],
+  /** Non–Consignment Note; Consignment Note hints are built in `getRequiredDocsForTransition`. */
   CUSTOMS_CLEARANCE: ["PIB / BC", "SPPB", "SPPBMCP (optional)"],
   DELIVERED: [],
 };
@@ -116,7 +127,6 @@ const STATUS_REQUIREMENTS: Record<string, StatusRequirement> = {
   INITIATE_SHIPPING_DOCUMENT: {
     status: "INITIATE_SHIPPING_DOCUMENT",
     requiredFields: [
-      "ship_by",
       "pib_type",
       "origin_port_name",
       "origin_port_country",
@@ -130,18 +140,17 @@ const STATUS_REQUIREMENTS: Record<string, StatusRequirement> = {
   },
   BIDDING_TRANSPORTER: {
     status: "BIDDING_TRANSPORTER",
-    /** Work happens here (add forwarder bids); validation is enforced when leaving to Transport Confirmed. */
-    requiredFields: ["has_bidding_participant", "incoterm_amount"],
+    requiredFields: ["has_bidding_participant"],
     requiredDocs: STATUS_REQUIRED_DOCS.BIDDING_TRANSPORTER,
   },
   TRANSPORT_CONFIRMED: {
     status: "TRANSPORT_CONFIRMED",
-    requiredFields: ["shipment_method", "incoterm_amount", "destination_port_name", "destination_port_country"],
+    requiredFields: ["forwarder_name", "incoterm_amount", "shipment_method"],
     requiredDocs: [],
   },
   READY_PICKUP: {
     status: "READY_PICKUP",
-    requiredFields: ["bl_awb"],
+    requiredFields: [],
     requiredDocs: STATUS_REQUIRED_DOCS.READY_PICKUP,
   },
   PICKED_UP: {
@@ -151,12 +160,12 @@ const STATUS_REQUIREMENTS: Record<string, StatusRequirement> = {
   },
   ON_SHIPMENT: {
     status: "ON_SHIPMENT",
-    requiredFields: ["no_request_pib", "nopen", "nopen_date"],
+    requiredFields: ["bl_awb", "no_request_pib", "ppjk_mkl"],
     requiredDocs: STATUS_REQUIRED_DOCS.ON_SHIPMENT,
   },
   CUSTOMS_CLEARANCE: {
     status: "CUSTOMS_CLEARANCE",
-    requiredFields: ["ata", "has_currency_rate", "bm_percentage"],
+    requiredFields: ["ata", "nopen", "nopen_date", "has_currency_rate", "line_duty_percentages"],
     requiredDocs: STATUS_REQUIRED_DOCS.CUSTOMS_CLEARANCE,
   },
   DELIVERED: {
@@ -166,20 +175,14 @@ const STATUS_REQUIREMENTS: Record<string, StatusRequirement> = {
   },
 };
 
-function statusIndex(status: string): number {
-  const i = SHIPMENT_STATUS_ORDER.indexOf(status as (typeof SHIPMENT_STATUS_ORDER)[number]);
-  return i === -1 ? -1 : i;
-}
-
 function statusIndexInList(status: string, list: readonly string[]): number {
   const i = list.indexOf(status);
   return i === -1 ? -1 : i;
 }
 
 /**
- * Returns statuses that must have their requirements satisfied when moving from
- * currentStatus to targetStatus (includes target, and any skipped intermediate).
- * When incoterm is CFR/CIF/CPT/CIP/DAP/DPU/DDP, BIDDING_TRANSPORTER is excluded from the path.
+ * Statuses strictly after current through target (inclusive of target), on the incoterm-applicable chain.
+ * Validation uses **current** status only; this helper remains for callers that need the forward path.
  */
 export function getStatusesRequiredForTransition(
   currentStatus: string,
@@ -197,31 +200,68 @@ export function getStatusesRequiredForTransition(
   return out;
 }
 
+function addRequiredFieldsForLifecycleStatus(
+  set: Set<string>,
+  statusKey: string,
+  incoterm: string | null | undefined,
+  pibType: string | null | undefined,
+  shipmentMethod: string | null | undefined
+): void {
+  const biddingStepApplies = hasBiddingTransporterStep(incoterm);
+  const skipBmForBc23 = isPibTypeBc23(pibType);
+  const req = STATUS_REQUIREMENTS[statusKey];
+  if (!req) return;
+  for (const f of req.requiredFields) {
+    if (f === "has_bidding_participant") {
+      if (!biddingStepApplies || statusKey !== "BIDDING_TRANSPORTER") continue;
+    }
+    if (f === "line_duty_percentages" && skipBmForBc23) continue;
+    if (
+      (f === "forwarder_name" || f === "incoterm_amount" || f === "shipment_method") &&
+      statusKey !== "TRANSPORT_CONFIRMED"
+    ) {
+      continue;
+    }
+    set.add(f);
+  }
+  if (statusKey === "TRANSPORT_CONFIRMED" && isShipmentMethodSea(shipmentMethod)) {
+    set.add("ship_by");
+  }
+}
+
 /**
- * Returns all required field keys for moving from currentStatus to targetStatus
- * (union of required fields for every applicable status up to the target).
+ * Required field keys before `currentStatus` → `targetStatus` (forward on the applicable chain).
+ * Adjacent step: **current** only + `closed_at` if target is Delivered.
+ * Multi-skip: union of requirements for every status from **current through target** inclusive.
  */
 export function getRequiredFieldsForTransition(
   currentStatus: string,
   targetStatus: string,
-  incoterm?: string | null
+  incoterm?: string | null,
+  /** When PIB type is BC 2.3, BM rate is not required for customs clearance. */
+  pibType?: string | null,
+  /** Ship via: Ship by is required only when this is Sea. */
+  shipmentMethod?: string | null
 ): string[] {
   const applicable = getApplicableStatuses(incoterm);
   const current = statusIndexInList(currentStatus, applicable);
   const target = statusIndexInList(targetStatus, applicable);
   if (current === -1 || target === -1 || target <= current) return [];
-  // Re-validate all status requirements up to target on every forward transition.
-  const statuses = applicable.slice(0, target + 1);
-  const set = new Set<string>();
 
-  const biddingStepApplies = hasBiddingTransporterStep(incoterm);
-  for (const s of statuses) {
-    const req = STATUS_REQUIREMENTS[s];
-    if (req) {
-      for (const f of req.requiredFields) {
-        if (f === "has_bidding_participant" && !biddingStepApplies) continue;
-        set.add(f);
+  const set = new Set<string>();
+  const singleStep = target === current + 1;
+
+  if (singleStep) {
+    addRequiredFieldsForLifecycleStatus(set, currentStatus, incoterm, pibType, shipmentMethod);
+    if (targetStatus === "DELIVERED") {
+      const delivered = STATUS_REQUIREMENTS.DELIVERED;
+      if (delivered) {
+        for (const f of delivered.requiredFields) set.add(f);
       }
+    }
+  } else {
+    for (const s of applicable.slice(current, target + 1)) {
+      addRequiredFieldsForLifecycleStatus(set, s, incoterm, pibType, shipmentMethod);
     }
   }
   return Array.from(set);
@@ -239,6 +279,7 @@ export function getMissingRequiredFields(
     ship_by?: string | null;
     pib_type?: string | null;
     no_request_pib?: string | null;
+    ppjk_mkl?: string | null;
     nopen?: string | null;
     nopen_date?: string | null;
     coo?: string | null;
@@ -255,14 +296,20 @@ export function getMissingRequiredFields(
     atd?: string | null;
     ata?: string | null;
     depo?: boolean | null;
-    bm_percentage?: number | null;
     product_classification?: string | null;
     closed_at?: string | null;
+    incoterm_amount?: number | null;
     bids?: unknown[];
     linked_pos?: unknown[];
   }
 ): string[] {
-  const required = getRequiredFieldsForTransition(currentStatus, targetStatus, detail.incoterm);
+  const required = getRequiredFieldsForTransition(
+    currentStatus,
+    targetStatus,
+    detail.incoterm,
+    detail.pib_type,
+    detail.shipment_method
+  );
   const missing: string[] = [];
   for (const key of required) {
     if (key === "has_linked_po") {
@@ -300,20 +347,54 @@ export function getMissingRequiredFields(
           const c = String((po as { currency?: unknown }).currency ?? "")
             .trim()
             .toUpperCase();
-          return c === "IDR";
+          return c === "IDR" || c === "RP";
         });
       if (allIdr) {
         continue;
       }
-      const allHaveRate =
+      /** One currency rate for the whole shipment group; any linked row may hold it. */
+      const hasGroupFxRate =
         hasLinked &&
-        linked.every((po) => {
+        linked.some((po) => {
           if (!po || typeof po !== "object") return false;
+          const c = String((po as { currency?: unknown }).currency ?? "")
+            .trim()
+            .toUpperCase();
+          if (c === "IDR" || c === "RP") return false;
           const raw = (po as { currency_rate?: unknown }).currency_rate;
           const n = Number(raw);
           return Number.isFinite(n) && n > 0;
         });
-      if (!allHaveRate) missing.push(key);
+      if (!hasGroupFxRate) missing.push(key);
+      continue;
+    }
+    if (key === "incoterm_amount") {
+      const v = detail.incoterm_amount;
+      if (v == null || !Number.isFinite(Number(v))) missing.push(key);
+      continue;
+    }
+    if (key === "line_duty_percentages") {
+      const linked = Array.isArray(detail.linked_pos) ? detail.linked_pos : [];
+      let incomplete = false;
+      outer: for (const po of linked) {
+        if (!po || typeof po !== "object") continue;
+        const lines = (po as { line_received?: unknown[] }).line_received;
+        if (!Array.isArray(lines)) continue;
+        for (const line of lines) {
+          if (!line || typeof line !== "object") continue;
+          const qty = Number((line as { received_qty?: unknown }).received_qty);
+          if (!Number.isFinite(qty) || qty <= 0) continue;
+          const bm = (line as { bm_percentage?: unknown }).bm_percentage;
+          const ppn = (line as { ppn_percentage?: unknown }).ppn_percentage;
+          const pph = (line as { pph_percentage?: unknown }).pph_percentage;
+          const ok = (v: unknown) => v != null && Number.isFinite(Number(v)) && Number(v) >= 0 && Number(v) <= 100;
+          if (!ok(bm) || !ok(ppn) || !ok(pph)) {
+            incomplete = true;
+            break outer;
+          }
+        }
+      }
+      if (incomplete) missing.push(key);
       continue;
     }
     const value = (detail as Record<string, unknown>)[key];
@@ -349,6 +430,10 @@ function hasSppbDoc(docs: ShipmentDocumentListItem[]): boolean {
   return docs.some((d) => d.document_type === "SPPB");
 }
 
+function hasSppbmcpDoc(docs: ShipmentDocumentListItem[]): boolean {
+  return docs.some((d) => d.document_type === "SPPBMCP");
+}
+
 function hasVoDoc(docs: ShipmentDocumentListItem[]): boolean {
   return docs.some((d) => d.document_type === "VO");
 }
@@ -371,25 +456,19 @@ export type ShipmentDocumentValidationContext = {
   linked_pos: { intake_id: string }[];
   /** Used for VO requirement at Ready Pickup when Surveyor is Yes. */
   surveyor: string | null;
+  /** Customs clearance document set when PIB type is Consignment Note. */
+  pib_type?: string | null;
 };
 
-/**
- * Document uploads required for the transition (same path as fields).
- * Returns synthetic keys `doc:*` merged with field keys in the UI; optional docs never appear here.
- */
-export function getMissingRequiredDocuments(
-  currentStatus: string,
-  targetStatus: string,
-  incoterm: string | null | undefined,
-  ctx: ShipmentDocumentValidationContext
-): string[] {
-  const statuses = getStatusesRequiredForTransition(currentStatus, targetStatus, incoterm);
-  const missing = new Set<string>();
-  const docs = ctx.documents ?? [];
-  const linked = ctx.linked_pos ?? [];
-
-  const leavingInitiate = currentStatus === "INITIATE_SHIPPING_DOCUMENT" && statuses.length > 0;
-  if (leavingInitiate) {
+function addEnforcedDocsForLifecycleStatus(
+  missing: Set<string>,
+  statusKey: string,
+  docs: ShipmentDocumentListItem[],
+  linked: { intake_id: string }[],
+  surveyor: string | null,
+  pibType: string | null | undefined
+): void {
+  if (statusKey === "INITIATE_SHIPPING_DOCUMENT") {
     if (linked.length > 0 && linkedPosMissingPoDoc(docs, linked)) {
       missing.add("doc:po");
     }
@@ -400,17 +479,47 @@ export function getMissingRequiredDocuments(
       missing.add("doc:packing_list");
     }
   }
-
-  for (const s of statuses) {
-    if (s === "READY_PICKUP" && isSurveyorYes(ctx.surveyor)) {
-      if (!hasVoDoc(docs)) missing.add("doc:vo");
-    }
-    if (s === "PICKED_UP") {
-      if (!hasBlDoc(docs)) missing.add("doc:bl");
-    }
-    if (s === "CUSTOMS_CLEARANCE") {
+  if (statusKey === "READY_PICKUP" && isSurveyorYes(surveyor)) {
+    if (!hasVoDoc(docs)) missing.add("doc:vo");
+  }
+  if (statusKey === "ON_SHIPMENT") {
+    if (!hasBlDoc(docs)) missing.add("doc:bl");
+  }
+  if (statusKey === "CUSTOMS_CLEARANCE") {
+    if (isPibTypeConsignmentNote(pibType)) {
+      if (!hasSppbmcpDoc(docs)) missing.add("doc:sppbmcp");
+    } else {
       if (!hasPibBcDoc(docs)) missing.add("doc:pib_bc");
       if (!hasSppbDoc(docs)) missing.add("doc:sppb");
+    }
+  }
+}
+
+/**
+ * Enforced document uploads: same adjacency rule as `getRequiredFieldsForTransition`.
+ */
+export function getMissingRequiredDocuments(
+  currentStatus: string,
+  targetStatus: string,
+  incoterm: string | null | undefined,
+  ctx: ShipmentDocumentValidationContext
+): string[] {
+  const applicable = getApplicableStatuses(incoterm);
+  const current = statusIndexInList(currentStatus, applicable);
+  const target = statusIndexInList(targetStatus, applicable);
+  if (current === -1 || target === -1 || target <= current) return [];
+
+  const missing = new Set<string>();
+  const docs = ctx.documents ?? [];
+  const linked = ctx.linked_pos ?? [];
+  const singleStep = target === current + 1;
+  const pibType = ctx.pib_type;
+
+  if (singleStep) {
+    addEnforcedDocsForLifecycleStatus(missing, currentStatus, docs, linked, ctx.surveyor, pibType);
+  } else {
+    for (const s of applicable.slice(current, target + 1)) {
+      addEnforcedDocsForLifecycleStatus(missing, s, docs, linked, ctx.surveyor, pibType);
     }
   }
 
@@ -421,22 +530,36 @@ export function getRequiredDocsForStatus(status: string): string[] {
   return STATUS_REQUIRED_DOCS[status] ?? [];
 }
 
-/**
- * Returns required documents for the transition. Uses incoterm so path excludes BIDDING_TRANSPORTER when applicable.
- */
+function customsClearanceDocHintLines(pibType: string | null | undefined): string[] {
+  if (isPibTypeConsignmentNote(pibType)) return ["SPPBMCP"];
+  return STATUS_REQUIRED_DOCS.CUSTOMS_CLEARANCE ?? [];
+}
+
+/** Hint list: **current** only if single-step; union of hints for every status on the path if multi-skip. */
 export function getRequiredDocsForTransition(
   currentStatus: string,
   targetStatus: string,
-  incoterm?: string | null
+  incoterm?: string | null,
+  pibType?: string | null
 ): string[] {
-  const statuses = getStatusesRequiredForTransition(currentStatus, targetStatus, incoterm);
-  const out: string[] = [];
+  const applicable = getApplicableStatuses(incoterm);
+  const current = statusIndexInList(currentStatus, applicable);
+  const target = statusIndexInList(targetStatus, applicable);
+  if (current === -1 || target === -1 || target <= current) return [];
+
+  const singleStep = target === current + 1;
+  const statusKeys = singleStep
+    ? [currentStatus]
+    : [...applicable.slice(current, target + 1)];
+
   const seen = new Set<string>();
-  for (const s of statuses) {
-    for (const doc of getRequiredDocsForStatus(s)) {
-      if (!seen.has(doc)) {
-        seen.add(doc);
-        out.push(doc);
+  const out: string[] = [];
+  for (const s of statusKeys) {
+    const lines = s === "CUSTOMS_CLEARANCE" ? customsClearanceDocHintLines(pibType) : (STATUS_REQUIRED_DOCS[s] ?? []);
+    for (const line of lines) {
+      if (!seen.has(line)) {
+        seen.add(line);
+        out.push(line);
       }
     }
   }
@@ -449,3 +572,5 @@ export function getFieldLabel(fieldKey: string): string {
   }
   return STATUS_FIELD_LABELS[fieldKey] ?? fieldKey;
 }
+
+

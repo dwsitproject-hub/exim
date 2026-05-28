@@ -3,7 +3,7 @@
  */
 
 import { apiGet, apiPost, apiPatch, apiRequest } from "./api-client";
-import type { UserAdmin, UserImportResult } from "@/types/users";
+import type { MentionableUser, UserAdmin, UserImportResult } from "@/types/users";
 import type { ApiResponse } from "@/types/api";
 
 function buildQuery(params: { search?: string; page?: number; limit?: number }): string {
@@ -15,11 +15,27 @@ function buildQuery(params: { search?: string; page?: number; limit?: number }):
   return s ? `?${s}` : "";
 }
 
+function mentionableQuery(params: { q?: string; limit?: number }): string {
+  const q = new URLSearchParams();
+  if (params.q != null && params.q.trim()) q.set("q", params.q.trim());
+  if (params.limit != null) q.set("limit", String(params.limit));
+  const s = q.toString();
+  return s ? `?${s}` : "";
+}
+
 export async function listUsers(
   params: { search?: string; page?: number; limit?: number },
   accessToken: string | null
 ): Promise<ApiResponse<UserAdmin[]>> {
   return apiGet<UserAdmin[]>(`users${buildQuery(params)}`, accessToken);
+}
+
+/** Active users for @mentions (requires VIEW_SHIPMENTS). */
+export async function listMentionableUsers(
+  params: { q?: string; limit?: number },
+  accessToken: string | null
+): Promise<ApiResponse<MentionableUser[]>> {
+  return apiGet<MentionableUser[]>(`users/mentionable${mentionableQuery(params)}`, accessToken);
 }
 
 export async function getUser(id: string, accessToken: string | null): Promise<ApiResponse<UserAdmin>> {

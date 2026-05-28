@@ -20,6 +20,25 @@ const merriweather = Merriweather({
 export const metadata: Metadata = {
   title: "EOS — Exim Operation System",
   description: "Phase 1 Import Operation",
+  manifest: "/faveicon/site.webmanifest",
+  icons: {
+    icon: [
+      { url: "/faveicon/favicon.ico", sizes: "any" },
+      { url: "/faveicon/favicon-16x16.png", sizes: "16x16", type: "image/png" },
+      { url: "/faveicon/favicon-32x32.png", sizes: "32x32", type: "image/png" },
+    ],
+    apple: "/faveicon/apple-touch-icon.png",
+    other: [
+      {
+        rel: "android-chrome-192x192",
+        url: "/faveicon/android-chrome-192x192.png",
+      },
+      {
+        rel: "android-chrome-512x512",
+        url: "/faveicon/android-chrome-512x512.png",
+      },
+    ],
+  },
 };
 
 export default function RootLayout({

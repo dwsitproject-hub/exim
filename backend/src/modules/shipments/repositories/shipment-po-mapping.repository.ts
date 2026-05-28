@@ -89,11 +89,27 @@ export class ShipmentPoMappingRepository {
               s.atd, s.ata, s.closed_at
        FROM shipment_po_mapping m
        JOIN shipments s ON s.id = m.shipment_id
-       WHERE m.intake_id = $1 AND m.decoupled_at IS NULL
+       WHERE m.intake_id = $1 AND m.decoupled_at IS NULL AND s.deleted_at IS NULL
        ORDER BY m.coupled_at ASC`,
       [intakeId]
     );
     return result.rows;
+  }
+
+  /** Decouple every active PO from this shipment (e.g. before soft-delete). Returns affected intake ids. */
+  async decoupleAllActiveForShipment(
+    shipmentId: string,
+    decoupledBy: string,
+    reason: string | null
+  ): Promise<string[]> {
+    const result = await this.pool.query<{ intake_id: string }>(
+      `UPDATE shipment_po_mapping
+       SET decoupled_at = NOW(), decoupled_by = $2, decouple_reason = $3
+       WHERE shipment_id = $1 AND decoupled_at IS NULL
+       RETURNING intake_id`,
+      [shipmentId, decoupledBy, reason]
+    );
+    return result.rows.map((r) => r.intake_id);
   }
 
   /**
@@ -110,16 +126,22 @@ export class ShipmentPoMappingRepository {
       pt: string | null;
       plant: string | null;
       taken_by_name: string | null;
+      currency: string | null;
+      intake_status: string | null;
       items: ShipmentListPoLineItem[] | null;
     }>(
       `SELECT m.shipment_id, m.intake_id, i.po_number, i.pt, i.plant, u.name AS taken_by_name,
+        i.currency, i.intake_status,
         COALESCE(
           (SELECT json_agg(
             json_build_object(
               'item_description', it.item_description,
               'qty_po', it.qty,
               'delivery_qty', r.received_qty,
-              'unit', it.unit
+              'unit', it.unit,
+              'bm_percentage', r.bm_percentage,
+              'ppn_percentage', r.ppn_percentage,
+              'pph_percentage', r.pph_percentage
             ) ORDER BY it.line_number
           )
           FROM Import_purchase_order_items it
@@ -127,7 +149,7 @@ export class ShipmentPoMappingRepository {
             ON r.shipment_id = m.shipment_id
             AND r.intake_id = m.intake_id
             AND r.item_id = it.id
-          WHERE it.intake_id = m.intake_id),
+          WHERE it.import_purchase_order_id = m.intake_id),
           '[]'::json
         ) AS items
        FROM shipment_po_mapping m
@@ -146,6 +168,8 @@ export class ShipmentPoMappingRepository {
         pt: row.pt,
         plant: row.plant,
         taken_by_name: row.taken_by_name,
+        currency: row.currency ?? null,
+        intake_status: row.intake_status ?? null,
         items,
       });
       map.set(row.shipment_id, list);
@@ -230,5 +254,39 @@ export class ShipmentPoMappingRepository {
       [decoupledBy, reason, shipmentId, intakeId]
     );
     return (result.rowCount ?? 0) > 0;
+  }
+
+  /** All shipment mappings for an intake (including decoupled), for PO activity log. */
+  async findAllMappingsWithShipmentByIntakeId(intakeId: string): Promise<
+    Array<{
+      mapping_id: string;
+      shipment_id: string;
+      shipment_no: string;
+      coupled_at: Date;
+      coupled_by: string;
+      decoupled_at: Date | null;
+      decoupled_by: string | null;
+      decouple_reason: string | null;
+    }>
+  > {
+    const result = await this.pool.query<{
+      mapping_id: string;
+      shipment_id: string;
+      shipment_no: string;
+      coupled_at: Date;
+      coupled_by: string;
+      decoupled_at: Date | null;
+      decoupled_by: string | null;
+      decouple_reason: string | null;
+    }>(
+      `SELECT m.id AS mapping_id, m.shipment_id, s.shipment_no, m.coupled_at, m.coupled_by,
+              m.decoupled_at, m.decoupled_by, m.decouple_reason
+       FROM shipment_po_mapping m
+       JOIN shipments s ON s.id = m.shipment_id
+       WHERE m.intake_id = $1
+       ORDER BY m.coupled_at ASC`,
+      [intakeId]
+    );
+    return result.rows;
   }
 }

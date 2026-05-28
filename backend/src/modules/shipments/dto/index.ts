@@ -2,6 +2,8 @@
  * Shipment DTOs. Main operational entity; status timeline; PO mapping.
  */
 
+import type { FreightChargeCurrency } from "../../../shared/freight-currency.js";
+
 export const SHIPMENT_STATUSES = [
   "INITIATE_SHIPPING_DOCUMENT",
   "BIDDING_TRANSPORTER",
@@ -35,6 +37,7 @@ export interface CreateShipmentDto {
   remarks?: string;
   pib_type?: string;
   no_request_pib?: string;
+  ppjk_mkl?: string;
   nopen?: string;
   nopen_date?: string;
   ship_by?: string;
@@ -42,8 +45,8 @@ export interface CreateShipmentDto {
   insurance_no?: string;
   coo?: string;
   incoterm_amount?: number;
-  cbm?: number;
-  bm_percentage?: number;
+  incoterm_currency?: FreightChargeCurrency;
+  cbm?: number | null;
   kawasan_berikat?: string;
   product_classification?: string;
 }
@@ -58,17 +61,19 @@ export interface UpdateShipmentDto {
   remarks?: string;
   pib_type?: string;
   no_request_pib?: string;
+  ppjk_mkl?: string;
   nopen?: string;
   nopen_date?: string;
-  ship_by?: string;
+  /** Null clears ship_by (e.g. when Ship via is Air). */
+  ship_by?: string | null;
   bl_awb?: string;
   insurance_no?: string;
   coo?: string;
   incoterm_amount?: number;
-  cbm?: number;
+  incoterm_currency?: FreightChargeCurrency;
+  cbm?: number | null;
   net_weight_mt?: number;
   gross_weight_mt?: number;
-  bm_percentage?: number;
   origin_port_name?: string;
   origin_port_country?: string;
   forwarder_name?: string;
@@ -91,6 +96,12 @@ export interface UpdateShipmentDto {
   container_count_40ft?: number | null;
   package_count?: number | null;
   container_count_20_iso_tank?: number | null;
+  /** BM total (IDR), user-entered. */
+  bm?: number;
+  /** PPN total (IDR), user-entered. */
+  ppn_amount?: number;
+  /** PPH total (IDR), user-entered. */
+  pph_amount?: number;
 }
 
 export interface CloseShipmentDto {
@@ -106,10 +117,99 @@ export interface ListShipmentsQuery {
   po_number?: string;
   from_date?: string;
   to_date?: string;
+  /** Inclusive YYYY-MM-DD on `(created_at AT TIME ZONE 'UTC')::date` (analytics / drill-down). */
+  created_from?: string;
+  /** Inclusive YYYY-MM-DD on `(created_at AT TIME ZONE 'UTC')::date`. */
+  created_to?: string;
   /** Inclusive; filters shipments that have at least one active linked PO whose effective PO date is on or after this day (uses `Import_purchase_order.po_date`, else intake `created_at` UTC date). */
   po_from_date?: string;
   /** Inclusive; same semantics as `po_from_date` for upper bound. */
   po_to_date?: string;
+  /**
+   * When true (e.g. `active_pipeline=true`), only shipments that are still open for operations:
+   * `closed_at IS NULL` and `current_status <> 'DELIVERED'`.
+   */
+  active_pipeline?: boolean;
+  /** Any linked PO (active mapping) has this exact trimmed `pt`. */
+  pt?: string;
+  /** Any linked PO has this exact trimmed `plant`. */
+  plant?: string;
+  /** OR of `pt` (repeat query param `pt` or CSV `pts_in`); merged with `pt` when both sent. */
+  pts?: string[];
+  /** OR of `plant` (repeat `plant` or CSV `plants_in`). */
+  plants?: string[];
+  /** Shipment `product_classification` matches canonical filter (includes legacy spellings for Chemical/Package). */
+  product_classification?: string;
+  /** OR of classifications (repeat `product_classification` or CSV `product_classifications_in`). */
+  product_classifications?: string[];
+  /** `shipment_method` case-insensitive exact trim (e.g. AIR, SEA). */
+  shipment_method?: string;
+  /** Case-insensitive exact match on `vendor_name`. */
+  vendor_name_exact?: string;
+  /** OR of vendor exact matches (repeat `vendor_name_exact` or CSV `vendor_names_in`). */
+  vendor_names_exact?: string[];
+  /** OR of `current_status` (repeat `status` or CSV `statuses_in`); when set with multiple values, single `status` is merged. */
+  statuses?: string[];
+  /** OR of `shipment_no` exact matches. */
+  shipment_nos?: string[];
+  /** OR of linked PO `po_number` exact matches (any active mapping). */
+  po_numbers?: string[];
+  /** OR of trimmed `incoterm`. */
+  incoterms?: string[];
+  /** OR of trimmed `pib_type`. */
+  pib_types?: string[];
+  /** OR of `shipment_method` (case-insensitive trim). */
+  shipment_methods?: string[];
+  /** OR of trimmed `ship_by`. */
+  ship_bys?: string[];
+  /** OR of trimmed `forwarder_name` (case-insensitive). */
+  forwarder_names?: string[];
+  /** OR of linked PO owner `users.name` (PIC). */
+  pic_names?: string[];
+  /** OR of ETD dates (YYYY-MM-DD, UTC date). */
+  etd_dates?: string[];
+  /** OR of ETA dates (YYYY-MM-DD, UTC date). */
+  eta_dates?: string[];
+  /** OR of trimmed `origin_port_name`. */
+  origin_port_names?: string[];
+  /** OR of trimmed `destination_port_name`. */
+  destination_port_names?: string[];
+  /**
+   * Managerial deep-link: shipments with at least one linked PO line that still has global remaining qty,
+   * and shipment last update older than `dormant_days` (default 30).
+   */
+  dormant_remaining_qty?: boolean;
+  /** Used with `dormant_remaining_qty`; default 30. */
+  dormant_days?: number;
+  /**
+   * Shipment performance “late / delayed” drill-down: not delivered, ETA set, ETA calendar date before today (UTC).
+   * Aligns with `computeOnTimeStatus` → `kind === "late"` when ETA exists.
+   */
+  performance_eta_late?: boolean;
+  /** List UI column id (e.g. `shipment`, `pt`); server maps to SQL / subqueries. */
+  sort_by?: string;
+  sort_dir?: "asc" | "desc";
+}
+
+/** Distinct values for shipment list column filters (full database). */
+export interface ShipmentListFilterOptions {
+  statuses: string[];
+  shipment_numbers: string[];
+  pts: string[];
+  plants: string[];
+  vendors: string[];
+  po_numbers: string[];
+  incoterms: string[];
+  pib_types: string[];
+  shipment_methods: string[];
+  product_classifications: string[];
+  ship_bys: string[];
+  forwarder_names: string[];
+  pic_names: string[];
+  etd_dates: string[];
+  eta_dates: string[];
+  origin_port_names: string[];
+  destination_port_names: string[];
 }
 
 /** Line summary for shipment list PO expansion. */
@@ -120,6 +220,9 @@ export interface ShipmentListPoLineItem {
   /** Quantity delivered on this shipment for this line; null if not recorded. */
   delivery_qty: number | null;
   unit: string | null;
+  bm_percentage?: number | null;
+  ppn_percentage?: number | null;
+  pph_percentage?: number | null;
 }
 
 /** Linked PO block returned on shipment list (for multi-PO expand). */
@@ -129,6 +232,9 @@ export interface ShipmentListLinkedPo {
   pt: string | null;
   plant: string | null;
   taken_by_name: string | null;
+  /** PO intake currency — same grouping key as couple validation. */
+  currency: string | null;
+  intake_status: string | null;
   items: ShipmentListPoLineItem[];
 }
 
@@ -163,6 +269,7 @@ export interface ShipmentRow {
   updated_at: Date;
   pib_type: string | null;
   no_request_pib: string | null;
+  ppjk_mkl: string | null;
   nopen: string | null;
   nopen_date: Date | null;
   ship_by: string | null;
@@ -170,11 +277,13 @@ export interface ShipmentRow {
   insurance_no: string | null;
   coo: string | null;
   incoterm_amount: number | null;
+  incoterm_currency: FreightChargeCurrency;
   cbm: number | null;
   net_weight_mt: number | null;
   gross_weight_mt: number | null;
   bm: number | null;
-  bm_percentage: number | null;
+  ppn_amount: number | null;
+  pph_amount: number | null;
   kawasan_berikat: string | null;
   surveyor: string | null;
   product_classification: string | null;
@@ -186,6 +295,9 @@ export interface ShipmentRow {
   container_count_40ft: number | null;
   package_count: number | null;
   container_count_20_iso_tank: number | null;
+  /** When set, shipment is soft-deleted (hidden from lists and detail). */
+  deleted_at: Date | null;
+  deleted_by: string | null;
 }
 
 export interface ShipmentListItem {
@@ -212,6 +324,8 @@ export interface ShipmentListItem {
   /** PT / plant shown on the row: first linked PO when multiple may differ. */
   display_pt: string | null;
   display_plant: string | null;
+  /** When set, shipment is closed — cannot couple additional POs. */
+  closed_at: string | null;
   linked_pos: ShipmentListLinkedPo[];
 }
 
@@ -248,6 +362,7 @@ export interface ShipmentDetail {
   pic_name: string | null;
   pib_type: string | null;
   no_request_pib: string | null;
+  ppjk_mkl: string | null;
   nopen: string | null;
   nopen_date: string | null;
   ship_by: string | null;
@@ -255,13 +370,13 @@ export interface ShipmentDetail {
   insurance_no: string | null;
   coo: string | null;
   incoterm_amount: number | null;
+  incoterm_currency: FreightChargeCurrency;
   cbm: number | null;
   net_weight_mt: number | null;
   gross_weight_mt: number | null;
   kawasan_berikat: string | null;
   surveyor: string | null;
   product_classification: string | null;
-  bm_percentage: number | null;
   unit_20ft: boolean;
   unit_40ft: boolean;
   unit_package: boolean;
@@ -270,19 +385,15 @@ export interface ShipmentDetail {
   container_count_40ft: number | null;
   package_count: number | null;
   container_count_20_iso_tank: number | null;
-  /** Sum in IDR for this shipment: Σ((delivered_qty × unit_price) × currency_rate). */
+  /** Sum in IDR: all linked POs share currency & rate — IDR/RP = Σ(qty×price); else Σ(qty×price) × group currency_rate. */
   total_items_amount: number;
-  /** BM = (bm_percentage / 100) × total_items_amount (system-calculated). */
+  /** BM total (IDR), user-entered on shipment. */
   bm: number;
-  /** Effective PPN rate (percent) from server config (PPN_PERCENTAGE). */
-  ppn_percentage: number;
-  /** PPN = (ppn_percentage / 100) × (total_items_amount + BM). */
+  /** PPN total (IDR), user-entered on shipment. */
   ppn: number;
-  /** Effective PPH rate (percent) from server config (PPH_PERCENTAGE). */
-  pph_percentage: number;
-  /** PPH = (pph_percentage / 100) × (total_items_amount + BM). */
+  /** PPH total (IDR), user-entered on shipment. */
   pph: number;
-  /** PDRI = BM + PPN + PPH */
+  /** PDRI = BM + PPN + PPH (system sum). */
   pdri: number;
   linked_pos: LinkedPoSummary[];
 }
@@ -290,6 +401,12 @@ export interface ShipmentDetail {
 export interface LinkedPoLineReceived {
   item_id: string;
   received_qty: number;
+  /** Snapshot from PO line at last write to shipment_po_line_received. */
+  item_description: string | null;
+  /** User-entered % for this line (0–100); null if unset. */
+  bm_percentage: number | null;
+  ppn_percentage: number | null;
+  pph_percentage: number | null;
 }
 
 export interface LinkedPoSummary {
@@ -398,7 +515,10 @@ export interface ShipmentBidRow {
   shipment_id: string;
   forwarder_name: string;
   service_amount: number | null;
+  service_amount_currency: FreightChargeCurrency;
   duration: string | null;
+  /** Calendar expiry for quotation validity (optional). */
+  quotation_expires_at: Date | null;
   origin_port: string | null;
   destination_port: string | null;
   ship_via: string | null;
@@ -411,7 +531,10 @@ export interface ShipmentBidRow {
 export interface CreateShipmentBidDto {
   forwarder_name: string;
   service_amount?: number;
+  service_amount_currency?: FreightChargeCurrency;
   duration?: string;
+  /** YYYY-MM-DD; optional. */
+  quotation_expires_at?: string | null;
   origin_port?: string;
   destination_port?: string;
   ship_via?: string;
@@ -420,10 +543,44 @@ export interface CreateShipmentBidDto {
 export interface UpdateShipmentBidDto {
   forwarder_name?: string;
   service_amount?: number;
+  service_amount_currency?: FreightChargeCurrency;
   duration?: string;
+  quotation_expires_at?: string | null;
   origin_port?: string;
   destination_port?: string;
   ship_via?: string;
   quotation_file_name?: string;
   quotation_storage_key?: string;
 }
+
+export interface ShipmentCsvImportErrorRow {
+  row: number;
+  field: string;
+  shipment_no: string;
+  po_number: string;
+  message: string;
+}
+
+export interface ShipmentCsvImportResult {
+  total_rows: number;
+  imported_shipments: number;
+  imported_rows: number;
+  failed_rows: number;
+  /** Short human-readable outcome (counts + common failure reasons). */
+  summary: string;
+  errors: ShipmentCsvImportErrorRow[];
+}
+
+export interface ShipmentImportHistoryRow {
+  id: string;
+  file_name: string | null;
+  uploaded_by: string;
+  total_rows: number;
+  imported_shipments: number;
+  imported_rows: number;
+  failed_rows: number;
+  status: string;
+  created_at: Date;
+  finished_at: Date | null;
+}
+

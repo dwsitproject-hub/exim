@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useId, type DragEvent } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import {
   getShipmentDetail,
@@ -12,11 +13,13 @@ import {
   getShipmentActivityLog,
   updateShipmentStatus,
   updateShipment,
+  softDeleteShipment,
   couplePo,
   decouplePo,
   updateShipmentPoMapping,
   updateShipmentPoLines,
   listShipmentBids,
+  listRecentShipmentForwarders,
   createShipmentBid,
   updateShipmentBid,
   deleteShipmentBid,
@@ -42,10 +45,18 @@ import {
 } from "@/components/tables";
 import { Button, ComboboxSelect } from "@/components/forms";
 import { useToast } from "@/components/providers/ToastProvider";
+import { ShipmentNoteMentionTextarea } from "@/components/shipments/ShipmentNoteMentionTextarea";
+import { renderNoteWithMentions } from "@/lib/render-note-mentions";
 import { DutyFormulaInfoIcon } from "@/components/icons/DutyFormulaInfoIcon";
 import { ActivityLogRibbonIcon } from "@/components/icons/ActivityLogRibbonIcon";
 import { statusToBadgeVariant, formatStatusLabel } from "@/lib/status-badge";
-import { formatDecimal, formatPriceInputWithCommas, stripCommaThousands } from "@/lib/format-number";
+import {
+  formatDecimal,
+  formatPoUnitPrice,
+  formatPriceInputWithCommas,
+  roundTo2Decimals,
+  stripCommaThousands,
+} from "@/lib/format-number";
 import {
   formatPoLineQtyDisplay,
   parseDeliveredQtyInput,
@@ -60,6 +71,7 @@ import {
   getRequiredFieldsForTransition,
   getFieldLabel,
   getApplicableStatuses,
+  isShipmentMethodSea,
   INCOTERMS_WITH_BIDDING_TRANSPORTER,
 } from "@/lib/shipment-status-requirements";
 import type { TimelineItem as TimelineItemType, TimelineItemVariant } from "@/components/timeline";
@@ -67,60 +79,50 @@ import type {
   ShipmentDetail as ShipmentDetailType,
   ShipmentTimelineEntry,
   ShipmentBid,
+  RecentForwarderBid,
   LinkedPoSummary,
   ShipmentNote,
   ShipmentActivityItem,
   ShipmentDocumentListItem,
+  FreightChargeCurrency,
 } from "@/types/shipments";
 import type { PoDetail, PoItemSummary } from "@/types/po";
 import { config } from "@/lib/config";
 import { getCountryOptions } from "@/lib/countries";
 import { getVisibleShipmentDocumentSlots } from "@/lib/shipment-document-slots";
+import {
+  canUploadPO,
+  isPOUploaded,
+  getShipmentDocumentUploadBlockReason,
+  getShipmentDocUploadButtonTitle,
+  documentRestrictionToastMessage,
+  type DocumentUploadBlockReason,
+} from "@/lib/shipment-document-prerequisites";
+import { Lock } from "lucide-react";
 import { parseYesNoSelectValue, formatYesNoOrLegacy } from "@/lib/yes-no-field";
+import { can } from "@/lib/permissions";
+import {
+  PRODUCT_CLASSIFICATION_OPTIONS,
+  displayProductClassification,
+  normalizeProductClassificationForEdit,
+} from "@/lib/product-classification";
 import styles from "./ShipmentDetail.module.css";
 import { formatDayMonthYear } from "@/lib/format-date";
+import { displayPibTypeLabel, normalizePibTypeForEdit, isPibTypeBc23 } from "@/lib/pib-type-label";
 
 /** Destination port country is fixed for this product. */
 const DESTINATION_PORT_COUNTRY = "Indonesia";
 
-const PRODUCT_CLASSIFICATION_OPTIONS = ["Checmical", "Package", "Spare Parts"] as const;
+/** Select value: choose a bid/recent row or free-text "Other" for Forwarder / liner. */
+const FORWARDER_LINER_PICK_OTHER = "__forwarder_liner_other__";
 
-const PRODUCT_CLASSIFICATION_LEGACY_TO_CURRENT: Record<string, string> = {
-  Chemical: "Checmical",
-  Packaging: "Package",
-};
-
-function normalizeProductClassificationForEdit(value: string | null | undefined): string {
-  const v = value != null ? String(value).trim() : "";
-  if (!v) return "";
-  return PRODUCT_CLASSIFICATION_LEGACY_TO_CURRENT[v] ?? v;
-}
-
-function displayProductClassification(value: string | null | undefined): string {
-  const v = value != null ? String(value).trim() : "";
-  if (!v) return "—";
-  return PRODUCT_CLASSIFICATION_LEGACY_TO_CURRENT[v] ?? v;
-}
-
-/** Legacy `pib_type` values stored before label rename; map to current dropdown values. */
-const PIB_TYPE_LEGACY_TO_CURRENT: Record<string, string> = {
-  "PIB 2.3": "BC 23",
-  "PIB 2.0": "BC 20",
-  "BC 2.3": "BC 23",
-  "BC 2.0": "BC 20",
-  "Consignee Note": "Consignment Note",
-};
-
-function displayPibTypeLabel(stored: string | null | undefined): string {
-  const v = stored != null && String(stored).trim() !== "" ? String(stored).trim() : null;
-  if (!v) return "—";
-  return PIB_TYPE_LEGACY_TO_CURRENT[v] ?? v;
-}
-
-function normalizePibTypeForEdit(stored: string | null | undefined): string {
-  const v = stored != null ? String(stored).trim() : "";
-  if (!v) return "";
-  return PIB_TYPE_LEGACY_TO_CURRENT[v] ?? v;
+function normalizeBidShipViaToShipmentMethod(raw: string | null | undefined): string {
+  const t = (raw ?? "").trim();
+  if (!t) return "";
+  const u = t.toUpperCase();
+  if (u === "SEA") return "Sea";
+  if (u === "AIR") return "Air";
+  return t;
 }
 function docKeyForDocumentType(documentType: string): string | null {
   switch (documentType) {
@@ -136,6 +138,8 @@ function docKeyForDocumentType(documentType: string): string | null {
       return "doc:pib_bc";
     case "SPPB":
       return "doc:sppb";
+    case "SPPBMCP":
+      return "doc:sppbmcp";
     case "VO":
       return "doc:vo";
     default:
@@ -154,10 +158,6 @@ const SHIPMENT_STATUSES = [
   "DELIVERED",
 ];
 
-const ROLES_CAN_EDIT_SHIPMENT = ["exim", "admin"];
-
-const DUTY_FORMULA_BM = "BM = BM% × Total PO amount.";
-
 const DUTY_FORMULA_PDRI = "PDRI = BM + PPN + PPH.";
 
 function formatDocumentBytes(n: number): string {
@@ -173,7 +173,7 @@ type ShipmentDocIntakeFilter =
 /**
  * Shipment-level docs have no intake_id except legacy packing rows (shown in one Packing List bucket).
  * Commercial Invoice (INVOICE): one bucket; legacy rows may have status DRAFT/FINAL or null.
- * Bill of Lading (BL): single bucket (legacy rows may have status DRAFT/FINAL/null).
+ * Bill of Lading (BL): single bucket (rows may have legacy status DRAFT/FINAL/null).
  */
 function filterShipmentDocumentsBySlot(
   docs: ShipmentDocumentListItem[],
@@ -240,10 +240,15 @@ function resolvePoCurrencyCode(linkedPo: LinkedPoSummary, poDetailLoaded: PoDeta
   return linkedPo.currency?.trim() || null;
 }
 
+function isCurrencyIdr(currency: string | null | undefined): boolean {
+  const c = (currency ?? "").trim().toUpperCase();
+  return c === "IDR" || c === "RP";
+}
+
 function getCurrencySymbol(currency: string | null | undefined): string {
   const c = (currency ?? "").trim().toUpperCase();
   if (c === "USD") return "$";
-  if (c === "IDR") return "Rp ";
+  if (c === "IDR" || c === "RP") return "Rp ";
   if (c === "EUR") return "€";
   if (c === "GBP") return "£";
   if (c === "JPY") return "¥";
@@ -275,26 +280,63 @@ function parseCommaFormattedDecimal(raw: string): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
-/** First run of digits in stored duration text (e.g. "5 days" → "5"). */
+/** PPN/PPH total (IDR): free-text; empty → 0; invalid → null. */
+function parseDutyTotalAmountInput(raw: string): number | null {
+  const t = stripCommaThousands(raw.trim());
+  if (t === "") return 0;
+  const n = Number(t);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return roundTo2Decimals(n);
+}
+
+function localTodayYmd(): string {
+  const n = new Date();
+  const y = n.getFullYear();
+  const mo = String(n.getMonth() + 1).padStart(2, "0");
+  const d = String(n.getDate()).padStart(2, "0");
+  return `${y}-${mo}-${d}`;
+}
+
+/** Legacy: first run of digits in stored duration text (e.g. "5 days" → "5"). */
 function parseDurationDaysDigits(stored: string | null | undefined): string {
   if (stored == null || String(stored).trim() === "") return "";
   const m = String(stored).match(/(\d+)/);
   return m?.[1] ?? "";
 }
 
-function formatDurationForApi(daysDigits: string): string | undefined {
-  const t = daysDigits.trim();
-  if (t === "") return undefined;
-  return `${t} days`;
-}
-
-function formatDurationDaysDisplay(stored: string | null | undefined): string {
-  const d = parseDurationDaysDigits(stored);
-  return d ? `${d} days` : "—";
+function getForwarderQuotationExpiryMeta(
+  quotationExpiresAtYmd: string | null | undefined,
+  duration: string | null | undefined,
+  updatedAtIso: string
+): { expiresAt: Date | null; isValidNow: boolean } {
+  const ymd = quotationExpiresAtYmd?.trim();
+  if (ymd && /^\d{4}-\d{2}-\d{2}$/.test(ymd)) {
+    const today = localTodayYmd();
+    const isValidNow = today <= ymd;
+    const expiresAt = new Date(`${ymd}T23:59:59.999`);
+    return { expiresAt: Number.isNaN(expiresAt.getTime()) ? null : expiresAt, isValidNow };
+  }
+  const d = parseDurationDaysDigits(duration);
+  const days = Number(d);
+  if (!Number.isFinite(days) || days <= 0) {
+    return { expiresAt: null, isValidNow: true };
+  }
+  const updatedAt = new Date(updatedAtIso);
+  if (Number.isNaN(updatedAt.getTime())) {
+    return { expiresAt: null, isValidNow: true };
+  }
+  const expiresAt = new Date(updatedAt.getTime() + days * 24 * 60 * 60 * 1000);
+  return { expiresAt, isValidNow: Date.now() <= expiresAt.getTime() };
 }
 
 function formatRupiah(value: number | null | undefined): string {
   return `Rp ${formatDecimal(value ?? 0)}`;
+}
+
+function formatFreightChargeLine(amount: number | null | undefined, currency: FreightChargeCurrency): string {
+  if (amount == null) return "—";
+  const n = formatDecimal(amount);
+  return currency === "USD" ? `$${n}` : `Rp ${n}`;
 }
 
 type PoLineItemsEditorBlockProps = {
@@ -305,6 +347,11 @@ type PoLineItemsEditorBlockProps = {
   isExpanded: boolean;
   poEditReceivedQtyByIntake: Record<string, Record<string, string>>;
   setPoEditReceivedQtyByIntake: Dispatch<SetStateAction<Record<string, Record<string, string>>>>;
+  poEditDutyPctByIntake: Record<string, Record<string, { bm: string; ppn: string; pph: string }>>;
+  setPoEditDutyPctByIntake: Dispatch<
+    SetStateAction<Record<string, Record<string, { bm: string; ppn: string; pph: string }>>>
+  >;
+  dutyCalculationSkipped: boolean;
   /** Editable only during “Update shipment” (draft on client until Save). */
   canEditPoLineFields: boolean;
   /** True while header Save is persisting shipment + linked PO data. */
@@ -321,12 +368,16 @@ function PoLineItemsEditorBlock({
   isExpanded,
   poEditReceivedQtyByIntake,
   setPoEditReceivedQtyByIntake,
+  poEditDutyPctByIntake,
+  setPoEditDutyPctByIntake,
+  dutyCalculationSkipped,
   canEditPoLineFields,
   savingShipmentEdits,
   tableClassName,
   tableWrapperClassName,
 }: PoLineItemsEditorBlockProps) {
   const poDraftReceivedQty = poEditReceivedQtyByIntake[intakeId] ?? {};
+  const poDraftDuty = poEditDutyPctByIntake[intakeId] ?? {};
   const currencyCode = resolvePoCurrencyCode(po, poDetail);
   const currencySymbol = getCurrencySymbol(currencyCode);
   const lineReceivedByItemId = useMemo(() => {
@@ -357,11 +408,18 @@ function PoLineItemsEditorBlock({
           <TableHead>
             <TableRow>
               <TableHeaderCell className={styles.poItemColDesc}>Items</TableHeaderCell>
-              <TableHeaderCell className={styles.poItemColNum}>Qty</TableHeaderCell>
+              <TableHeaderCell className={styles.poItemColNum}>
+                {canEditPoLineFields ? "PO qty" : "Qty"}
+              </TableHeaderCell>
               <TableHeaderCell className={styles.poItemColRecv}>Qty delivered</TableHeaderCell>
+              <TableHeaderCell className={styles.poItemColPct}>BM %</TableHeaderCell>
+              <TableHeaderCell className={styles.poItemColPct}>PPN %</TableHeaderCell>
+              <TableHeaderCell className={styles.poItemColPct}>PPH %</TableHeaderCell>
               <TableHeaderCell className={styles.poItemColNum}>Remaining qty</TableHeaderCell>
               <TableHeaderCell className={styles.poItemColUnit}>Unit</TableHeaderCell>
-              <TableHeaderCell className={styles.poItemColNum}>Price per unit</TableHeaderCell>
+              <TableHeaderCell className={styles.poItemColNum}>
+                {canEditPoLineFields ? "PO unit price" : "Price per unit"}
+              </TableHeaderCell>
               <TableHeaderCell className={styles.poItemColAmt}>Total amount</TableHeaderCell>
             </TableRow>
           </TableHead>
@@ -378,6 +436,52 @@ function PoLineItemsEditorBlock({
               const remainingQty = projectedRemainingQtyForShipmentLine(item, savedThisShipmentQty, deliveredQty);
               const unitPrice = Number(item.value ?? 0);
               const amount = (Number.isFinite(unitPrice) ? unitPrice : 0) * deliveredQty;
+              const savedLine = po.line_received?.find((l) => l.item_id === item.id);
+              const pctReadonly = (n: number | null | undefined) =>
+                n != null && Number.isFinite(Number(n)) ? `${formatDecimal(Number(n))}%` : "—";
+              const dutyRow = poDraftDuty[item.id];
+              const pctInput = (key: "bm" | "ppn" | "pph", aria: string) => {
+                if (dutyCalculationSkipped) return <span className={styles.poItemPctReadonly}>—</span>;
+                if (canEditPoLineFields && isExpanded) {
+                  return (
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      autoComplete="off"
+                      className={`${styles.input} ${styles.poItemPctInput}`}
+                      value={dutyRow?.[key] ?? ""}
+                      onChange={(e) =>
+                        setPoEditDutyPctByIntake((prev) => {
+                          const curIntake = prev[intakeId] ?? {};
+                          const curRow = curIntake[item.id] ?? { bm: "", ppn: "", pph: "" };
+                          const nextVal = formatPriceInputWithCommas(e.target.value, 2);
+                          return {
+                            ...prev,
+                            [intakeId]: {
+                              ...curIntake,
+                              [item.id]: {
+                                bm: key === "bm" ? nextVal : curRow.bm,
+                                ppn: key === "ppn" ? nextVal : curRow.ppn,
+                                pph: key === "pph" ? nextVal : curRow.pph,
+                              },
+                            },
+                          };
+                        })
+                      }
+                      placeholder="0"
+                      disabled={savingShipmentEdits}
+                      aria-label={aria}
+                    />
+                  );
+                }
+                const v =
+                  key === "bm"
+                    ? savedLine?.bm_percentage
+                    : key === "ppn"
+                      ? savedLine?.ppn_percentage
+                      : savedLine?.pph_percentage;
+                return <span className={styles.poItemPctReadonly}>{pctReadonly(v)}</span>;
+              };
               return (
                 <TableRow key={item.id}>
                   <TableCell className={styles.poItemColDesc}>{displayPoField(item.item_description)}</TableCell>
@@ -407,11 +511,16 @@ function PoLineItemsEditorBlock({
                       <span className={styles.poItemRecvReadonly}>{formatPoLineQtyDisplay(savedThisShipmentQty)}</span>
                     )}
                   </TableCell>
+                  <TableCell className={styles.poItemColPct}>{pctInput("bm", "BM percent")}</TableCell>
+                  <TableCell className={styles.poItemColPct}>{pctInput("ppn", "PPN percent")}</TableCell>
+                  <TableCell className={styles.poItemColPct}>{pctInput("pph", "PPH percent")}</TableCell>
                   <TableCell className={styles.poItemColNum}>
                     {remainingQty != null ? formatPoLineQtyDisplay(remainingQty) : "—"}
                   </TableCell>
                   <TableCell className={styles.poItemColUnit}>{displayPoField(item.unit)}</TableCell>
-                  <TableCell className={styles.poItemColNum}>{item.value != null ? formatDecimal(item.value) : "—"}</TableCell>
+                  <TableCell className={styles.poItemColNum}>
+                    {item.value != null ? `${currencySymbol}${formatPoUnitPrice(item.value)}` : "—"}
+                  </TableCell>
                   <TableCell className={`${styles.poItemColAmt} ${styles.poItemAmtCell}`}>
                     {`${currencySymbol}${formatDecimal(amount)}`}
                   </TableCell>
@@ -445,10 +554,168 @@ function DutyFormulaHint({ text }: { text: string }) {
   );
 }
 
+const SHIPMENT_DOC_FILE_ACCEPT = ".pdf,.doc,.docx,.xls,.xlsx,image/*";
+
+/** Matches `accept` on the file input (PDF, Word, Excel, images). */
+function isAcceptedShipmentDocFile(file: File): boolean {
+  const n = file.name.toLowerCase();
+  if (n.endsWith(".pdf") || n.endsWith(".doc") || n.endsWith(".docx") || n.endsWith(".xls") || n.endsWith(".xlsx")) {
+    return true;
+  }
+  const t = (file.type ?? "").toLowerCase();
+  return t.startsWith("image/");
+}
+
+/**
+ * Native label → file input (htmlFor). Avoids programmatic input.click(), which many browsers block
+ * in embedded / cloud contexts (iframe, strict CSP-adjacent policies) while local top-level dev still works.
+ */
+function ShipmentDocUploadControl({
+  disabled,
+  isUploading,
+  onFile,
+  labelTitle,
+  buttonLabel = "Upload",
+}: {
+  disabled: boolean;
+  isUploading: boolean;
+  onFile: (file: File) => void;
+  /** Shown on hover when disabled (native tooltip). */
+  labelTitle?: string;
+  buttonLabel?: string;
+}) {
+  const inputId = useId();
+  return (
+    <span className={styles.shipmentDocUploadWrap}>
+      <input
+        id={inputId}
+        type="file"
+        className={styles.shipmentDocFileInputHidden}
+        accept={SHIPMENT_DOC_FILE_ACCEPT}
+        disabled={disabled}
+        tabIndex={-1}
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) onFile(f);
+          e.target.value = "";
+        }}
+      />
+      <label
+        htmlFor={inputId}
+        title={labelTitle}
+        className={[styles.shipmentDocUploadBtn, disabled ? styles.shipmentDocUploadBtnDisabled : ""].filter(Boolean).join(" ")}
+        aria-disabled={disabled}
+      >
+        {isUploading ? "Uploading…" : buttonLabel}
+      </label>
+    </span>
+  );
+}
+
+function ShipmentDocDropZone({
+  className,
+  blockReason,
+  canAct,
+  onToastRestricted,
+  onFile,
+  showDropHint,
+  children,
+}: {
+  className?: string;
+  blockReason: DocumentUploadBlockReason | null;
+  canAct: boolean;
+  onToastRestricted: (reason: DocumentUploadBlockReason) => void;
+  onFile: (file: File) => void;
+  /** Show helper text when this slot can accept drops. */
+  showDropHint?: boolean;
+  children: React.ReactNode;
+}) {
+  const [dragDepth, setDragDepth] = useState(0);
+  const allowDropVisual = canAct && !blockReason;
+
+  const resetDragDepth = useCallback(() => {
+    setDragDepth(0);
+  }, []);
+
+  useEffect(() => {
+    const onWindowDragEnd = () => resetDragDepth();
+    window.addEventListener("dragend", onWindowDragEnd);
+    return () => window.removeEventListener("dragend", onWindowDragEnd);
+  }, [resetDragDepth]);
+
+  const onDragEnter = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!allowDropVisual) return;
+    if (!Array.from(e.dataTransfer.types).includes("Files")) return;
+    setDragDepth((d) => d + 1);
+  };
+
+  const onDragLeave = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!allowDropVisual) return;
+    const next = e.currentTarget;
+    const rel = e.relatedTarget as Node | null;
+    if (rel && next.contains(rel)) return;
+    setDragDepth((d) => Math.max(0, d - 1));
+  };
+
+  const onDragOver = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!canAct || blockReason) e.dataTransfer.dropEffect = "none";
+    else e.dataTransfer.dropEffect = "copy";
+  };
+
+  const onDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    resetDragDepth();
+    if (!canAct) return;
+    if (blockReason) {
+      onToastRestricted(blockReason);
+      return;
+    }
+    const f = e.dataTransfer.files?.[0];
+    if (f) onFile(f);
+  };
+
+  const rootClass = [
+    className,
+    styles.shipmentDocDropZone,
+    allowDropVisual && dragDepth > 0 ? styles.shipmentDocDropZoneDragging : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return (
+    <div
+      className={rootClass}
+      role="region"
+      aria-label="Document upload"
+      onDragEnter={onDragEnter}
+      onDragLeave={onDragLeave}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+    >
+      {children}
+      {showDropHint && allowDropVisual ? (
+        <p className={styles.shipmentDocDropHint}>Drag and drop a file here, or use Upload.</p>
+      ) : null}
+    </div>
+  );
+}
+
 export function ShipmentDetail({ id }: { id: string }) {
+  const router = useRouter();
   const { user, accessToken } = useAuth();
   const { pushToast } = useToast();
-  const canEditShipment = ROLES_CAN_EDIT_SHIPMENT.includes(user?.role?.toLowerCase() ?? "");
+  /** Matches backend PUT/PATCH shipment, bids, PO mapping/lines, doc delete, POST notes. */
+  const canEditShipment = can(user, "UPDATE_SHIPMENT");
+  const canUploadDocument = can(user, "UPLOAD_DOCUMENT");
+  const canUpdateStatus = can(user, "UPDATE_STATUS");
+  const canCoupleDecouplePo = can(user, "COUPLE_DECOUPLE_PO");
   const [detail, setDetail] = useState<ShipmentDetailType | null>(null);
   const [timeline, setTimeline] = useState<ShipmentTimelineEntry[]>([]);
   const [statusSummary, setStatusSummary] = useState<{ current_status: string; last_updated_at?: string } | null>(null);
@@ -462,6 +729,8 @@ export function ShipmentDetail({ id }: { id: string }) {
   const [coupleModalError, setCoupleModalError] = useState<string | null>(null);
   const [coupleIntakeIds, setCoupleIntakeIds] = useState("");
   const [coupling, setCoupling] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deletingShipment, setDeletingShipment] = useState(false);
   const [decouplingId, setDecouplingId] = useState<string | null>(null);
   const [expandedPoIds, setExpandedPoIds] = useState<string[]>([]);
   const [activePoOverlayId, setActivePoOverlayId] = useState<string | null>(null);
@@ -477,6 +746,8 @@ export function ShipmentDetail({ id }: { id: string }) {
   const [savingDetails, setSavingDetails] = useState(false);
   const [editVendorName, setEditVendorName] = useState("");
   const [editForwarderName, setEditForwarderName] = useState("");
+  /** Bidding incoterms: `bid:<id>`, `recent:<i>`, FORWARDER_LINER_PICK_OTHER, or "". */
+  const [editForwarderPick, setEditForwarderPick] = useState("");
   const [editWarehouseName, setEditWarehouseName] = useState("");
   const [editIncoterm, setEditIncoterm] = useState("");
   const [editKawasanBerikat, setEditKawasanBerikat] = useState<"" | "Yes" | "No">("");
@@ -486,6 +757,7 @@ export function ShipmentDetail({ id }: { id: string }) {
   const [editProductClassification, setEditProductClassification] = useState("");
   const [editPibType, setEditPibType] = useState("");
   const [editNoRequestPib, setEditNoRequestPib] = useState("");
+  const [editPpjkMkl, setEditPpjkMkl] = useState("");
   const [editNopen, setEditNopen] = useState("");
   const [editNopenDate, setEditNopenDate] = useState("");
   const [editBlAwb, setEditBlAwb] = useState("");
@@ -509,36 +781,52 @@ export function ShipmentDetail({ id }: { id: string }) {
   const [editPackageCount, setEditPackageCount] = useState("");
   const [editContainerCount20IsoTank, setEditContainerCount20IsoTank] = useState("");
   const [editIncotermAmount, setEditIncotermAmount] = useState("");
+  const [editIncotermCurrency, setEditIncotermCurrency] = useState<FreightChargeCurrency>("IDR");
+  const [editBmTotal, setEditBmTotal] = useState("");
+  const [editPpnTotal, setEditPpnTotal] = useState("");
+  const [editPphTotal, setEditPphTotal] = useState("");
   const [editCbm, setEditCbm] = useState("");
   const [editNetWeightMt, setEditNetWeightMt] = useState("");
   const [editGrossWeightMt, setEditGrossWeightMt] = useState("");
-  const [editBmPercentage, setEditBmPercentage] = useState("");
   const [editClosedAt, setEditClosedAt] = useState("");
   const [bids, setBids] = useState<ShipmentBid[]>([]);
   const [loadingBids, setLoadingBids] = useState(false);
+  const [recentForwarders, setRecentForwarders] = useState<RecentForwarderBid[]>([]);
+  const [loadingRecentForwarders, setLoadingRecentForwarders] = useState(false);
   const [bidForwarder, setBidForwarder] = useState("");
   const [bidServiceAmount, setBidServiceAmount] = useState("");
-  const [bidDuration, setBidDuration] = useState("");
-  const [bidOriginPort, setBidOriginPort] = useState("");
+  const [bidServiceCurrency, setBidServiceCurrency] = useState<FreightChargeCurrency>("IDR");
+  const [bidQuotationExpiresAt, setBidQuotationExpiresAt] = useState("");
   const [bidDestinationPort, setBidDestinationPort] = useState("");
   const [bidShipVia, setBidShipVia] = useState("");
   const [addingBid, setAddingBid] = useState(false);
   const [editingBidId, setEditingBidId] = useState<string | null>(null);
   const [editBidForwarder, setEditBidForwarder] = useState("");
   const [editBidServiceAmount, setEditBidServiceAmount] = useState("");
-  const [editBidDuration, setEditBidDuration] = useState("");
-  const [editBidOriginPort, setEditBidOriginPort] = useState("");
+  const [editBidServiceCurrency, setEditBidServiceCurrency] = useState<FreightChargeCurrency>("IDR");
+  const [editBidQuotationExpiresAt, setEditBidQuotationExpiresAt] = useState("");
   const [editBidDestinationPort, setEditBidDestinationPort] = useState("");
   const [editBidShipVia, setEditBidShipVia] = useState("");
   const [uploadingQuotationForBidId, setUploadingQuotationForBidId] = useState<string | null>(null);
+  const [applyingRecentForwarderKey, setApplyingRecentForwarderKey] = useState<string | null>(null);
   const [activeDetailTab, setActiveDetailTab] = useState<"details" | "forwarder-bidding">("details");
+  /** EXW/FCA/FOB: edit state for origin on Details (Pre Shipment); same values persist via Save shipment. */
+  const [biddingLaneCountry, setBiddingLaneCountry] = useState("");
+  const [biddingLanePort, setBiddingLanePort] = useState("");
+  const [debouncedLaneCountry, setDebouncedLaneCountry] = useState("");
   const [poEditInvoiceNoByIntake, setPoEditInvoiceNoByIntake] = useState<Record<string, string>>({});
   const [poEditCurrencyRateByIntake, setPoEditCurrencyRateByIntake] = useState<Record<string, string>>({});
   const [poEditReceivedQtyByIntake, setPoEditReceivedQtyByIntake] = useState<Record<string, Record<string, string>>>(
     {}
   );
+  const [poEditDutyPctByIntake, setPoEditDutyPctByIntake] = useState<
+    Record<string, Record<string, { bm: string; ppn: string; pph: string }>>
+  >({});
   /** Full-bleed width for the linked PO line-items table only (invoice/rate rows stay normal). */
   const [poLineItemsWide, setPoLineItemsWide] = useState(false);
+
+  /** Block shipment document upload/delete when status is DELIVERED (not based on closed/delivered date alone). */
+  const shipmentDocumentsLockedByDeliveredStatus = detail?.current_status === "DELIVERED";
 
   const load = useCallback(() => {
     if (!accessToken || !id) return;
@@ -572,24 +860,61 @@ export function ShipmentDetail({ id }: { id: string }) {
     load();
   }, [load]);
 
-  const hasBiddingStep = useMemo(() => {
-    const incoterm = (detail?.incoterm ?? "").trim().toUpperCase();
-    return INCOTERMS_WITH_BIDDING_TRANSPORTER.includes(incoterm as (typeof INCOTERMS_WITH_BIDDING_TRANSPORTER)[number]);
-  }, [detail?.incoterm]);
+  /**
+   * Incoterm that drives workflow UI (bidding tab, origin lane vs free-text, bid loading) and must match
+   * `detailForStatusValidation` / status rules. Uses draft incoterm while Update shipment is open.
+   */
+  const workflowIncoterm = useMemo(() => {
+    if (!detail) return null;
+    if (isUpdatingShipment) return editIncoterm.trim() || detail.incoterm || null;
+    return detail.incoterm;
+  }, [detail, isUpdatingShipment, editIncoterm]);
 
-  const forwarderOptionsFromBids = useMemo(() => {
-    const names = bids
-      .map((b) => b.forwarder_name?.trim())
-      .filter((v): v is string => !!v);
-    if (editForwarderName.trim() && !names.includes(editForwarderName.trim())) {
-      names.unshift(editForwarderName.trim());
-    }
-    return [...new Set(names)];
-  }, [bids, editForwarderName]);
+  const hasBiddingStep = useMemo(() => {
+    const n = (workflowIncoterm ?? "").trim().toUpperCase();
+    return INCOTERMS_WITH_BIDDING_TRANSPORTER.includes(n as (typeof INCOTERMS_WITH_BIDDING_TRANSPORTER)[number]);
+  }, [workflowIncoterm]);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebouncedLaneCountry(biddingLaneCountry.trim()), 400);
+    return () => window.clearTimeout(t);
+  }, [biddingLaneCountry]);
+
+  useEffect(() => {
+    if (!detail || !hasBiddingStep) return;
+    setBiddingLaneCountry(detail.origin_port_country ?? "");
+    setBiddingLanePort(detail.origin_port_name ?? "");
+  }, [detail?.id, detail?.origin_port_country, detail?.origin_port_name, hasBiddingStep]);
+
+  const hasForwarderNamesOnShipment = useMemo(() => {
+    const liner = (detail?.forwarder_name ?? "").trim();
+    return liner.length > 0 || bids.length > 0;
+  }, [detail?.forwarder_name, bids.length]);
+
+  const effectiveLaneOriginCountry = useMemo(
+    () => (biddingLaneCountry.trim() || (detail?.origin_port_country ?? "").trim()),
+    [biddingLaneCountry, detail?.origin_port_country]
+  );
+
+  const fetchRecentForwarders = useCallback(() => {
+    if (!accessToken || !id || !hasBiddingStep) return;
+    setLoadingRecentForwarders(true);
+    const originQ = debouncedLaneCountry.trim() || (detail?.origin_port_country ?? "").trim();
+    listRecentShipmentForwarders(id, 30, accessToken, originQ || undefined)
+      .then((res) => {
+        if (!isApiError(res) && res.data) setRecentForwarders(res.data);
+      })
+      .finally(() => setLoadingRecentForwarders(false));
+  }, [accessToken, id, hasBiddingStep, debouncedLaneCountry, detail?.origin_port_country]);
 
   const originPortCountryOptions = useMemo(
     () => getCountryOptions(editOriginPortCountry).filter((o) => o !== ""),
     [editOriginPortCountry]
+  );
+
+  const biddingLaneCountryOptions = useMemo(
+    () => getCountryOptions(biddingLaneCountry).filter((o) => o !== ""),
+    [biddingLaneCountry]
   );
 
   const loadBids = useCallback(() => {
@@ -599,13 +924,24 @@ export function ShipmentDetail({ id }: { id: string }) {
       .then((res) => {
         if (!isApiError(res) && res.data) setBids(res.data);
       })
-      .finally(() => setLoadingBids(false));
-  }, [accessToken, id, hasBiddingStep]);
+      .finally(() => {
+        setLoadingBids(false);
+        fetchRecentForwarders();
+      });
+  }, [accessToken, id, hasBiddingStep, fetchRecentForwarders]);
 
   useEffect(() => {
     if (hasBiddingStep && id) loadBids();
-    else setBids([]);
+    else {
+      setBids([]);
+      setRecentForwarders([]);
+    }
   }, [hasBiddingStep, id, loadBids]);
+
+  useEffect(() => {
+    if (!hasBiddingStep || !id || !accessToken) return;
+    fetchRecentForwarders();
+  }, [hasBiddingStep, id, accessToken, fetchRecentForwarders, debouncedLaneCountry, detail?.forwarder_name]);
 
   // When incoterm is no longer EXW/FCA/FOB, switch back to Details tab (Forwarder Bidding only applies to those incoterms)
   useEffect(() => {
@@ -621,7 +957,7 @@ export function ShipmentDetail({ id }: { id: string }) {
 
   function handleAddShipmentNote(e: React.FormEvent) {
     e.preventDefault();
-    if (!accessToken || !id) return;
+    if (!accessToken || !id || !canEditShipment) return;
     const text = noteDraft.trim();
     if (!text) return;
     setActionError(null);
@@ -643,7 +979,7 @@ export function ShipmentDetail({ id }: { id: string }) {
   }
 
   function enterUpdateMode() {
-    if (!detail) return;
+    if (!detail || !canEditShipment) return;
     setEditVendorName(detail.vendor_name ?? "");
     setEditForwarderName(detail.forwarder_name ?? "");
     setEditWarehouseName(detail.warehouse_name ?? "");
@@ -655,6 +991,7 @@ export function ShipmentDetail({ id }: { id: string }) {
     setEditProductClassification(normalizeProductClassificationForEdit(detail.product_classification));
     setEditPibType(normalizePibTypeForEdit(detail.pib_type));
     setEditNoRequestPib(detail.no_request_pib ?? "");
+    setEditPpjkMkl(detail.ppjk_mkl ?? "");
     setEditNopen(detail.nopen ?? "");
     setEditNopenDate(detail.nopen_date ? detail.nopen_date.slice(0, 10) : "");
     setEditBlAwb(detail.bl_awb ?? "");
@@ -662,6 +999,11 @@ export function ShipmentDetail({ id }: { id: string }) {
     setEditCoo(detail.coo ?? "");
     setEditOriginPortName(detail.origin_port_name ?? "");
     setEditOriginPortCountry(detail.origin_port_country ?? "");
+    const incForLane = (detail.incoterm ?? "").trim().toUpperCase();
+    if (INCOTERMS_WITH_BIDDING_TRANSPORTER.includes(incForLane as (typeof INCOTERMS_WITH_BIDDING_TRANSPORTER)[number])) {
+      setBiddingLaneCountry(detail.origin_port_country ?? "");
+      setBiddingLanePort(detail.origin_port_name ?? "");
+    }
     setEditEtd(detail.etd ? detail.etd.slice(0, 10) : "");
     setEditAtd(detail.atd ? detail.atd.slice(0, 10) : "");
     setEditDestinationPortName(detail.destination_port_name ?? "");
@@ -681,19 +1023,44 @@ export function ShipmentDetail({ id }: { id: string }) {
     );
     setEditIncotermAmount(
       detail.incoterm_amount != null
-        ? formatPriceInputWithCommas(String(detail.incoterm_amount).replace(/,/g, ""))
+        ? formatPriceInputWithCommas(
+            roundTo2Decimals(Number(detail.incoterm_amount)).toFixed(2),
+            2
+          )
         : ""
     );
+    setEditIncotermCurrency(detail.incoterm_currency ?? "IDR");
+    setEditBmTotal(detail.bm != null && detail.bm !== 0 ? String(detail.bm) : "");
+    setEditPpnTotal(detail.ppn != null && detail.ppn !== 0 ? String(detail.ppn) : "");
+    setEditPphTotal(detail.pph != null && detail.pph !== 0 ? String(detail.pph) : "");
     setEditCbm(detail.cbm != null ? String(detail.cbm) : "");
     setEditNetWeightMt(detail.net_weight_mt != null ? String(detail.net_weight_mt) : "");
     setEditGrossWeightMt(detail.gross_weight_mt != null ? String(detail.gross_weight_mt) : "");
-    setEditBmPercentage(
-      detail.bm_percentage != null
-        ? formatPriceInputWithCommas(String(detail.bm_percentage).replace(/,/g, ""))
-        : ""
-    );
     setEditClosedAt(detail.closed_at ? detail.closed_at.slice(0, 10) : "");
     initPoMappingEditsFromDetail(detail);
+    {
+      const inc = (detail.incoterm ?? "").trim().toUpperCase();
+      if (INCOTERMS_WITH_BIDDING_TRANSPORTER.includes(inc as (typeof INCOTERMS_WITH_BIDDING_TRANSPORTER)[number])) {
+        const fn = (detail.forwarder_name ?? "").trim();
+        if (!fn) {
+          setEditForwarderPick("");
+        } else {
+          const bidMatch = bids.find((b) => (b.forwarder_name ?? "").trim() === fn);
+          if (bidMatch) {
+            setEditForwarderPick(`bid:${bidMatch.id}`);
+          } else {
+            const ri = recentForwarders.findIndex((r) => (r.forwarder_name ?? "").trim() === fn);
+            if (ri >= 0) {
+              setEditForwarderPick(`recent:${ri}`);
+            } else {
+              setEditForwarderPick(FORWARDER_LINER_PICK_OTHER);
+            }
+          }
+        }
+      } else {
+        setEditForwarderPick("");
+      }
+    }
     setIsUpdatingShipment(true);
     setActionError(null);
   }
@@ -701,6 +1068,7 @@ export function ShipmentDetail({ id }: { id: string }) {
   function handleUpdateStatus(e: React.FormEvent) {
     e.preventDefault();
     if (isUpdatingShipment) return;
+    if (!canUpdateStatus) return;
     if (!accessToken || !id || !newStatus.trim()) return;
     setActionError(null);
     setUpdatingStatus(true);
@@ -725,7 +1093,7 @@ export function ShipmentDetail({ id }: { id: string }) {
 
   function handleCouplePo(e: React.FormEvent) {
     e.preventDefault();
-    if (!accessToken || !id) return;
+    if (!accessToken || !id || !canCoupleDecouplePo) return;
     const tokens = coupleIntakeIds
       .split(/[\s,]+/)
       .map((s) => s.trim())
@@ -781,8 +1149,28 @@ export function ShipmentDetail({ id }: { id: string }) {
     })();
   }
 
+  function handleConfirmSoftDelete() {
+    if (!accessToken || !id || !canEditShipment) return;
+    setDeletingShipment(true);
+    setActionError(null);
+    softDeleteShipment(id, accessToken)
+      .then((res) => {
+        if (isApiError(res)) {
+          setActionError(res.message);
+          pushToast(res.message, "error");
+          return;
+        }
+        pushToast("Shipment removed from the active list. Linked Purchase Orders were detached.", "success");
+        router.push("/dashboard/shipments");
+      })
+      .finally(() => {
+        setDeletingShipment(false);
+        setDeleteConfirmOpen(false);
+      });
+  }
+
   function handleDecouple(intakeId: string) {
-    if (!accessToken || !id) return;
+    if (!accessToken || !id || !canCoupleDecouplePo) return;
     setActionError(null);
     setDecouplingId(intakeId);
     decouplePo(id, intakeId, undefined, accessToken)
@@ -800,16 +1188,30 @@ export function ShipmentDetail({ id }: { id: string }) {
 
   function handleAddBid(e: React.FormEvent) {
     e.preventDefault();
-    if (!accessToken || !id || !bidForwarder.trim()) return;
+    if (!accessToken || !id || !bidForwarder.trim() || !canEditShipment) return;
+    const laneCountry = (biddingLaneCountry.trim() || (detail?.origin_port_country ?? "").trim());
+    const lanePort = (biddingLanePort.trim() || (detail?.origin_port_name ?? "").trim());
+    if (!laneCountry) {
+      pushToast("Set origin port country under Lane origin before adding a participant.", "error");
+      return;
+    }
+    if (!lanePort) {
+      pushToast("Set origin port name under Lane origin before adding a participant.", "error");
+      return;
+    }
     setActionError(null);
     setAddingBid(true);
     createShipmentBid(
       id,
       {
         forwarder_name: bidForwarder.trim(),
-        service_amount: parseCommaFormattedDecimal(bidServiceAmount),
-        duration: formatDurationForApi(bidDuration),
-        origin_port: bidOriginPort.trim() || undefined,
+        service_amount: (() => {
+          const n = parseCommaFormattedDecimal(bidServiceAmount);
+          return n != null ? roundTo2Decimals(n) : undefined;
+        })(),
+        service_amount_currency: bidServiceCurrency,
+        quotation_expires_at: bidQuotationExpiresAt.trim() || undefined,
+        origin_port: lanePort || undefined,
         destination_port: bidDestinationPort.trim() || undefined,
         ship_via: bidShipVia.trim() || undefined,
       },
@@ -824,13 +1226,39 @@ export function ShipmentDetail({ id }: { id: string }) {
         if (res.data) setBids((prev) => [...prev, res.data!]);
         setBidForwarder("");
         setBidServiceAmount("");
-        setBidDuration("");
-        setBidOriginPort("");
+        setBidServiceCurrency("IDR");
+        setBidQuotationExpiresAt("");
         setBidDestinationPort("");
         setBidShipVia("");
         pushToast("Forwarder bid added.", "success");
+        fetchRecentForwarders();
       })
       .finally(() => setAddingBid(false));
+  }
+
+  function applyForwarderFromRecent(row: RecentForwarderBid) {
+    const name = row.forwarder_name.trim();
+    if (!name || !accessToken || !id) return;
+    const rowKey = `${row.shipment_id}:${name}`;
+    setBidForwarder(name);
+    setEditForwarderName(name);
+    if (!canEditShipment) return;
+    setApplyingRecentForwarderKey(rowKey);
+    updateShipment(id, { forwarder_name: name }, accessToken)
+      .then((res) => {
+        if (isApiError(res)) {
+          pushToast(res.message, "error");
+          return;
+        }
+        if (res.data) setDetail(res.data);
+        fetchRecentForwarders();
+        pushToast("Forwarder / liner saved — opening Details so you can confirm.", "success");
+        setActiveDetailTab("details");
+        window.setTimeout(() => {
+          document.getElementById("field-forwarder-liner")?.scrollIntoView({ behavior: "smooth", block: "center" });
+        }, 120);
+      })
+      .finally(() => setApplyingRecentForwarderKey(null));
   }
 
   function startEditBid(bid: ShipmentBid) {
@@ -838,27 +1266,38 @@ export function ShipmentDetail({ id }: { id: string }) {
     setEditBidForwarder(bid.forwarder_name);
     setEditBidServiceAmount(
       bid.service_amount != null
-        ? formatPriceInputWithCommas(String(bid.service_amount).replace(/,/g, ""))
+        ? formatPriceInputWithCommas(roundTo2Decimals(Number(bid.service_amount)).toFixed(2), 2)
         : ""
     );
-    setEditBidDuration(parseDurationDaysDigits(bid.duration));
-    setEditBidOriginPort(bid.origin_port ?? "");
+    setEditBidQuotationExpiresAt(bid.quotation_expires_at?.trim().slice(0, 10) ?? "");
     setEditBidDestinationPort(bid.destination_port ?? "");
     setEditBidShipVia(bid.ship_via ?? "");
+    setEditBidServiceCurrency(bid.service_amount_currency ?? "IDR");
   }
 
   function handleSaveBid(e: React.FormEvent) {
     e.preventDefault();
-    if (!accessToken || !id || !editingBidId) return;
+    if (!accessToken || !id || !editingBidId || !canEditShipment) return;
+    const laneCountry = (biddingLaneCountry.trim() || (detail?.origin_port_country ?? "").trim());
+    const lanePort = (biddingLanePort.trim() || (detail?.origin_port_name ?? "").trim());
+    if (!laneCountry || !lanePort) {
+      pushToast("Set lane origin country and port before saving the bid.", "error");
+      return;
+    }
     setActionError(null);
     updateShipmentBid(
       id,
       editingBidId,
       {
         forwarder_name: editBidForwarder.trim(),
-        service_amount: editBidServiceAmount.trim() ? parseCommaFormattedDecimal(editBidServiceAmount) : undefined,
-        duration: formatDurationForApi(editBidDuration),
-        origin_port: editBidOriginPort.trim() || undefined,
+        service_amount: (() => {
+          if (!editBidServiceAmount.trim()) return undefined;
+          const n = parseCommaFormattedDecimal(editBidServiceAmount);
+          return n != null ? roundTo2Decimals(n) : undefined;
+        })(),
+        service_amount_currency: editBidServiceCurrency,
+        quotation_expires_at: editBidQuotationExpiresAt.trim() || null,
+        origin_port: lanePort || undefined,
         destination_port: editBidDestinationPort.trim() || undefined,
         ship_via: editBidShipVia.trim() || undefined,
       },
@@ -873,11 +1312,12 @@ export function ShipmentDetail({ id }: { id: string }) {
         if (res.data) setBids((prev) => prev.map((b) => (b.id === editingBidId ? res.data! : b)));
         setEditingBidId(null);
         pushToast("Bid updated.", "success");
+        fetchRecentForwarders();
       });
   }
 
   function handleDeleteBid(bidId: string) {
-    if (!accessToken || !id) return;
+    if (!accessToken || !id || !canEditShipment) return;
     setActionError(null);
     deleteShipmentBid(id, bidId, accessToken).then((res) => {
       if (isApiError(res)) {
@@ -887,11 +1327,12 @@ export function ShipmentDetail({ id }: { id: string }) {
       }
       setBids((prev) => prev.filter((b) => b.id !== bidId));
       pushToast("Bid removed.", "success");
+      fetchRecentForwarders();
     });
   }
 
   function handleQuotationUpload(bidId: string, file: File | null) {
-    if (!accessToken || !id || !file) return;
+    if (!accessToken || !id || !file || !canUploadDocument) return;
     setActionError(null);
     setUploadingQuotationForBidId(bidId);
     uploadShipmentBidQuotation(id, bidId, file, accessToken)
@@ -937,29 +1378,69 @@ export function ShipmentDetail({ id }: { id: string }) {
     file: File | null,
     intakeId?: string | null
   ) {
-    if (!accessToken || !id || !file) return;
+    if (!accessToken || !id || !file || !detail) return;
+    const block = getShipmentDocumentUploadBlockReason({
+      shipment: detail,
+      documentType,
+      documents: shipmentDocuments,
+      shipmentStatusDelivered: shipmentDocumentsLockedByDeliveredStatus,
+    });
+    if (block) {
+      pushToast(documentRestrictionToastMessage(block), "error");
+      return;
+    }
+    if (!isAcceptedShipmentDocFile(file)) {
+      pushToast("This file type is not accepted. Use PDF, Word, Excel, or an image.", "error");
+      return;
+    }
     const key = shipmentDocSlotKey(documentType, status, intakeId);
     setActionError(null);
     setUploadingDocSlotKey(key);
     uploadShipmentDocument(id, file, documentType, status, accessToken, intakeId ?? undefined)
-      .then((res) => {
+      .then(async (res) => {
         if (isApiError(res)) {
           setActionError(res.message);
           pushToast(res.message, "error");
           return;
         }
-        if (res.data) setShipmentDocuments((prev) => [res.data!, ...prev]);
+        const listRes = await listShipmentDocuments(id, accessToken);
+        if (!isApiError(listRes) && Array.isArray(listRes.data)) {
+          setShipmentDocuments(listRes.data);
+        } else if (res.data) {
+          setShipmentDocuments((prev) => [res.data!, ...prev]);
+        }
         pushToast("Document uploaded.", "success");
+      })
+      .catch((err) => {
+        const msg = err instanceof Error ? err.message : "Upload failed";
+        setActionError(msg);
+        pushToast(msg, "error");
       })
       .finally(() => setUploadingDocSlotKey(null));
   }
 
   function handleShipmentDocumentDownload(doc: ShipmentDocumentListItem) {
-    if (!accessToken || !id) return;
+    if (!id) return;
     const base = config.apiBaseUrl.replace(/\/$/, "");
     const url = `${base}/shipments/${id}/documents/${doc.id}/download`;
-    fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
-      .then((r) => {
+    const downloadWithAuth = () =>
+      fetch(url, {
+        credentials: "include",
+      });
+
+    downloadWithAuth()
+      .then(async (r) => {
+        if (r.status === 401) {
+          const refreshUrl = `${base}/auth/refresh`;
+          const refresh = await fetch(refreshUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({}),
+            credentials: "include",
+          });
+          if (!refresh.ok) throw new Error("download failed");
+          r = await downloadWithAuth();
+        }
         if (!r.ok) throw new Error("download failed");
         return r.blob();
       })
@@ -1024,7 +1505,7 @@ export function ShipmentDetail({ id }: { id: string }) {
               variant="secondary"
               className={styles.docIconBtn}
               onClick={() => handleShipmentDocumentDelete(doc.id)}
-              disabled={deletingDocId === doc.id || !!detail?.closed_at}
+              disabled={deletingDocId === doc.id || shipmentDocumentsLockedByDeliveredStatus}
               aria-label={deletingDocId === doc.id ? "Removing document" : `Remove ${doc.original_file_name}`}
               title={deletingDocId === doc.id ? "Removing…" : "Remove"}
             >
@@ -1051,6 +1532,19 @@ export function ShipmentDetail({ id }: { id: string }) {
   }
 
   function handleShipByEditChange(next: string) {
+    if (!next.trim()) {
+      setEditShipBy("");
+      setEditUnit20ft(false);
+      setEditUnit40ft(false);
+      setEditUnitPackage(false);
+      setEditUnit20IsoTank(false);
+      setEditContainerCount20ft("");
+      setEditContainerCount40ft("");
+      setEditPackageCount("");
+      setEditContainerCount20IsoTank("");
+      setEditCbm("");
+      return;
+    }
     setEditShipBy(next);
     if (next === "Bulk") {
       setEditUnit20ft(false);
@@ -1071,6 +1565,48 @@ export function ShipmentDetail({ id }: { id: string }) {
     } else if (next === "FCL") {
       setEditUnitPackage(false);
       setEditPackageCount("");
+    }
+    if (next !== "LCL") {
+      setEditCbm("");
+    }
+  }
+
+  function applyLinerFieldsFromBidOrRecent(
+    forwarderName: string,
+    shipVia: string | null | undefined,
+    destinationPort: string | null | undefined
+  ) {
+    setEditForwarderName((forwarderName ?? "").trim());
+    const m = normalizeBidShipViaToShipmentMethod(shipVia);
+    setEditShipmentMethod(m);
+    if (m === "Air") handleShipByEditChange("");
+    setEditDestinationPortName((destinationPort ?? "").trim());
+  }
+
+  function handleForwarderPickChange(value: string) {
+    setEditForwarderPick(value);
+    if (value === "") {
+      setEditForwarderName("");
+      return;
+    }
+    if (value === FORWARDER_LINER_PICK_OTHER) {
+      setEditForwarderName("");
+      return;
+    }
+    if (value.startsWith("bid:")) {
+      const bidId = value.slice(4);
+      const bid = bids.find((b) => b.id === bidId);
+      if (bid) {
+        applyLinerFieldsFromBidOrRecent(bid.forwarder_name, bid.ship_via, bid.destination_port);
+      }
+      return;
+    }
+    if (value.startsWith("recent:")) {
+      const idx = Number(value.slice(7));
+      const row = recentForwarders[idx];
+      if (row) {
+        applyLinerFieldsFromBidOrRecent(row.forwarder_name, row.ship_via, row.destination_port);
+      }
     }
   }
 
@@ -1128,9 +1664,171 @@ export function ShipmentDetail({ id }: { id: string }) {
     return parts.length > 0 ? parts.join(", ") : "—";
   }
 
+  /**
+   * Snapshot used for status-transition validation and highlights.
+   * When "Update shipment" is open, merge edit state so checks match unsaved form values (and PO mapping / delivered qty drafts).
+   */
+  const detailForStatusValidation = useMemo((): ShipmentDetailType | null => {
+    if (!detail) return null;
+    if (!isUpdatingShipment) return detail;
+
+    const method =
+      editShipmentMethod.trim() !== "" ? editShipmentMethod.trim() : detail.shipment_method;
+    const sea = isShipmentMethodSea(method);
+
+    const origin_port_name = (hasBiddingStep ? biddingLanePort : editOriginPortName).trim() || null;
+    const origin_port_country = (hasBiddingStep ? biddingLaneCountry : editOriginPortCountry).trim() || null;
+
+    const depoVal: boolean | null =
+      editDepo === "yes" ? true : editDepo === "no" ? false : detail.depo;
+
+    const surveyorVal =
+      editSurveyor === "Yes" || editSurveyor === "No" ? editSurveyor : detail.surveyor;
+
+    const incotermAmtFromEdit = editIncotermAmount.trim()
+      ? roundTo2Decimals(Number(stripCommaThousands(editIncotermAmount.trim())))
+      : null;
+    const incoterm_amount =
+      incotermAmtFromEdit != null && Number.isFinite(incotermAmtFromEdit)
+        ? incotermAmtFromEdit
+        : detail.incoterm_amount;
+
+    const linkedPosEff = (() => {
+      const base = detail.linked_pos ?? [];
+      if (base.length === 0) return base;
+
+      const rateRawFromAnyPo = base
+        .map((po) => stripCommaThousands((poEditCurrencyRateByIntake[po.intake_id] ?? "").trim()))
+        .find((s) => s.length > 0);
+      const parsedSharedRate = rateRawFromAnyPo ? Number(rateRawFromAnyPo) : NaN;
+      const sharedNonIdrRate =
+        Number.isFinite(parsedSharedRate) && parsedSharedRate > 0
+          ? roundTo2Decimals(parsedSharedRate)
+          : undefined;
+
+      const parseDraftPct = (raw: string | undefined, fallback: number | null): number | null => {
+        if (raw === undefined) return fallback;
+        const t = stripCommaThousands(raw.trim());
+        if (!t) return null;
+        const n = roundTo2Decimals(Number(t));
+        return Number.isFinite(n) ? n : fallback;
+      };
+
+      return base.map((po) => {
+        const pd = poDetailsCache[po.intake_id];
+        const idr = isCurrencyIdr(resolvePoCurrencyCode(po, pd));
+        let currency_rate = po.currency_rate;
+        if (!idr && sharedNonIdrRate !== undefined) {
+          currency_rate = sharedNonIdrRate;
+        }
+
+        const qtyDraft = poEditReceivedQtyByIntake[po.intake_id];
+        const dutyDraft = poEditDutyPctByIntake[po.intake_id];
+        let line_received = po.line_received;
+        if (qtyDraft || dutyDraft) {
+          const items = pd?.items ?? [];
+          if (items.length > 0) {
+            line_received = items.map((it) => {
+              const saved = po.line_received?.find((l) => l.item_id === it.id);
+              const received_qty =
+                qtyDraft != null
+                  ? parseDeliveredQtyInput(qtyDraft[it.id] ?? "")
+                  : (saved?.received_qty ?? 0);
+              const d = dutyDraft?.[it.id];
+              return {
+                item_id: it.id,
+                received_qty,
+                item_description: it.item_description ?? saved?.item_description ?? null,
+                bm_percentage: d ? parseDraftPct(d.bm, saved?.bm_percentage ?? null) : (saved?.bm_percentage ?? null),
+                ppn_percentage: d ? parseDraftPct(d.ppn, saved?.ppn_percentage ?? null) : (saved?.ppn_percentage ?? null),
+                pph_percentage: d ? parseDraftPct(d.pph, saved?.pph_percentage ?? null) : (saved?.pph_percentage ?? null),
+              };
+            });
+          } else if (line_received && line_received.length > 0) {
+            line_received = line_received.map((l) => {
+              const d = dutyDraft?.[l.item_id];
+              return {
+                ...l,
+                received_qty:
+                  qtyDraft != null ? parseDeliveredQtyInput(qtyDraft[l.item_id] ?? "") : l.received_qty,
+                bm_percentage: d ? parseDraftPct(d.bm, l.bm_percentage ?? null) : l.bm_percentage,
+                ppn_percentage: d ? parseDraftPct(d.ppn, l.ppn_percentage ?? null) : l.ppn_percentage,
+                pph_percentage: d ? parseDraftPct(d.pph, l.pph_percentage ?? null) : l.pph_percentage,
+              };
+            });
+          }
+        }
+
+        return { ...po, currency_rate, line_received };
+      });
+    })();
+
+    return {
+      ...detail,
+      incoterm: workflowIncoterm ?? detail.incoterm,
+      forwarder_name: editForwarderName.trim() || detail.forwarder_name,
+      shipment_method: method ?? detail.shipment_method,
+      ship_by: sea ? (editShipBy.trim() || detail.ship_by) : null,
+      pib_type: editPibType.trim() || detail.pib_type,
+      origin_port_name,
+      origin_port_country,
+      etd: editEtd.trim() || detail.etd,
+      eta: editEta.trim() || detail.eta,
+      product_classification: editProductClassification.trim() || detail.product_classification,
+      depo: depoVal,
+      surveyor: surveyorVal,
+      destination_port_name: editDestinationPortName.trim() || detail.destination_port_name,
+      destination_port_country: DESTINATION_PORT_COUNTRY,
+      incoterm_amount,
+      incoterm_currency: editIncotermCurrency,
+      atd: editAtd.trim() || detail.atd,
+      bl_awb: editBlAwb.trim() || detail.bl_awb,
+      no_request_pib: editNoRequestPib.trim() || detail.no_request_pib,
+      ppjk_mkl: editPpjkMkl.trim() || detail.ppjk_mkl,
+      ata: editAta.trim() || detail.ata,
+      nopen: editNopen.trim() || detail.nopen,
+      nopen_date: editNopenDate.trim() || detail.nopen_date,
+      closed_at: editClosedAt.trim() || detail.closed_at,
+      linked_pos: linkedPosEff,
+    };
+  }, [
+    detail,
+    isUpdatingShipment,
+    hasBiddingStep,
+    workflowIncoterm,
+    biddingLanePort,
+    biddingLaneCountry,
+    editForwarderName,
+    editShipmentMethod,
+    editShipBy,
+    editPibType,
+    editOriginPortName,
+    editOriginPortCountry,
+    editEtd,
+    editEta,
+    editProductClassification,
+    editDepo,
+    editSurveyor,
+    editDestinationPortName,
+    editIncotermAmount,
+    editIncotermCurrency,
+    editAtd,
+    editBlAwb,
+    editNoRequestPib,
+    editPpjkMkl,
+    editAta,
+    editNopen,
+    editNopenDate,
+    editClosedAt,
+    poEditCurrencyRateByIntake,
+    poEditReceivedQtyByIntake,
+    poEditDutyPctByIntake,
+    poDetailsCache,
+  ]);
+
   const applicableStatuses = useMemo(
-    () => getApplicableStatuses(detail?.incoterm),
-    [detail?.incoterm]
+    () => getApplicableStatuses(workflowIncoterm),
+    [workflowIncoterm]
   );
 
   const steppedTimeline = useMemo((): TimelineItemType[] => {
@@ -1166,30 +1864,64 @@ export function ShipmentDetail({ id }: { id: string }) {
   }, [detail?.current_status, timeline, applicableStatuses]);
 
   const missingForStatusUpdate = useMemo(() => {
-    if (!detail || !newStatus.trim()) return [];
-    const fields = getMissingRequiredFields(detail.current_status, newStatus.trim(), {
-      ...detail,
+    if (!detailForStatusValidation || !newStatus.trim()) return [];
+    const fields = getMissingRequiredFields(detailForStatusValidation.current_status, newStatus.trim(), {
+      ...detailForStatusValidation,
       bids,
     });
-    const docs = getMissingRequiredDocuments(detail.current_status, newStatus.trim(), detail.incoterm, {
-      documents: shipmentDocuments,
-      linked_pos: detail.linked_pos ?? [],
-      surveyor: detail.surveyor,
-    });
+    const docs = getMissingRequiredDocuments(
+      detailForStatusValidation.current_status,
+      newStatus.trim(),
+      detailForStatusValidation.incoterm,
+      {
+        documents: shipmentDocuments,
+        linked_pos: detailForStatusValidation.linked_pos ?? [],
+        surveyor: detailForStatusValidation.surveyor,
+        pib_type: detailForStatusValidation.pib_type,
+      }
+    );
     return [...fields, ...docs];
-  }, [detail, newStatus, bids, shipmentDocuments]);
+  }, [detailForStatusValidation, newStatus, bids, shipmentDocuments]);
 
   const requiredDocsForUpdate = useMemo(() => {
-    if (!detail || !newStatus.trim()) return [];
-    return getRequiredDocsForTransition(detail.current_status, newStatus.trim(), detail.incoterm);
-  }, [detail, newStatus]);
+    if (!detailForStatusValidation || !newStatus.trim()) return [];
+    return getRequiredDocsForTransition(
+      detailForStatusValidation.current_status,
+      newStatus.trim(),
+      detailForStatusValidation.incoterm,
+      detailForStatusValidation.pib_type
+    );
+  }, [detailForStatusValidation, newStatus]);
 
   const canProceedStatusUpdate = newStatus.trim() !== "" && missingForStatusUpdate.length === 0;
 
+  const pibTypeForDutyRules = useMemo(() => {
+    if (!detail) return null;
+    if (isUpdatingShipment && editPibType.trim()) return editPibType.trim();
+    return detail.pib_type;
+  }, [detail, isUpdatingShipment, editPibType]);
+
+  const dutyCalculationSkipped = useMemo(() => isPibTypeBc23(pibTypeForDutyRules), [pibTypeForDutyRules]);
+
+  const previewPdriWhileEditing = useMemo(() => {
+    if (!detail || dutyCalculationSkipped || !isUpdatingShipment) return null;
+    const bm = parseDutyTotalAmountInput(editBmTotal);
+    const ppn = parseDutyTotalAmountInput(editPpnTotal);
+    const pph = parseDutyTotalAmountInput(editPphTotal);
+    if (bm === null || ppn === null || pph === null) return null;
+    return roundTo2Decimals(bm + ppn + pph);
+  }, [detail, dutyCalculationSkipped, isUpdatingShipment, editBmTotal, editPpnTotal, editPphTotal]);
+
   const requiredFieldsForStatusUpdate = useMemo(() => {
-    if (!detail || !newStatus.trim()) return [] as string[];
-    return getRequiredFieldsForTransition(detail.current_status, newStatus.trim(), detail.incoterm);
-  }, [detail, newStatus]);
+    if (!detailForStatusValidation || !newStatus.trim()) return [] as string[];
+    return getRequiredFieldsForTransition(
+      detailForStatusValidation.current_status,
+      newStatus.trim(),
+      detailForStatusValidation.incoterm,
+      detailForStatusValidation.pib_type,
+      detailForStatusValidation.shipment_method
+    );
+  }, [detailForStatusValidation, newStatus]);
 
   const requiredForUpdateSet = useMemo(
     () => new Set(requiredFieldsForStatusUpdate),
@@ -1207,7 +1939,12 @@ export function ShipmentDetail({ id }: { id: string }) {
 
   const linkedPoHighlightClass = useMemo(() => {
     if (!newStatus.trim()) return "";
-    const keys = ["has_linked_po", "has_received_this_shipment", "has_currency_rate"] as const;
+    const keys = [
+      "has_linked_po",
+      "has_received_this_shipment",
+      "has_currency_rate",
+      "line_duty_percentages",
+    ] as const;
     if (!keys.some((k) => requiredForUpdateSet.has(k) && missingForUpdateSet.has(k))) return "";
     return `${styles.statusHighlightBlock} ${styles.statusHighlightBlockMissing}`;
   }, [newStatus, requiredForUpdateSet, missingForUpdateSet]);
@@ -1228,15 +1965,31 @@ export function ShipmentDetail({ id }: { id: string }) {
   }, [newStatus, requiredForUpdateSet, missingForUpdateSet]);
 
   const poLineItemsToolbarClass = useMemo(() => {
-    if (!newStatus.trim() || !requiredForUpdateSet.has("has_received_this_shipment")) return styles.poLineItemsToolbar;
-    const miss = missingForUpdateSet.has("has_received_this_shipment");
-    return [styles.poLineItemsToolbar, miss ? styles.statusFieldRequired : "", miss ? styles.statusFieldRequiredMissing : ""]
+    if (!newStatus.trim()) return styles.poLineItemsToolbar;
+    const missRecv =
+      requiredForUpdateSet.has("has_received_this_shipment") && missingForUpdateSet.has("has_received_this_shipment");
+    const missDuty =
+      requiredForUpdateSet.has("line_duty_percentages") && missingForUpdateSet.has("line_duty_percentages");
+    if (!missRecv && !missDuty) return styles.poLineItemsToolbar;
+    return [styles.poLineItemsToolbar, styles.statusFieldRequired, styles.statusFieldRequiredMissing]
       .filter(Boolean)
       .join(" ");
   }, [newStatus, requiredForUpdateSet, missingForUpdateSet]);
 
-  const scrollToStatusRequirement = useCallback((fieldKey: string) => {
+  const poLineToolbarDataStatusField = useMemo(() => {
+    return (["line_duty_percentages", "has_received_this_shipment"] as const).find(
+      (k) => requiredForUpdateSet.has(k) && missingForUpdateSet.has(k)
+    );
+  }, [requiredForUpdateSet, missingForUpdateSet]);
+
+  const scrollToStatusRequirement = useCallback(
+    (fieldKey: string, opts?: { afterTabSwitch?: boolean }) => {
     if (fieldKey.startsWith("doc:")) {
+      if (activeDetailTab === "forwarder-bidding" && !opts?.afterTabSwitch) {
+        setActiveDetailTab("details");
+        window.setTimeout(() => scrollToStatusRequirement(fieldKey, { afterTabSwitch: true }), 150);
+        return;
+      }
       document.getElementById("section-shipment-documents")?.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
@@ -1247,7 +2000,17 @@ export function ShipmentDetail({ id }: { id: string }) {
       });
       return;
     }
-    const poKeys = ["has_linked_po", "has_received_this_shipment", "has_currency_rate"];
+    if (activeDetailTab === "forwarder-bidding" && !opts?.afterTabSwitch) {
+      setActiveDetailTab("details");
+      window.setTimeout(() => scrollToStatusRequirement(fieldKey, { afterTabSwitch: true }), 150);
+      return;
+    }
+    const poKeys = [
+      "has_linked_po",
+      "has_received_this_shipment",
+      "has_currency_rate",
+      "line_duty_percentages",
+    ];
     if (poKeys.includes(fieldKey)) {
       document.getElementById("section-arrival-customs")?.scrollIntoView({ behavior: "smooth", block: "start" });
       window.requestAnimationFrame(() => {
@@ -1259,7 +2022,9 @@ export function ShipmentDetail({ id }: { id: string }) {
     }
     const el = document.querySelector(`[data-status-field="${CSS.escape(fieldKey)}"]`);
     el?.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, []);
+  },
+    [activeDetailTab, hasBiddingStep]
+  );
 
   const nextStatusOptions = useMemo(() => {
     const current = detail?.current_status ?? "";
@@ -1281,7 +2046,7 @@ export function ShipmentDetail({ id }: { id: string }) {
   const primaryGroupedPoCurrency = primaryGroupedPo
     ? resolvePoCurrencyCode(primaryGroupedPo, poDetailsCache[primaryGroupedPo.intake_id])
     : null;
-  const groupedPoIsIdr = (primaryGroupedPoCurrency ?? "").trim().toUpperCase() === "IDR";
+  const groupedPoIsIdr = isCurrencyIdr(primaryGroupedPoCurrency);
 
   const [portalMounted, setPortalMounted] = useState(false);
   useEffect(() => {
@@ -1360,7 +2125,7 @@ export function ShipmentDetail({ id }: { id: string }) {
     const sharedRateSource = d.linked_pos.find((po) => po.currency_rate != null)?.currency_rate;
     const sharedRate =
       sharedRateSource != null
-        ? formatPriceInputWithCommas(String(sharedRateSource).replace(/,/g, ""))
+        ? formatPriceInputWithCommas(roundTo2Decimals(Number(sharedRateSource)).toFixed(2), 2)
         : "";
     d.linked_pos.forEach((po) => {
       inv[po.intake_id] = sharedInvoice;
@@ -1389,14 +2154,53 @@ export function ShipmentDetail({ id }: { id: string }) {
     [detail, linkedPoByIntake, poDetailsCache, poEditReceivedQtyByIntake]
   );
 
+  const syncPoEditDutyStateFromExpandedPo = useCallback(
+    (poIntakeId: string | null) => {
+      if (!poIntakeId || !detail) return;
+      if (poEditDutyPctByIntake[poIntakeId]) return;
+      const po = linkedPoByIntake[poIntakeId];
+      if (!po) return;
+      const fmt = (n: number | null | undefined) =>
+        n != null && Number.isFinite(Number(n))
+          ? formatPriceInputWithCommas(roundTo2Decimals(Number(n)).toFixed(2), 2)
+          : "";
+      const next: Record<string, { bm: string; ppn: string; pph: string }> = {};
+      const items = poDetailsCache[poIntakeId]?.items ?? [];
+      for (const it of items) {
+        const saved = po.line_received?.find((l) => l.item_id === it.id);
+        next[it.id] = {
+          bm: fmt(saved?.bm_percentage ?? null),
+          ppn: fmt(saved?.ppn_percentage ?? null),
+          pph: fmt(saved?.pph_percentage ?? null),
+        };
+      }
+      (po.line_received ?? []).forEach((l) => {
+        if (!next[l.item_id]) {
+          next[l.item_id] = {
+            bm: fmt(l.bm_percentage),
+            ppn: fmt(l.ppn_percentage),
+            pph: fmt(l.pph_percentage),
+          };
+        }
+      });
+      setPoEditDutyPctByIntake((prev) => ({ ...prev, [poIntakeId]: next }));
+    },
+    [detail, linkedPoByIntake, poDetailsCache, poEditDutyPctByIntake]
+  );
+
   useEffect(() => {
-    expandedPoIds.forEach((poIntakeId) => syncPoEditStateFromExpandedPo(poIntakeId));
-  }, [expandedPoIds, detail?.linked_pos, syncPoEditStateFromExpandedPo]);
+    expandedPoIds.forEach((poIntakeId) => {
+      syncPoEditStateFromExpandedPo(poIntakeId);
+      syncPoEditDutyStateFromExpandedPo(poIntakeId);
+    });
+  }, [expandedPoIds, detail?.linked_pos, syncPoEditStateFromExpandedPo, syncPoEditDutyStateFromExpandedPo]);
 
   function cancelUpdateMode() {
     setIsUpdatingShipment(false);
+    setEditForwarderPick("");
     if (detail) initPoMappingEditsFromDetail(detail);
     setPoEditReceivedQtyByIntake({});
+    setPoEditDutyPctByIntake({});
   }
 
   /** Persists invoice no. and currency rate for every linked PO (after shipment header save). */
@@ -1407,23 +2211,41 @@ export function ShipmentDetail({ id }: { id: string }) {
       if (!first) return true;
       const invoiceNo = (poEditInvoiceNoByIntake[first.intake_id] ?? "").trim() || undefined;
       const firstCurrency = resolvePoCurrencyCode(first, poDetailsCache[first.intake_id]);
-      const isIdr = (firstCurrency ?? "").trim().toUpperCase() === "IDR";
-      const rateRaw = stripCommaThousands((poEditCurrencyRateByIntake[first.intake_id] ?? "").trim());
+      const isIdr = isCurrencyIdr(firstCurrency);
+      const rateRawFromAnyPo = linkedPos
+        .map((po) => stripCommaThousands((poEditCurrencyRateByIntake[po.intake_id] ?? "").trim()))
+        .find((s) => s.length > 0);
+      const rateRaw = rateRawFromAnyPo ?? "";
       const parsedRate = rateRaw ? Number(rateRaw) : undefined;
-      if (!isIdr && (!Number.isFinite(parsedRate) || (parsedRate ?? 0) <= 0)) {
+      const currentStatus = detail?.current_status ?? "";
+      const customsIdx = SHIPMENT_STATUSES.indexOf("CUSTOMS_CLEARANCE");
+      const statusIdx = SHIPMENT_STATUSES.indexOf(currentStatus);
+      const enforceNonIdrCurrencyRate = !isIdr && customsIdx >= 0 && statusIdx >= customsIdx;
+
+      if (enforceNonIdrCurrencyRate && (!Number.isFinite(parsedRate) || (parsedRate ?? 0) <= 0)) {
         const msg = "Currency rate is required and must be greater than 0 for non-IDR currency.";
         setActionError(msg);
         pushToast(msg, "error");
         return false;
       }
-      const currencyRate = isIdr ? null : parsedRate ?? null;
+
+      let currencyRateForApi: number | null | undefined;
+      if (isIdr) {
+        currencyRateForApi = null;
+      } else if (Number.isFinite(parsedRate) && (parsedRate ?? 0) > 0) {
+        currencyRateForApi = roundTo2Decimals(parsedRate as number);
+      } else {
+        currencyRateForApi = undefined;
+      }
+
       for (const po of linkedPos) {
-        const mapRes = await updateShipmentPoMapping(
-          id,
-          po.intake_id,
-          { invoice_no: invoiceNo ?? null, currency_rate: currencyRate },
-          accessToken
-        );
+        const mappingPayload: { invoice_no?: string | null; currency_rate?: number | null } = {
+          invoice_no: invoiceNo ?? null,
+        };
+        if (currencyRateForApi !== undefined) {
+          mappingPayload.currency_rate = currencyRateForApi;
+        }
+        const mapRes = await updateShipmentPoMapping(id, po.intake_id, mappingPayload, accessToken);
         if (isApiError(mapRes)) {
           setActionError(mapRes.message);
           pushToast(mapRes.message, "error");
@@ -1446,24 +2268,49 @@ export function ShipmentDetail({ id }: { id: string }) {
   async function persistEditedPoLines(linkedPos: ShipmentDetailType["linked_pos"]): Promise<boolean> {
     if (!accessToken || !id || !canEditShipment) return true;
     try {
-      const targetIntakeIds = linkedPos
+      const fromQty = linkedPos
         .map((po) => po.intake_id)
         .filter((intakeId) => poEditReceivedQtyByIntake[intakeId] != null);
+      const fromDuty = linkedPos
+        .map((po) => po.intake_id)
+        .filter((intakeId) => poEditDutyPctByIntake[intakeId] != null);
+      const targetIntakeIds = [...new Set([...fromQty, ...fromDuty])];
       for (const intakeId of targetIntakeIds) {
         const po = linkedPoByIntake[intakeId];
         if (!po) continue;
         const items = poDetailsCache[intakeId]?.items ?? [];
         if (items.length === 0) continue;
         const poDraft = poEditReceivedQtyByIntake[intakeId] ?? {};
+        const dutyDraft = poEditDutyPctByIntake[intakeId] ?? {};
+        const parseLinePct = (raw: string | undefined, fallback: number | null): number | null => {
+          if (raw === undefined) return fallback;
+          const t = stripCommaThousands(raw.trim());
+          if (!t) return null;
+          const n = roundTo2Decimals(Number(t));
+          return Number.isFinite(n) ? n : fallback;
+        };
         const lines: {
           item_id: string;
           received_qty: number;
           net_weight_mt: number | null;
           gross_weight_mt: number | null;
+          bm_percentage: number | null;
+          ppn_percentage: number | null;
+          pph_percentage: number | null;
         }[] = [];
         for (const item of items) {
           const received_qty = parseDeliveredQtyInput(poDraft[item.id] ?? "");
-          lines.push({ item_id: item.id, received_qty, net_weight_mt: null, gross_weight_mt: null });
+          const savedLine = po.line_received?.find((l) => l.item_id === item.id);
+          const dRow = dutyDraft[item.id];
+          lines.push({
+            item_id: item.id,
+            received_qty,
+            net_weight_mt: null,
+            gross_weight_mt: null,
+            bm_percentage: dRow ? parseLinePct(dRow.bm, savedLine?.bm_percentage ?? null) : (savedLine?.bm_percentage ?? null),
+            ppn_percentage: dRow ? parseLinePct(dRow.ppn, savedLine?.ppn_percentage ?? null) : (savedLine?.ppn_percentage ?? null),
+            pph_percentage: dRow ? parseLinePct(dRow.pph, savedLine?.pph_percentage ?? null) : (savedLine?.pph_percentage ?? null),
+          });
         }
         const linesRes = await updateShipmentPoLines(id, intakeId, lines, accessToken);
         if (isApiError(linesRes)) {
@@ -1489,9 +2336,19 @@ export function ShipmentDetail({ id }: { id: string }) {
 
   async function handleSaveDetails(e: React.FormEvent) {
     e.preventDefault();
-    if (!accessToken || !id) return;
+    if (!accessToken || !id || !detail) return;
     setActionError(null);
     setSavingDetails(true);
+
+    const etdSave = editEtd.trim();
+    const etaSave = editEta.trim();
+    if (etdSave && etaSave && etaSave <= etdSave) {
+      const msg = "ETA must be after ETD.";
+      setActionError(msg);
+      pushToast(msg, "error");
+      setSavingDetails(false);
+      return;
+    }
 
     const parseOptInt = (raw: string, errMsg: string): number | null | false => {
       const t = raw.trim();
@@ -1510,7 +2367,10 @@ export function ShipmentDetail({ id }: { id: string }) {
     let packageCount: number | null = null;
     let containerCount20Iso: number | null = null;
 
-    if (editUnit20ft) {
+    const methodForSave = (editShipmentMethod.trim() || detail.shipment_method || "").trim();
+    const sea = isShipmentMethodSea(methodForSave);
+
+    if (sea && editUnit20ft) {
       const v = parseOptInt(
         editContainerCount20ft,
         "Number of 20″ containers must be a non-negative whole number."
@@ -1521,7 +2381,7 @@ export function ShipmentDetail({ id }: { id: string }) {
       }
       containerCount20ft = v;
     }
-    if (editUnit40ft) {
+    if (sea && editUnit40ft) {
       const v = parseOptInt(
         editContainerCount40ft,
         "Number of 40″ containers must be a non-negative whole number."
@@ -1532,7 +2392,7 @@ export function ShipmentDetail({ id }: { id: string }) {
       }
       containerCount40ft = v;
     }
-    if (editUnitPackage) {
+    if (sea && editUnitPackage) {
       const v = parseOptInt(editPackageCount, "Number of packages must be a non-negative whole number.");
       if (v === false) {
         setSavingDetails(false);
@@ -1540,7 +2400,7 @@ export function ShipmentDetail({ id }: { id: string }) {
       }
       packageCount = v;
     }
-    if (editUnit20IsoTank) {
+    if (sea && editUnit20IsoTank) {
       const v = parseOptInt(
         editContainerCount20IsoTank,
         "Number of 20″ ISO tanks must be a non-negative whole number."
@@ -1552,9 +2412,54 @@ export function ShipmentDetail({ id }: { id: string }) {
       containerCount20Iso = v;
     }
 
-    const sb = editShipBy.trim();
-    const unitFields =
-      sb === "Bulk"
+    const sb = sea ? editShipBy.trim() : "";
+    if (sea && !sb) {
+      const msg = "Ship by is required when Ship via is Sea.";
+      setActionError(msg);
+      pushToast(msg, "error");
+      setSavingDetails(false);
+      return;
+    }
+
+    if (!dutyCalculationSkipped) {
+      const bmAmt = parseDutyTotalAmountInput(editBmTotal);
+      const ppnAmt = parseDutyTotalAmountInput(editPpnTotal);
+      const pphAmt = parseDutyTotalAmountInput(editPphTotal);
+      if (bmAmt === null) {
+        const msg = "BM (total) must be a non-negative number.";
+        setActionError(msg);
+        pushToast(msg, "error");
+        setSavingDetails(false);
+        return;
+      }
+      if (ppnAmt === null) {
+        const msg = "PPN (total) must be a non-negative number.";
+        setActionError(msg);
+        pushToast(msg, "error");
+        setSavingDetails(false);
+        return;
+      }
+      if (pphAmt === null) {
+        const msg = "PPH (total) must be a non-negative number.";
+        setActionError(msg);
+        pushToast(msg, "error");
+        setSavingDetails(false);
+        return;
+      }
+    }
+
+    const unitFields = !sea
+      ? {
+          unit_20ft: false,
+          unit_40ft: false,
+          unit_package: false,
+          unit_20_iso_tank: false,
+          container_count_20ft: null as number | null,
+          container_count_40ft: null as number | null,
+          package_count: null as number | null,
+          container_count_20_iso_tank: null as number | null,
+        }
+      : sb === "Bulk"
         ? {
             unit_20ft: false,
             unit_40ft: false,
@@ -1606,17 +2511,22 @@ export function ShipmentDetail({ id }: { id: string }) {
       kawasan_berikat: editKawasanBerikat === "Yes" || editKawasanBerikat === "No" ? editKawasanBerikat : null,
       surveyor: editSurveyor === "Yes" || editSurveyor === "No" ? editSurveyor : null,
       shipment_method: editShipmentMethod.trim() || undefined,
-      ship_by: editShipBy.trim() || undefined,
+      ship_by: sea ? editShipBy.trim() || undefined : null,
       product_classification: editProductClassification.trim() || null,
       pib_type: editPibType.trim() || undefined,
       no_request_pib: editNoRequestPib.trim() || undefined,
+      ppjk_mkl: editPpjkMkl.trim() || undefined,
       nopen: editNopen.trim() || undefined,
       nopen_date: editNopenDate.trim() || undefined,
       bl_awb: editBlAwb.trim() || undefined,
       insurance_no: editInsuranceNo.trim() || undefined,
       coo: editCoo.trim() || undefined,
-      origin_port_name: editOriginPortName.trim() || undefined,
-      origin_port_country: editOriginPortCountry.trim() || undefined,
+      origin_port_name: hasBiddingStep
+        ? biddingLanePort.trim() || undefined
+        : editOriginPortName.trim() || undefined,
+      origin_port_country: hasBiddingStep
+        ? biddingLaneCountry.trim() || undefined
+        : editOriginPortCountry.trim() || undefined,
       etd: editEtd.trim() || undefined,
       atd: editAtd.trim() || undefined,
       destination_port_name: editDestinationPortName.trim() || undefined,
@@ -1628,15 +2538,25 @@ export function ShipmentDetail({ id }: { id: string }) {
         editDepo === "yes" ? editDepoLocation.trim() || null : editDepo === "no" ? null : undefined,
       ...unitFields,
       incoterm_amount: editIncotermAmount.trim()
-        ? Number(stripCommaThousands(editIncotermAmount.trim()))
+        ? roundTo2Decimals(Number(stripCommaThousands(editIncotermAmount.trim())))
         : undefined,
-      cbm: editCbm.trim() ? Number(editCbm) : undefined,
+      incoterm_currency: editIncotermCurrency,
+      cbm:
+        !sea || editShipBy.trim() !== "LCL"
+          ? null
+          : editCbm.trim()
+            ? Number(editCbm)
+            : null,
       net_weight_mt: editNetWeightMt.trim() ? Number(editNetWeightMt) : undefined,
       gross_weight_mt: editGrossWeightMt.trim() ? Number(editGrossWeightMt) : undefined,
-      bm_percentage: editBmPercentage.trim()
-        ? Number(stripCommaThousands(editBmPercentage.trim()))
-        : undefined,
       closed_at: editClosedAt.trim() || undefined,
+      ...(!dutyCalculationSkipped
+        ? {
+            bm: parseDutyTotalAmountInput(editBmTotal) ?? 0,
+            ppn_amount: parseDutyTotalAmountInput(editPpnTotal) ?? 0,
+            pph_amount: parseDutyTotalAmountInput(editPphTotal) ?? 0,
+          }
+        : {}),
     };
     try {
       const res = await updateShipment(id, payload, accessToken);
@@ -1717,10 +2637,9 @@ export function ShipmentDetail({ id }: { id: string }) {
       fieldKey === "no_request_pib" ||
       fieldKey === "nopen" ||
       fieldKey === "nopen_date" ||
-      fieldKey === "bl_awb" ||
       fieldKey === "incoterm_amount" ||
       fieldKey === "cbm" ||
-      fieldKey === "bm_percentage" ||
+      fieldKey === "line_duty_percentages" ||
       fieldKey === "has_currency_rate" ||
       fieldKey === "has_received_this_shipment" ||
       fieldKey === "has_linked_po"
@@ -1731,6 +2650,8 @@ export function ShipmentDetail({ id }: { id: string }) {
       fieldKey === "origin_port_name" ||
       fieldKey === "origin_port_country" ||
       fieldKey === "destination_port_name" ||
+      fieldKey === "bl_awb" ||
+      fieldKey === "ppjk_mkl" ||
       fieldKey === "etd" ||
       fieldKey === "atd" ||
       fieldKey === "eta" ||
@@ -1811,11 +2732,22 @@ export function ShipmentDetail({ id }: { id: string }) {
           { label: detail.shipment_number },
         ]}
         actions={
-          hasBiddingStep && activeDetailTab === "forwarder-bidding" && canEditShipment && !isUpdatingShipment ? (
-            <Button type="button" variant="primary" className={styles.updateShipmentBtn} onClick={enterUpdateMode}>
-              Update shipment
-            </Button>
-          ) : undefined
+          <div className={styles.headerActionsRow}>
+            {hasBiddingStep && activeDetailTab === "forwarder-bidding" && canEditShipment && !isUpdatingShipment ? (
+              <Button type="button" variant="primary" className={styles.updateShipmentBtn} onClick={enterUpdateMode}>
+                Update shipment
+              </Button>
+            ) : null}
+            {detail && canEditShipment && !isUpdatingShipment ? (
+              <button
+                type="button"
+                className={styles.removeShipmentBtn}
+                onClick={() => setDeleteConfirmOpen(true)}
+              >
+                Remove shipment
+              </button>
+            ) : null}
+          </div>
         }
       />
 
@@ -1849,76 +2781,163 @@ export function ShipmentDetail({ id }: { id: string }) {
           <div className={styles.detailMain}>
             <Card id="section-forwarder-bidding" className={`${styles.card} ${biddingCardHighlightClass}`.trim()}>
               <h2 className={styles.categoryTitle}>Forwarder Bidding Transporters</h2>
-              <p className={styles.placeholderNote}>This section is shown only when the shipment incoterm is <strong>EXW</strong>, <strong>FCA</strong>, or <strong>FOB</strong> (buyer arranges transport). Forwarders (delivery service companies) participate in the bidding process. Add participants with service amount, duration, ports, and optional quotation.</p>
-              <form onSubmit={handleAddBid} className={styles.bidForm}>
-                <div className={styles.bidFormGrid}>
-                  <div className={styles.field}>
-                    <label className={styles.fieldLabel} htmlFor="bid-forwarder">Forwarder name *</label>
-                    <input id="bid-forwarder" type="text" className={styles.input} value={bidForwarder} onChange={(e) => setBidForwarder(e.target.value)} placeholder="Forwarder / delivery company name" required />
+              <p className={styles.placeholderNote}>
+                This section is shown only when the shipment incoterm is <strong>EXW</strong>, <strong>FCA</strong>, or{" "}
+                <strong>FOB</strong> (buyer arranges transport). Set <strong>origin port country</strong> and{" "}
+                <strong>origin port name</strong> on the <strong>Details</strong> tab (Pre Shipment → Origin port); every
+                bid uses those values. Destination port and ship via stay per bid.
+              </p>
+              <Card className={styles.recentForwarderCard}>
+                <h3 className={styles.subsectionTitle}>Recent forwarders (historical)</h3>
+                {loadingRecentForwarders ? (
+                  <p className={styles.placeholder}>Loading recent forwarders…</p>
+                ) : !effectiveLaneOriginCountry ? (
+                  <p className={styles.placeholder}>
+                    Set <strong>origin port country</strong> on the <strong>Details</strong> tab (Pre Shipment → Origin
+                    port) and save the shipment to load historical quotations for the same origin.
+                  </p>
+                ) : !hasForwarderNamesOnShipment ? (
+                  <p className={styles.placeholder}>
+                    Add at least one <strong>bidding participant</strong> or set the <strong>liner forwarder</strong> on
+                    this shipment so we know which forwarder names to match against history.
+                  </p>
+                ) : recentForwarders.length === 0 ? (
+                  <p className={styles.placeholder}>
+                    No historical bid found for those forwarders with this origin country and an active quotation yet.
+                  </p>
+                ) : (
+                  <div className={styles.recentForwarderList}>
+                    {recentForwarders.map((row) => {
+                      const meta = getForwarderQuotationExpiryMeta(row.quotation_expires_at, row.duration, row.updated_at);
+                      const rowKey = `${row.shipment_id}:${row.forwarder_name}`;
+                      const ymd = row.quotation_expires_at?.trim();
+                      const expiryLabel = ymd
+                        ? `Quotation expires: ${formatDayMonthYear(`${ymd}T12:00:00`)}`
+                        : meta.expiresAt
+                          ? `Expires: ${formatDayMonthYear(meta.expiresAt.toISOString())} (from legacy duration)`
+                          : "No expiry set";
+                      return (
+                        <div key={`${row.forwarder_name}-${row.shipment_id}`} className={styles.recentForwarderItem}>
+                          <div className={styles.recentForwarderMain}>
+                            <strong>{row.forwarder_name}</strong>
+                            <span className={styles.recentForwarderMeta}>
+                              Origin country (historical shipment):{" "}
+                              {row.origin_country != null && String(row.origin_country).trim() !== ""
+                                ? String(row.origin_country).trim()
+                                : "—"}
+                            </span>
+                            <span className={styles.recentForwarderMeta}>
+                              Destination country (historical shipment):{" "}
+                              {row.destination_country != null && String(row.destination_country).trim() !== ""
+                                ? String(row.destination_country).trim()
+                                : "—"}
+                            </span>
+                            <span className={styles.recentForwarderMeta}>Last update: {formatDayMonthYear(row.updated_at)}</span>
+                            <span className={styles.recentForwarderMeta}>{expiryLabel}</span>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="primary"
+                            disabled={applyingRecentForwarderKey === rowKey}
+                            onClick={() => applyForwarderFromRecent(row)}
+                          >
+                            {applyingRecentForwarderKey === rowKey ? "Saving…" : "Use forwarder"}
+                          </Button>
+                        </div>
+                      );
+                    })}
                   </div>
-                  <div className={styles.field}>
-                    <label className={styles.fieldLabel} htmlFor="bid-service-amount">Service amount</label>
-                    <input
-                      id="bid-service-amount"
-                      type="text"
-                      inputMode="decimal"
-                      autoComplete="off"
-                      className={styles.input}
-                      value={bidServiceAmount}
-                      onChange={(e) => setBidServiceAmount(formatPriceInputWithCommas(e.target.value))}
-                      placeholder="1,234.56"
-                      aria-label="Service amount"
-                    />
-                  </div>
-                  <div className={styles.field}>
-                    <span className={styles.fieldLabel} id="bid-duration-label">
-                      Duration
-                    </span>
-                    <div className={styles.durationFieldRow} role="group" aria-labelledby="bid-duration-label">
+                )}
+              </Card>
+              {canEditShipment ? (
+                <form onSubmit={handleAddBid} className={styles.bidForm}>
+                  <div className={styles.bidFormGrid}>
+                    <div className={styles.field}>
+                      <label className={styles.fieldLabel} htmlFor="bid-forwarder">Forwarder name *</label>
+                      <input id="bid-forwarder" type="text" className={styles.input} value={bidForwarder} onChange={(e) => setBidForwarder(e.target.value)} placeholder="Forwarder / delivery company name" required />
+                    </div>
+                    <div className={styles.field}>
+                      <label className={styles.fieldLabel} htmlFor="bid-service-amount">Service amount</label>
                       <input
-                        id="bid-duration"
+                        id="bid-service-amount"
                         type="text"
-                        inputMode="numeric"
+                        inputMode="decimal"
                         autoComplete="off"
                         className={styles.input}
-                        value={bidDuration}
-                        onChange={(e) => setBidDuration(e.target.value.replace(/\D/g, ""))}
-                        placeholder="0"
-                        aria-label="Duration in days"
+                        value={bidServiceAmount}
+                        onChange={(e) => setBidServiceAmount(formatPriceInputWithCommas(e.target.value, 2))}
+                        placeholder="1,234.56"
+                        aria-label="Service amount"
                       />
-                      <span className={styles.durationSuffix}>days</span>
+                    </div>
+                    <div className={styles.field}>
+                      <label className={styles.fieldLabel} htmlFor="bid-service-currency">Currency</label>
+                      <select
+                        id="bid-service-currency"
+                        className={styles.input}
+                        value={bidServiceCurrency}
+                        onChange={(e) => setBidServiceCurrency(e.target.value as FreightChargeCurrency)}
+                        aria-label="Service amount currency"
+                      >
+                        <option value="IDR">IDR</option>
+                        <option value="USD">USD</option>
+                      </select>
+                    </div>
+                    <div className={styles.field}>
+                      <label className={styles.fieldLabel} htmlFor="bid-quotation-expires">
+                        Quotation expires (optional)
+                      </label>
+                      <input
+                        id="bid-quotation-expires"
+                        type="date"
+                        className={styles.input}
+                        value={bidQuotationExpiresAt}
+                        onChange={(e) => setBidQuotationExpiresAt(e.target.value)}
+                      />
+                    </div>
+                    <div className={styles.field}>
+                      <label className={styles.fieldLabel} htmlFor="bid-destination-port">Destination port</label>
+                      <input id="bid-destination-port" type="text" className={styles.input} value={bidDestinationPort} onChange={(e) => setBidDestinationPort(e.target.value)} placeholder="Port of discharge" />
+                    </div>
+                    <div className={styles.field}>
+                      <label className={styles.fieldLabel} htmlFor="bid-ship-via">Ship via</label>
+                      <select id="bid-ship-via" className={styles.input} value={bidShipVia} onChange={(e) => setBidShipVia(e.target.value)}>
+                        <option value="">— Select —</option>
+                        <option value="Sea">Sea</option>
+                        <option value="Air">Air</option>
+                      </select>
                     </div>
                   </div>
-                  <div className={styles.field}>
-                    <label className={styles.fieldLabel} htmlFor="bid-origin-port">Origin port</label>
-                    <input id="bid-origin-port" type="text" className={styles.input} value={bidOriginPort} onChange={(e) => setBidOriginPort(e.target.value)} placeholder="Port of loading" />
+                  <div className={styles.bidFormActions}>
+                    <Button type="submit" variant="primary" disabled={addingBid || !bidForwarder.trim()}>
+                      {addingBid ? "Adding…" : "Add participant"}
+                    </Button>
                   </div>
-                  <div className={styles.field}>
-                    <label className={styles.fieldLabel} htmlFor="bid-destination-port">Destination port</label>
-                    <input id="bid-destination-port" type="text" className={styles.input} value={bidDestinationPort} onChange={(e) => setBidDestinationPort(e.target.value)} placeholder="Port of discharge" />
-                  </div>
-                  <div className={styles.field}>
-                    <label className={styles.fieldLabel} htmlFor="bid-ship-via">Ship via</label>
-                    <select id="bid-ship-via" className={styles.input} value={bidShipVia} onChange={(e) => setBidShipVia(e.target.value)}>
-                      <option value="">— Select —</option>
-                      <option value="Sea">Sea</option>
-                      <option value="Air">Air</option>
-                    </select>
-                  </div>
-                </div>
-                <div className={styles.bidFormActions}>
-                  <Button type="submit" variant="primary" disabled={addingBid || !bidForwarder.trim()}>
-                    {addingBid ? "Adding…" : "Add participant"}
-                  </Button>
-                </div>
-              </form>
+                </form>
+              ) : (
+                <p className={styles.placeholder}>You do not have permission to add or edit bidding participants.</p>
+              )}
               {loadingBids ? (
                 <p className={styles.placeholder}>Loading bidding participants…</p>
               ) : bids.length === 0 ? (
-                <p className={styles.placeholder}>No bidding participants yet. Add one above.</p>
+                <p className={styles.placeholder}>
+                  {canEditShipment ? "No bidding participants yet. Add one above." : "No bidding participants yet."}
+                </p>
               ) : (
                 <div className={styles.bidList}>
-                  {bids.map((bid) => (
+                  {bids.map((bid) => {
+                    const bidExpiryMeta = getForwarderQuotationExpiryMeta(
+                      bid.quotation_expires_at,
+                      bid.duration,
+                      bid.updated_at
+                    );
+                    const expiryDisplay =
+                      bid.quotation_expires_at?.trim()
+                        ? formatDayMonthYear(`${bid.quotation_expires_at.trim().slice(0, 10)}T12:00:00`)
+                        : bidExpiryMeta.expiresAt
+                          ? `${formatDayMonthYear(bidExpiryMeta.expiresAt.toISOString())} (legacy)`
+                          : "—";
+                    return (
                     <div key={bid.id} className={styles.bidCard}>
                       {editingBidId === bid.id ? (
                         <form onSubmit={handleSaveBid}>
@@ -1935,36 +2954,34 @@ export function ShipmentDetail({ id }: { id: string }) {
                                 autoComplete="off"
                                 className={styles.input}
                                 value={editBidServiceAmount}
-                                onChange={(e) => setEditBidServiceAmount(formatPriceInputWithCommas(e.target.value))}
+                                onChange={(e) => setEditBidServiceAmount(formatPriceInputWithCommas(e.target.value, 2))}
                                 placeholder="1,234.56"
                                 aria-label="Service amount"
                               />
                             </div>
                             <div className={styles.field}>
-                              <span className={styles.fieldLabel} id={`edit-bid-duration-label-${bid.id}`}>
-                                Duration
-                              </span>
-                              <div
-                                className={styles.durationFieldRow}
-                                role="group"
-                                aria-labelledby={`edit-bid-duration-label-${bid.id}`}
+                              <span className={styles.fieldLabel}>Currency</span>
+                              <select
+                                className={styles.input}
+                                value={editBidServiceCurrency}
+                                onChange={(e) => setEditBidServiceCurrency(e.target.value as FreightChargeCurrency)}
+                                aria-label="Service amount currency"
                               >
-                                <input
-                                  type="text"
-                                  inputMode="numeric"
-                                  autoComplete="off"
-                                  className={styles.input}
-                                  value={editBidDuration}
-                                  onChange={(e) => setEditBidDuration(e.target.value.replace(/\D/g, ""))}
-                                  placeholder="0"
-                                  aria-label="Duration in days"
-                                />
-                                <span className={styles.durationSuffix}>days</span>
-                              </div>
+                                <option value="IDR">IDR</option>
+                                <option value="USD">USD</option>
+                              </select>
                             </div>
                             <div className={styles.field}>
-                              <span className={styles.fieldLabel}>Origin port</span>
-                              <input type="text" className={styles.input} value={editBidOriginPort} onChange={(e) => setEditBidOriginPort(e.target.value)} />
+                              <span className={styles.fieldLabel} id={`edit-bid-quotation-expires-label-${bid.id}`}>
+                                Quotation expires (optional)
+                              </span>
+                              <input
+                                type="date"
+                                className={styles.input}
+                                value={editBidQuotationExpiresAt}
+                                onChange={(e) => setEditBidQuotationExpiresAt(e.target.value)}
+                                aria-labelledby={`edit-bid-quotation-expires-label-${bid.id}`}
+                              />
                             </div>
                             <div className={styles.field}>
                               <span className={styles.fieldLabel}>Destination port</span>
@@ -1988,23 +3005,36 @@ export function ShipmentDetail({ id }: { id: string }) {
                         <>
                           <div className={styles.bidCardHeader}>
                             <strong>{bid.forwarder_name}</strong>
-                            <div className={styles.bidCardActions}>
-                              <Button type="button" variant="secondary" onClick={() => startEditBid(bid)}>Edit</Button>
-                              <Button type="button" variant="secondary" onClick={() => handleDeleteBid(bid.id)}>Delete</Button>
-                            </div>
+                            {canEditShipment && (
+                              <div className={styles.bidCardActions}>
+                                <Button type="button" variant="secondary" onClick={() => startEditBid(bid)}>Edit</Button>
+                                <Button type="button" variant="secondary" onClick={() => handleDeleteBid(bid.id)}>Delete</Button>
+                              </div>
+                            )}
                           </div>
                           <div className={styles.bidCardGrid}>
                             <div className={styles.field}>
                               <span className={styles.fieldLabel}>Service amount</span>
-                              <span className={styles.fieldValue}>{bid.service_amount != null ? formatDecimal(bid.service_amount) : "—"}</span>
+                              <span className={styles.fieldValue}>
+                                {formatFreightChargeLine(
+                                  bid.service_amount ?? undefined,
+                                  bid.service_amount_currency ?? "IDR"
+                                )}
+                              </span>
                             </div>
                             <div className={styles.field}>
-                              <span className={styles.fieldLabel}>Duration</span>
-                              <span className={styles.fieldValue}>{formatDurationDaysDisplay(bid.duration)}</span>
+                              <span className={styles.fieldLabel}>Quotation expires</span>
+                              <span className={styles.fieldValue}>{expiryDisplay}</span>
                             </div>
                             <div className={styles.field}>
-                              <span className={styles.fieldLabel}>Origin port</span>
-                              <span className={styles.fieldValue}>{display(bid.origin_port)}</span>
+                              <span className={styles.fieldLabel}>Origin port (lane)</span>
+                              <span className={styles.fieldValue}>
+                                {display(
+                                  (detail.origin_port_name ?? "").trim() ||
+                                    (bid.origin_port ?? "").trim() ||
+                                    null
+                                )}
+                              </span>
                             </div>
                             <div className={styles.field}>
                               <span className={styles.fieldLabel}>Destination port</span>
@@ -2020,22 +3050,29 @@ export function ShipmentDetail({ id }: { id: string }) {
                             {bid.quotation_file_name ? (
                               <span>
                                 <button type="button" className={styles.bidLink} onClick={() => handleQuotationDownload(bid)}>{bid.quotation_file_name}</button>
-                                <label className={styles.bidUploadLabel}>
-                                  Replace: <input type="file" accept=".pdf,.doc,.docx,image/*" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleQuotationUpload(bid.id, f); e.target.value = ""; }} disabled={uploadingQuotationForBidId === bid.id} />
-                                  {uploadingQuotationForBidId === bid.id && " Uploading…"}
-                                </label>
+                                {canUploadDocument && (
+                                  <label className={styles.bidUploadLabel}>
+                                    Replace: <input type="file" accept=".pdf,.doc,.docx,image/*" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleQuotationUpload(bid.id, f); e.target.value = ""; }} disabled={uploadingQuotationForBidId === bid.id} />
+                                    {uploadingQuotationForBidId === bid.id && " Uploading…"}
+                                  </label>
+                                )}
                               </span>
                             ) : (
-                              <label className={styles.bidUploadLabel}>
-                                <input type="file" accept=".pdf,.doc,.docx,image/*" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleQuotationUpload(bid.id, f); e.target.value = ""; }} disabled={uploadingQuotationForBidId === bid.id} />
-                                {uploadingQuotationForBidId === bid.id ? " Uploading…" : "Upload quotation"}
-                              </label>
+                              canUploadDocument ? (
+                                <label className={styles.bidUploadLabel}>
+                                  <input type="file" accept=".pdf,.doc,.docx,image/*" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleQuotationUpload(bid.id, f); e.target.value = ""; }} disabled={uploadingQuotationForBidId === bid.id} />
+                                  {uploadingQuotationForBidId === bid.id ? " Uploading…" : "Upload quotation"}
+                                </label>
+                              ) : (
+                                <span className={styles.fieldValue}>—</span>
+                              )
                             )}
                           </div>
                         </>
                       )}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </Card>
@@ -2076,7 +3113,7 @@ export function ShipmentDetail({ id }: { id: string }) {
         )}
 
       <div className={styles.detailLayout}>
-        <div className={styles.detailMain}>
+        <div className={styles.detailMain} data-tour="shipment-main-form">
       <Card id="section-pre-shipment" className={`${styles.card} ${styles.sectionScrollTarget}`}>
         <h2 className={styles.categoryTitle}>Pre Shipment</h2>
 
@@ -2112,25 +3149,45 @@ export function ShipmentDetail({ id }: { id: string }) {
             <span className={styles.fieldLabel}>Vendor / supplier</span>
             <span className={styles.fieldValue}>{display(isUpdatingShipment ? editVendorName : detail.vendor_name)}</span>
           </div>
-          <div className={statusFieldClass("forwarder_name")} data-status-field="forwarder_name">
+          <div
+            id="field-forwarder-liner"
+            className={statusFieldClass("forwarder_name")}
+            data-status-field="forwarder_name"
+          >
             <span className={styles.fieldLabel}>Forwarder / liner</span>
             {isUpdatingShipment ? (
               hasBiddingStep ? (
-                <select
-                  className={styles.input}
-                  value={editForwarderName}
-                  onChange={(e) => setEditForwarderName(e.target.value)}
-                  disabled={forwarderOptionsFromBids.length === 0}
-                >
-                  <option value="">
-                    {forwarderOptionsFromBids.length === 0 ? "No forwarder from bidding yet" : "— Select forwarder —"}
-                  </option>
-                  {forwarderOptionsFromBids.map((name) => (
-                    <option key={name} value={name}>
-                      {name}
-                    </option>
-                  ))}
-                </select>
+                <div className={styles.forwarderLinerPick}>
+                  <select
+                    className={styles.input}
+                    aria-label="Forwarder / liner source"
+                    value={editForwarderPick}
+                    onChange={(e) => handleForwarderPickChange(e.target.value)}
+                  >
+                    <option value="">— Select forwarder —</option>
+                    {bids.map((b) => (
+                      <option key={b.id} value={`bid:${b.id}`}>
+                        {b.forwarder_name.trim() || b.id}
+                      </option>
+                    ))}
+                    {recentForwarders.map((r, i) => (
+                      <option key={`recent-${r.shipment_id}-${i}`} value={`recent:${i}`}>
+                        Recent: {r.forwarder_name.trim() || "—"}
+                      </option>
+                    ))}
+                    <option value={FORWARDER_LINER_PICK_OTHER}>Other…</option>
+                  </select>
+                  {editForwarderPick === FORWARDER_LINER_PICK_OTHER ? (
+                    <input
+                      type="text"
+                      className={styles.input}
+                      value={editForwarderName}
+                      onChange={(e) => setEditForwarderName(e.target.value)}
+                      placeholder="Forwarder / liner name"
+                      aria-label="Forwarder / liner (other)"
+                    />
+                  ) : null}
+                </div>
               ) : (
                 <input
                   type="text"
@@ -2156,6 +3213,44 @@ export function ShipmentDetail({ id }: { id: string }) {
               />
             ) : (
               <span className={`${styles.fieldValue} ${styles.fieldValueMultiline}`}>{display(detail.warehouse_name)}</span>
+            )}
+          </div>
+        </div>
+
+        <h3 className={styles.subsectionTitle}>Origin port (port of loading)</h3>
+        <div className={styles.grid}>
+          <div className={statusFieldClass("origin_port_name")} data-status-field="origin_port_name">
+            <span className={styles.fieldLabel}>Origin port name</span>
+            {isUpdatingShipment ? (
+              <input
+                type="text"
+                className={styles.input}
+                value={hasBiddingStep ? biddingLanePort : editOriginPortName}
+                onChange={(e) =>
+                  hasBiddingStep ? setBiddingLanePort(e.target.value) : setEditOriginPortName(e.target.value)
+                }
+                placeholder="e.g. Port of Shanghai"
+                aria-label="Origin port name"
+              />
+            ) : (
+              <span className={styles.fieldValue}>{display(detail.origin_port_name)}</span>
+            )}
+          </div>
+          <div className={statusFieldClass("origin_port_country")} data-status-field="origin_port_country">
+            <span className={styles.fieldLabel}>Origin port country</span>
+            {isUpdatingShipment ? (
+              <ComboboxSelect
+                aria-label="Origin port country"
+                inputClassName={styles.input}
+                options={hasBiddingStep ? biddingLaneCountryOptions : originPortCountryOptions}
+                value={hasBiddingStep ? biddingLaneCountry : editOriginPortCountry}
+                onChange={hasBiddingStep ? setBiddingLaneCountry : setEditOriginPortCountry}
+                allowEmpty
+                emptyLabel="— Select country —"
+                placeholder="Type to search…"
+              />
+            ) : (
+              <span className={styles.fieldValue}>{display(detail.origin_port_country)}</span>
             )}
           </div>
         </div>
@@ -2203,7 +3298,7 @@ export function ShipmentDetail({ id }: { id: string }) {
               <span className={styles.fieldValue}>{formatYesNoOrLegacy(detail.kawasan_berikat)}</span>
             )}
           </div>
-          <div className={styles.field}>
+          <div className={statusFieldClass("surveyor")} data-status-field="surveyor">
             <span className={styles.fieldLabel}>Surveyor</span>
             {isUpdatingShipment ? (
               <select
@@ -2223,7 +3318,15 @@ export function ShipmentDetail({ id }: { id: string }) {
           <div className={statusFieldClass("shipment_method")} data-status-field="shipment_method">
             <span className={styles.fieldLabel}>Ship via (Sea / Air)</span>
             {isUpdatingShipment ? (
-              <select className={styles.input} value={editShipmentMethod} onChange={(e) => setEditShipmentMethod(e.target.value)}>
+              <select
+                className={styles.input}
+                value={editShipmentMethod}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setEditShipmentMethod(v);
+                  if (v === "Air") handleShipByEditChange("");
+                }}
+              >
                 <option value="">— Select —</option>
                 <option value="Sea">Sea</option>
                 <option value="Air">Air</option>
@@ -2239,6 +3342,7 @@ export function ShipmentDetail({ id }: { id: string }) {
                 className={styles.input}
                 value={editShipBy}
                 onChange={(e) => handleShipByEditChange(e.target.value)}
+                disabled={!isShipmentMethodSea(editShipmentMethod.trim() || detail.shipment_method)}
               >
                 <option value="">— Select —</option>
                 <option value="Bulk">Bulk</option>
@@ -2246,14 +3350,18 @@ export function ShipmentDetail({ id }: { id: string }) {
                 <option value="FCL">FCL</option>
               </select>
             ) : (
-              <span className={styles.fieldValue}>{display(detail.ship_by)}</span>
+              <span className={styles.fieldValue}>
+                {isShipmentMethodSea(detail.shipment_method) ? display(detail.ship_by) : "—"}
+              </span>
             )}
           </div>
           <div className={`${styles.field} ${styles.fieldUnitFull}`}>
             <span className={styles.fieldLabel}>Unit</span>
             {isUpdatingShipment ? (
               <div>
-                {!editShipBy ? (
+                {!isShipmentMethodSea(editShipmentMethod.trim() || detail.shipment_method) ? (
+                  <span className={styles.fieldValue}>—</span>
+                ) : !editShipBy ? (
                   <span className={styles.fieldHint}>Select Ship by to set units.</span>
                 ) : editShipBy === "Bulk" ? (
                   <span className={styles.fieldValue}>—</span>
@@ -2382,7 +3490,9 @@ export function ShipmentDetail({ id }: { id: string }) {
                 )}
               </div>
             ) : (
-              <span className={styles.fieldValue}>{formatShipmentUnits(detail)}</span>
+              <span className={styles.fieldValue}>
+                {isShipmentMethodSea(detail.shipment_method) ? formatShipmentUnits(detail) : "—"}
+              </span>
             )}
           </div>
           <div className={statusFieldClass("pib_type")} data-status-field="pib_type">
@@ -2390,13 +3500,17 @@ export function ShipmentDetail({ id }: { id: string }) {
             {isUpdatingShipment ? (
               <select className={styles.input} value={editPibType} onChange={(e) => setEditPibType(e.target.value)}>
                 <option value="">— Select —</option>
-                <option value="BC 23">BC 23</option>
-                <option value="BC 20">BC 20</option>
+                <option value="BC 2.3">BC 2.3</option>
+                <option value="BC 2.0">BC 2.0</option>
                 <option value="Consignment Note">Consignment Note</option>
               </select>
             ) : (
               <span className={styles.fieldValue}>{displayPibTypeLabel(detail.pib_type)}</span>
             )}
+            <span className={styles.fieldHint} role="note">
+              Required for document upload
+              {isUpdatingShipment ? " — save shipment after selecting PIB type." : "."}
+            </span>
           </div>
           <div className={statusFieldClass("no_request_pib")} data-status-field="no_request_pib">
             <span className={styles.fieldLabel}>PIB Doc No</span>
@@ -2422,14 +3536,6 @@ export function ShipmentDetail({ id }: { id: string }) {
               <span className={styles.fieldValue}>{formatDayMonthYear(detail.nopen_date)}</span>
             )}
           </div>
-          <div className={statusFieldClass("bl_awb")} data-status-field="bl_awb">
-            <span className={styles.fieldLabel}>BL/AWB</span>
-            {isUpdatingShipment ? (
-              <input type="text" className={styles.input} value={editBlAwb} onChange={(e) => setEditBlAwb(e.target.value)} />
-            ) : (
-              <span className={styles.fieldValue}>{display(detail.bl_awb)}</span>
-            )}
-          </div>
           <div className={styles.field}>
             <span className={styles.fieldLabel}>Insurance No</span>
             {isUpdatingShipment ? (
@@ -2448,41 +3554,19 @@ export function ShipmentDetail({ id }: { id: string }) {
           </div>
         </div>
 
-        <h3 className={styles.subsectionTitle}>Origin port (port of loading)</h3>
-        <div className={styles.grid}>
-          <div className={statusFieldClass("origin_port_name")} data-status-field="origin_port_name">
-            <span className={styles.fieldLabel}>Origin port name</span>
-            {isUpdatingShipment ? (
-              <input type="text" className={styles.input} value={editOriginPortName} onChange={(e) => setEditOriginPortName(e.target.value)} />
-            ) : (
-              <span className={styles.fieldValue}>{display(detail.origin_port_name)}</span>
-            )}
-          </div>
-          <div className={statusFieldClass("origin_port_country")} data-status-field="origin_port_country">
-            <span className={styles.fieldLabel}>Origin port country</span>
-            {isUpdatingShipment ? (
-              <ComboboxSelect
-                aria-label="Origin port country"
-                inputClassName={styles.input}
-                options={originPortCountryOptions}
-                value={editOriginPortCountry}
-                onChange={setEditOriginPortCountry}
-                allowEmpty
-                emptyLabel="— Select country —"
-                placeholder="Type to search…"
-              />
-            ) : (
-              <span className={styles.fieldValue}>{display(detail.origin_port_country)}</span>
-            )}
-          </div>
-        </div>
-
         <h3 className={styles.subsectionTitle}>ETD (estimated departure) &amp; ATD (actual departure)</h3>
         <div className={styles.grid}>
           <div className={statusFieldClass("etd")} data-status-field="etd">
             <span className={styles.fieldLabel}>ETD</span>
             {isUpdatingShipment ? (
-              <input type="date" className={styles.input} value={editEtd} onChange={(e) => setEditEtd(e.target.value)} />
+              <input
+                type="date"
+                className={styles.input}
+                value={editEtd}
+                max={editEta.trim() ? editEta.trim() : undefined}
+                onChange={(e) => setEditEtd(e.target.value)}
+                aria-label="ETD (must be before ETA when both set)"
+              />
             ) : (
               <span className={styles.fieldValue}>{formatDayMonthYear(detail.etd)}</span>
             )}
@@ -2500,6 +3584,25 @@ export function ShipmentDetail({ id }: { id: string }) {
 
       <Card id="section-on-shipment" className={`${styles.card} ${styles.sectionScrollTarget}`}>
         <h2 className={styles.categoryTitle}>On Shipment</h2>
+        <h3 className={styles.subsectionTitle}>BL / AWB &amp; PPJK/EMKL</h3>
+        <div className={styles.grid}>
+          <div className={statusFieldClass("bl_awb")} data-status-field="bl_awb">
+            <span className={styles.fieldLabel}>BL/AWB</span>
+            {isUpdatingShipment ? (
+              <input type="text" className={styles.input} value={editBlAwb} onChange={(e) => setEditBlAwb(e.target.value)} />
+            ) : (
+              <span className={styles.fieldValue}>{display(detail.bl_awb)}</span>
+            )}
+          </div>
+          <div className={statusFieldClass("ppjk_mkl")} data-status-field="ppjk_mkl">
+            <span className={styles.fieldLabel}>PPJK/EMKL</span>
+            {isUpdatingShipment ? (
+              <input type="text" className={styles.input} value={editPpjkMkl} onChange={(e) => setEditPpjkMkl(e.target.value)} />
+            ) : (
+              <span className={styles.fieldValue}>{display(detail.ppjk_mkl)}</span>
+            )}
+          </div>
+        </div>
         <h3 className={styles.subsectionTitle}>Destination port (port of discharge)</h3>
         <div className={styles.grid}>
           <div className={statusFieldClass("destination_port_name")} data-status-field="destination_port_name">
@@ -2554,7 +3657,14 @@ export function ShipmentDetail({ id }: { id: string }) {
           <div className={statusFieldClass("eta")} data-status-field="eta">
             <span className={styles.fieldLabel}>ETA</span>
             {isUpdatingShipment ? (
-              <input type="date" className={styles.input} value={editEta} onChange={(e) => setEditEta(e.target.value)} />
+              <input
+                type="date"
+                className={styles.input}
+                value={editEta}
+                min={editEtd.trim() ? editEtd.trim() : undefined}
+                onChange={(e) => setEditEta(e.target.value)}
+                aria-label="ETA (must be after ETD)"
+              />
             ) : (
               <span className={styles.fieldValue}>{formatDayMonthYear(detail.eta)}</span>
             )}
@@ -2575,7 +3685,7 @@ export function ShipmentDetail({ id }: { id: string }) {
         <h3 className={styles.subsectionTitle}>Import duties (service, tax &amp; PDRI)</h3>
         <div className={styles.grid}>
           <div className={statusFieldClass("incoterm_amount")} data-status-field="incoterm_amount">
-            <span className={styles.fieldLabel}>Service &amp; charge (incoterm amount)</span>
+            <span className={styles.fieldLabel}>Freight charges</span>
             {isUpdatingShipment ? (
               <input
                 type="text"
@@ -2583,37 +3693,55 @@ export function ShipmentDetail({ id }: { id: string }) {
                 autoComplete="off"
                 className={styles.input}
                 value={editIncotermAmount}
-                onChange={(e) => setEditIncotermAmount(formatPriceInputWithCommas(e.target.value))}
+                onChange={(e) => setEditIncotermAmount(formatPriceInputWithCommas(e.target.value, 2))}
                 placeholder="1,234.56"
-                aria-label="Service and charge amount"
+                aria-label="Freight charges amount"
               />
             ) : (
               <span className={styles.fieldValue}>
-                {formatDecimal(detail.incoterm_amount ?? undefined)}
+                {formatFreightChargeLine(detail.incoterm_amount, detail.incoterm_currency ?? "IDR")}
               </span>
             )}
           </div>
+          {isUpdatingShipment ? (
+            <div className={styles.field} data-status-field="incoterm_currency">
+              <span className={styles.fieldLabel}>Freight currency</span>
+              <select
+                className={styles.input}
+                value={editIncotermCurrency}
+                onChange={(e) => setEditIncotermCurrency(e.target.value as FreightChargeCurrency)}
+                aria-label="Freight charges currency"
+              >
+                <option value="IDR">IDR</option>
+                <option value="USD">USD</option>
+              </select>
+            </div>
+          ) : null}
           <div className={styles.field}>
-            <span className={styles.fieldLabel}>Total PO amount</span>
+            <span className={styles.fieldLabel}>Total Invoice amount</span>
             <span className={styles.fieldValue}>{formatRupiah(detail.total_items_amount)}</span>
           </div>
-          <div className={styles.field}>
-            <span className={styles.fieldLabel}>CBM</span>
-            {isUpdatingShipment ? (
-              <input
-                type="number"
-                min={0}
-                step="0.000001"
-                className={styles.input}
-                value={editCbm}
-                onChange={(e) => setEditCbm(normalizeDecimalInput(e.target.value))}
-              />
-            ) : (
-              <span className={styles.fieldValue}>
-                {detail.cbm != null ? formatDecimal(detail.cbm) : "—"}
-              </span>
-            )}
-          </div>
+          {isShipmentMethodSea(isUpdatingShipment ? editShipmentMethod.trim() || detail.shipment_method : detail.shipment_method) &&
+          (isUpdatingShipment ? editShipBy : detail.ship_by)?.trim() === "LCL" ? (
+            <div className={styles.field}>
+              <span className={styles.fieldLabel}>CBM</span>
+              {isUpdatingShipment ? (
+                <input
+                  type="number"
+                  min={0}
+                  step="0.000001"
+                  className={styles.input}
+                  value={editCbm}
+                  onChange={(e) => setEditCbm(normalizeDecimalInput(e.target.value))}
+                  aria-label="CBM (cubic metres)"
+                />
+              ) : (
+                <span className={styles.fieldValue}>
+                  {detail.cbm != null ? formatDecimal(detail.cbm) : "—"}
+                </span>
+              )}
+            </div>
+          ) : null}
           <div className={styles.field}>
             <span className={styles.fieldLabel}>Net weight (MT)</span>
             {isUpdatingShipment ? (
@@ -2688,7 +3816,7 @@ export function ShipmentDetail({ id }: { id: string }) {
                       className={styles.input}
                       value={primaryGroupedPo ? poEditCurrencyRateByIntake[primaryGroupedPo.intake_id] ?? "" : ""}
                       onChange={(e) => {
-                        const next = formatPriceInputWithCommas(e.target.value);
+                        const next = formatPriceInputWithCommas(e.target.value, 2);
                         setPoEditCurrencyRateByIntake(
                           Object.fromEntries(detail.linked_pos.map((po) => [po.intake_id, next] as const))
                         );
@@ -2706,50 +3834,83 @@ export function ShipmentDetail({ id }: { id: string }) {
               ) : null}
             </div>
           ) : null}
-          <div className={statusFieldClass("bm_percentage")} data-status-field="bm_percentage">
-            <span className={styles.fieldLabel}>BM percentage (%)</span>
-            {isUpdatingShipment ? (
+          {dutyCalculationSkipped ? (
+            <p className={styles.fieldHint} role="note">
+              PIB type BC 2.3: BM, PPN, PPH, and PDRI are not calculated for this shipment.
+            </p>
+          ) : null}
+          <div className={styles.field}>
+            <span className={styles.fieldLabel}>BM (total)</span>
+            {dutyCalculationSkipped ? (
+              <span className={styles.fieldValue}>—</span>
+            ) : isUpdatingShipment ? (
               <input
                 type="text"
                 inputMode="decimal"
                 autoComplete="off"
                 className={styles.input}
-                value={editBmPercentage}
-                onChange={(e) => setEditBmPercentage(formatPriceInputWithCommas(e.target.value))}
-                placeholder="e.g. 7.5"
-                aria-label="BM percentage"
+                value={editBmTotal}
+                onChange={(e) => setEditBmTotal(e.target.value)}
+                placeholder="IDR amount"
+                disabled={!canEditShipment || savingDetails}
+                aria-label="BM total amount"
               />
             ) : (
-              <span className={styles.fieldValue}>{detail.bm_percentage != null ? `${formatDecimal(detail.bm_percentage)}%` : "—"}</span>
+              <span className={styles.fieldValue}>{formatRupiah(detail.bm)}</span>
+            )}
+          </div>
+          <div className={styles.field}>
+            <span className={styles.fieldLabel}>PPN (total)</span>
+            {dutyCalculationSkipped ? (
+              <span className={styles.fieldValue}>—</span>
+            ) : isUpdatingShipment ? (
+              <input
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
+                className={styles.input}
+                value={editPpnTotal}
+                onChange={(e) => setEditPpnTotal(e.target.value)}
+                placeholder="IDR amount"
+                disabled={!canEditShipment || savingDetails}
+                aria-label="PPN total amount"
+              />
+            ) : (
+              <span className={styles.fieldValue}>{formatRupiah(detail.ppn)}</span>
+            )}
+          </div>
+          <div className={styles.field}>
+            <span className={styles.fieldLabel}>PPH (total)</span>
+            {dutyCalculationSkipped ? (
+              <span className={styles.fieldValue}>—</span>
+            ) : isUpdatingShipment ? (
+              <input
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
+                className={styles.input}
+                value={editPphTotal}
+                onChange={(e) => setEditPphTotal(e.target.value)}
+                placeholder="IDR amount"
+                disabled={!canEditShipment || savingDetails}
+                aria-label="PPH total amount"
+              />
+            ) : (
+              <span className={styles.fieldValue}>{formatRupiah(detail.pph)}</span>
             )}
           </div>
           <div className={styles.field}>
             <span className={styles.dutyFieldLabelRow}>
-              <span className={styles.fieldLabel}>BM (Bea Masuk)</span>
-              <DutyFormulaHint text={DUTY_FORMULA_BM} />
-            </span>
-            <span className={styles.fieldValue}>{formatRupiah(detail.bm)}</span>
-          </div>
-          <div className={styles.field}>
-            <span className={styles.dutyFieldLabelRow}>
-              <span className={styles.fieldLabel}>PPN</span>
-              <DutyFormulaHint text={`PPN = ${detail.ppn_percentage}% × (Total PO amount + BM).`} />
-            </span>
-            <span className={styles.fieldValue}>{formatRupiah(detail.ppn)}</span>
-          </div>
-          <div className={styles.field}>
-            <span className={styles.dutyFieldLabelRow}>
-              <span className={styles.fieldLabel}>PPH</span>
-              <DutyFormulaHint text={`PPH = ${detail.pph_percentage}% × (Total PO amount + BM).`} />
-            </span>
-            <span className={styles.fieldValue}>{formatRupiah(detail.pph)}</span>
-          </div>
-          <div className={styles.field}>
-            <span className={styles.dutyFieldLabelRow}>
               <span className={styles.fieldLabel}>PDRI (Pajak Dalam Rangka Impor)</span>
-              <DutyFormulaHint text={DUTY_FORMULA_PDRI} />
+              {!dutyCalculationSkipped ? <DutyFormulaHint text={DUTY_FORMULA_PDRI} /> : null}
             </span>
-            <span className={styles.fieldValue}>{formatRupiah(detail.pdri)}</span>
+            <span className={styles.fieldValue}>
+              {dutyCalculationSkipped
+                ? "—"
+                : formatRupiah(
+                    isUpdatingShipment && previewPdriWhileEditing != null ? previewPdriWhileEditing : detail.pdri
+                  )}
+            </span>
           </div>
         </div>
 
@@ -2757,30 +3918,41 @@ export function ShipmentDetail({ id }: { id: string }) {
           id="shipment-highlight-linked-po"
           className={`${styles.linkedPoHighlightWrap} ${linkedPoHighlightClass}`.trim()}
           data-status-field={
-            (["has_linked_po", "has_received_this_shipment", "has_currency_rate"] as const).find((k) =>
-              requiredForUpdateSet.has(k)
-            )
+            (
+              [
+                "has_linked_po",
+                "has_received_this_shipment",
+                "has_currency_rate",
+                "line_duty_percentages",
+              ] as const
+            ).find((k) => requiredForUpdateSet.has(k))
           }
         >
         <h3 className={styles.subsectionTitle}>Group PO</h3>
         <p className={styles.linkedPoHint}>
           Each PO is shown as a card below. You can expand multiple POs and review each line-items table independently.
         </p>
-        <div className={`${styles.actions} ${styles.linkedPoActions}`}>
-          <Button
-            type="button"
-            variant="primary"
-            className={styles.updateShipmentBtn}
-            onClick={() => {
-              setCoupleModalError(null);
-              setCoupleModal(true);
-            }}
-          >
-            Add Purchase Order
-          </Button>
-        </div>
+        {canCoupleDecouplePo && (
+          <div className={`${styles.actions} ${styles.linkedPoActions}`}>
+            <Button
+              type="button"
+              variant="primary"
+              className={styles.updateShipmentBtn}
+              onClick={() => {
+                setCoupleModalError(null);
+                setCoupleModal(true);
+              }}
+            >
+              Add Purchase Order
+            </Button>
+          </div>
+        )}
         {detail.linked_pos.length === 0 ? (
-          <p className={styles.placeholder}>No PO in this group yet. Use &quot;Add Purchase Order&quot; to add.</p>
+          <p className={styles.placeholder}>
+            {canCoupleDecouplePo
+              ? `No PO in this group yet. Use "Add Purchase Order" to add.`
+              : "No PO in this group yet."}
+          </p>
         ) : (
           <div className={styles.linkedPoList} role="list">
             {detail.linked_pos.map((po) => {
@@ -2851,16 +4023,18 @@ export function ShipmentDetail({ id }: { id: string }) {
                         </div>
                       </div>
                     </div>
-                    <div className={styles.linkedPoCardActions}>
-                      <button
-                        type="button"
-                        className={styles.decoupleBtn}
-                        onClick={() => handleDecouple(po.intake_id)}
-                        disabled={decouplingId === po.intake_id}
-                      >
-                        {decouplingId === po.intake_id ? "Removing…" : "Remove"}
-                      </button>
-                    </div>
+                    {canCoupleDecouplePo && (
+                      <div className={styles.linkedPoCardActions}>
+                        <button
+                          type="button"
+                          className={styles.decoupleBtn}
+                          onClick={() => handleDecouple(po.intake_id)}
+                          disabled={decouplingId === po.intake_id}
+                        >
+                          {decouplingId === po.intake_id ? "Removing…" : "Remove"}
+                        </button>
+                      </div>
+                    )}
                   </div>
                   {isExpanded && (
                     <div className={styles.linkedPoCardBody}>
@@ -2877,7 +4051,10 @@ export function ShipmentDetail({ id }: { id: string }) {
                             </>
                           ) : (
                             <>
-                              <div className={poLineItemsToolbarClass} data-status-field="has_received_this_shipment">
+                              <div
+                                className={poLineItemsToolbarClass}
+                                data-status-field={poLineToolbarDataStatusField}
+                              >
                                 <span className={styles.poLineItemsToolbarLabel}>PO line items</span>
                                 <Button
                                   type="button"
@@ -2921,6 +4098,9 @@ export function ShipmentDetail({ id }: { id: string }) {
                                     isExpanded={isExpanded}
                                     poEditReceivedQtyByIntake={poEditReceivedQtyByIntake}
                                     setPoEditReceivedQtyByIntake={setPoEditReceivedQtyByIntake}
+                                    poEditDutyPctByIntake={poEditDutyPctByIntake}
+                                    setPoEditDutyPctByIntake={setPoEditDutyPctByIntake}
+                                    dutyCalculationSkipped={dutyCalculationSkipped}
                                     canEditPoLineFields={canEditShipment && isUpdatingShipment}
                                     savingShipmentEdits={savingDetails}
                                     tableClassName={styles.poItemsTable}
@@ -2983,6 +4163,9 @@ export function ShipmentDetail({ id }: { id: string }) {
                   isExpanded={true}
                   poEditReceivedQtyByIntake={poEditReceivedQtyByIntake}
                   setPoEditReceivedQtyByIntake={setPoEditReceivedQtyByIntake}
+                  poEditDutyPctByIntake={poEditDutyPctByIntake}
+                  setPoEditDutyPctByIntake={setPoEditDutyPctByIntake}
+                  dutyCalculationSkipped={dutyCalculationSkipped}
                   canEditPoLineFields={canEditShipment && isUpdatingShipment}
                   savingShipmentEdits={savingDetails}
                   tableClassName={`${styles.poItemsTable} ${styles.poItemsTableWideOverlay}`.trim()}
@@ -3014,26 +4197,32 @@ export function ShipmentDetail({ id }: { id: string }) {
         )}
       </Card>
 
-      <Card id="section-notes" className={`${styles.card} ${styles.sectionScrollTarget}`}>
+      <Card id="section-notes" className={`${styles.card} ${styles.sectionScrollTarget}`} data-tour="shipment-notes">
         <h2 className={styles.categoryTitle}>Notes</h2>
-        <form onSubmit={handleAddShipmentNote} className={styles.noteComposer}>
-          <label className={styles.field} htmlFor="shipment-note-draft">
-            <span className={styles.fieldLabel}>Add a note</span>
-            <textarea
-              id="shipment-note-draft"
-              className={styles.notesTextarea}
-              value={noteDraft}
-              onChange={(e) => setNoteDraft(e.target.value)}
-              placeholder="Write a note…"
-              rows={4}
-            />
-          </label>
-          <div className={styles.notesActions}>
-            <Button type="submit" variant="primary" disabled={savingNote || !noteDraft.trim()}>
-              {savingNote ? "Posting…" : "Post note"}
-            </Button>
-          </div>
-        </form>
+        {canEditShipment ? (
+          <form onSubmit={handleAddShipmentNote} className={styles.noteComposer}>
+            <label className={styles.field} htmlFor="shipment-note-draft">
+              <span className={styles.fieldLabel}>Add a note</span>
+              <ShipmentNoteMentionTextarea
+                id="shipment-note-draft"
+                className={styles.notesTextarea}
+                value={noteDraft}
+                onChange={setNoteDraft}
+                accessToken={accessToken}
+                placeholder="Write a note…"
+                rows={4}
+                disabled={savingNote}
+              />
+            </label>
+            <div className={styles.notesActions}>
+              <Button type="submit" variant="primary" disabled={savingNote || !noteDraft.trim()}>
+                {savingNote ? "Posting…" : "Post note"}
+              </Button>
+            </div>
+          </form>
+        ) : (
+          <p className={styles.placeholder}>You do not have permission to add notes to this shipment.</p>
+        )}
         <ul className={styles.noteList} aria-label="Shipment notes">
           {shipmentNotes.length === 0 ? (
             <li className={styles.noteEmpty}>No note yet.</li>
@@ -3046,7 +4235,7 @@ export function ShipmentDetail({ id }: { id: string }) {
                     {formatDate(n.created_at)}
                   </time>
                 </div>
-                <p className={styles.noteBody}>{n.note}</p>
+                <p className={styles.noteBody}>{renderNoteWithMentions(n.note)}</p>
               </li>
             ))
           )}
@@ -3056,92 +4245,100 @@ export function ShipmentDetail({ id }: { id: string }) {
         </div>
         <aside className={styles.detailSidebar}>
       <Card className={styles.card}>
-        <h2 className={styles.sectionTitle}>Status timeline</h2>
-        <Timeline
-          items={steppedTimeline}
-          formatDate={(iso) => (iso ? formatDate(iso) : "—")}
-        />
-        <div className={styles.timelineUpdateSection}>
+        <div data-tour="shipment-status-timeline">
+          <h2 className={styles.sectionTitle}>Status timeline</h2>
+          <Timeline
+            items={steppedTimeline}
+            formatDate={(iso) => (iso ? formatDate(iso) : "—")}
+          />
+        </div>
+        <div className={styles.timelineUpdateSection} data-tour="shipment-update-status">
           <h3 className={styles.timelineUpdateTitle}>Update status</h3>
-          {isUpdatingShipment && (
-            <p className={styles.statusPausedHint} role="status">
-              Save or cancel your shipment edits first — status cannot change until draft data is saved or discarded.
-            </p>
+          {canUpdateStatus ? (
+            <>
+              {isUpdatingShipment && (
+                <p className={styles.statusPausedHint} role="status">
+                  Save or cancel your shipment edits first — status cannot change until draft data is saved or discarded.
+                </p>
+              )}
+              <form onSubmit={handleUpdateStatus}>
+                <fieldset className={styles.statusUpdateFieldset} disabled={isUpdatingShipment}>
+                  <div className={styles.statusRow}>
+                    <label htmlFor="shipment-status-select" className={styles.field}>
+                      <span className={styles.fieldLabel}>New status</span>
+                      <select
+                        id="shipment-status-select"
+                        className={styles.statusSelect}
+                        value={newStatus}
+                        onChange={(e) => setNewStatus(e.target.value)}
+                      >
+                        <option value="">Select next status…</option>
+                        {nextStatusOptions.map((s) => (
+                          <option key={s} value={s}>
+                            {formatStatusLabel(s)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                  {newStatus.trim() && requiredFieldsForStatusUpdate.length > 0 && (
+                    <p className={styles.statusRequiredLegend}>
+                      Highlighted rows are required for this update and still missing.
+                    </p>
+                  )}
+                  {newStatus.trim() && missingForStatusUpdate.length > 0 && (
+                    <div className={styles.missingFieldsBox} role="alert">
+                      <span className={styles.missingFieldsTitle}>
+                        Still required — click to scroll to the field or the Documents section:
+                      </span>
+                      <ul className={styles.missingFieldsList}>
+                        {missingForStatusUpdate.map((key) => (
+                          <li key={key}>
+                            <button
+                              type="button"
+                              className={styles.missingFieldJump}
+                              onClick={() => scrollToStatusRequirement(key)}
+                            >
+                              {getFieldLabel(key)}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                      <p className={styles.missingFieldsHint}>Highlighted rows show what this status needs; fix them in the cards or via &quot;Update shipment&quot;.</p>
+                    </div>
+                  )}
+                  {newStatus.trim() && requiredDocsForUpdate.length > 0 && (
+                    <p className={styles.requiredDocsNote}>
+                      Required documents: {requiredDocsForUpdate.join("; ")}
+                    </p>
+                  )}
+                  <div className={styles.statusRow}>
+                    <label className={styles.field}>
+                      <span className={styles.fieldLabel}>Remarks (optional)</span>
+                      <input
+                        type="text"
+                        className={styles.input}
+                        value={remarks}
+                        onChange={(e) => setRemarks(e.target.value)}
+                        placeholder="Remarks"
+                      />
+                    </label>
+                  </div>
+                  <div className={styles.statusFormActions}>
+                    <Button
+                      type="submit"
+                      variant="primary"
+                      disabled={updatingStatus || !canProceedStatusUpdate || isUpdatingShipment}
+                    >
+                      {updatingStatus ? "Updating…" : "Update status"}
+                    </Button>
+                  </div>
+                </fieldset>
+              </form>
+            </>
+          ) : (
+            <p className={styles.placeholder}>You do not have permission to change shipment status.</p>
           )}
-          <form onSubmit={handleUpdateStatus}>
-            <fieldset className={styles.statusUpdateFieldset} disabled={isUpdatingShipment}>
-              <div className={styles.statusRow}>
-                <label htmlFor="shipment-status-select" className={styles.field}>
-                  <span className={styles.fieldLabel}>New status</span>
-                  <select
-                    id="shipment-status-select"
-                    className={styles.statusSelect}
-                    value={newStatus}
-                    onChange={(e) => setNewStatus(e.target.value)}
-                  >
-                    <option value="">Select next status…</option>
-                    {nextStatusOptions.map((s) => (
-                      <option key={s} value={s}>
-                        {formatStatusLabel(s)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-              {newStatus.trim() && requiredFieldsForStatusUpdate.length > 0 && (
-                <p className={styles.statusRequiredLegend}>
-                  Highlighted rows are required for this update and still missing.
-                </p>
-              )}
-              {newStatus.trim() && missingForStatusUpdate.length > 0 && (
-                <div className={styles.missingFieldsBox} role="alert">
-                  <span className={styles.missingFieldsTitle}>
-                    Still required — click to scroll to the field or the Documents section:
-                  </span>
-                  <ul className={styles.missingFieldsList}>
-                    {missingForStatusUpdate.map((key) => (
-                      <li key={key}>
-                        <button
-                          type="button"
-                          className={styles.missingFieldJump}
-                          onClick={() => scrollToStatusRequirement(key)}
-                        >
-                          {getFieldLabel(key)}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                  <p className={styles.missingFieldsHint}>Highlighted rows show what this status needs; fix them in the cards or via &quot;Update shipment&quot;.</p>
-                </div>
-              )}
-              {newStatus.trim() && requiredDocsForUpdate.length > 0 && (
-                <p className={styles.requiredDocsNote}>
-                  Required documents: {requiredDocsForUpdate.join("; ")}
-                </p>
-              )}
-              <div className={styles.statusRow}>
-                <label className={styles.field}>
-                  <span className={styles.fieldLabel}>Remarks (optional)</span>
-                  <input
-                    type="text"
-                    className={styles.input}
-                    value={remarks}
-                    onChange={(e) => setRemarks(e.target.value)}
-                    placeholder="Remarks"
-                  />
-                </label>
-              </div>
-              <div className={styles.statusFormActions}>
-                <Button
-                  type="submit"
-                  variant="primary"
-                  disabled={updatingStatus || !canProceedStatusUpdate || isUpdatingShipment}
-                >
-                  {updatingStatus ? "Updating…" : "Update status"}
-                </Button>
-              </div>
-            </fieldset>
-          </form>
           {statusSummary?.last_updated_at && (
             <p className={`${styles.fieldLabel} ${styles.statusSummaryMargin}`}>
               Last updated: {new Date(statusSummary.last_updated_at).toLocaleString()}
@@ -3150,8 +4347,13 @@ export function ShipmentDetail({ id }: { id: string }) {
         </div>
       </Card>
 
-      <Card className={styles.card} id="section-shipment-documents">
+      <Card className={styles.card} id="section-shipment-documents" data-tour="shipment-documents">
         <h2 className={styles.sectionTitle}>Documents</h2>
+        {canUploadDocument ? (
+          <p className={styles.shipmentDocSectionIntro} role="note">
+            Drag and drop a file onto a category panel, or use the Upload button for that slot.
+          </p>
+        ) : null}
         <div className={styles.shipmentDocCategories}>
           {getVisibleShipmentDocumentSlots(detail).map((slot) => {
             const slotDocKey = docKeyForDocumentType(slot.document_type);
@@ -3166,133 +4368,176 @@ export function ShipmentDetail({ id }: { id: string }) {
                   .filter(Boolean)
                   .join(" ")}
               >
-              <h3 className={styles.shipmentDocCategoryTitle}>{slot.label}</h3>
-              {slot.per_linked_po ? (
-                <>
-                  <p className={styles.shipmentDocPerPoHint}>
-                    Upload one or more files for each PO in this shipment group. PO number identifies the intake in the list below.
-                  </p>
-                  {!detail?.linked_pos?.length ? (
-                    <p className={styles.shipmentDocFileEmpty}>
-                      No PO in this group yet — add a purchase order to this shipment to upload {slot.label} documents per PO.
+              {(() => {
+                const blockReason = getShipmentDocumentUploadBlockReason({
+                  shipment: detail,
+                  documentType: slot.document_type,
+                  documents: shipmentDocuments,
+                  shipmentStatusDelivered: shipmentDocumentsLockedByDeliveredStatus,
+                });
+                const uploadTitle = getShipmentDocUploadButtonTitle(slot.document_type, blockReason);
+                const showSlotLock = blockReason !== null;
+                const subShell = (locked: boolean) =>
+                  [styles.shipmentDocSub, locked ? styles.shipmentDocSubLocked : styles.shipmentDocSubUnlocked].join(" ");
+                const toastRestricted = (r: DocumentUploadBlockReason) =>
+                  pushToast(documentRestrictionToastMessage(r), "error");
+                const uploadBusy = (key: string) => uploadingDocSlotKey === key;
+                const uploadOff = (key: string) => blockReason !== null || uploadBusy(key);
+
+                const prereqHintPib =
+                  !shipmentDocumentsLockedByDeliveredStatus && !canUploadPO(detail) ? (
+                    <p className={styles.shipmentDocLockedHint} role="note">
+                      {slot.document_type === "PO"
+                        ? "Set and save PIB type in General Information before uploading PO documents."
+                        : "Set and save PIB type in General Information before uploading documents."}
                     </p>
-                  ) : (
-                    <div className={styles.shipmentDocPoGrid}>
-                      {detail.linked_pos.map((po) => {
-                        const slotKey = shipmentDocSlotKey(slot.document_type, null, po.intake_id);
-                        const files = filterShipmentDocumentsBySlot(shipmentDocuments, slot.document_type, null, {
-                          kind: "intake",
-                          intakeId: po.intake_id,
-                        });
-                        return (
-                          <div key={po.intake_id} className={styles.shipmentDocSub}>
-                            <div className={styles.shipmentDocSubHeader}>
-                              <span className={styles.shipmentDocStatusLabel}>PO {display(po.po_number)}</span>
-                              {canEditShipment && (
-                                <label className={styles.shipmentDocUploadLabel}>
-                                  <input
-                                    type="file"
-                                    className={styles.shipmentDocFileInput}
-                                    accept=".pdf,.doc,.docx,.xls,.xlsx,image/*"
-                                    disabled={uploadingDocSlotKey === slotKey || !!detail?.closed_at}
-                                    onChange={(e) => {
-                                      const f = e.target.files?.[0];
-                                      if (f) handleShipmentDocumentUpload(slot.document_type, null, f, po.intake_id);
-                                      e.target.value = "";
-                                    }}
-                                  />
-                                  <span className={styles.shipmentDocUploadBtn}>
-                                    {uploadingDocSlotKey === slotKey ? "Uploading…" : "Upload"}
-                                  </span>
-                                </label>
-                              )}
-                            </div>
-                            <ul className={styles.shipmentDocFileList}>{renderShipmentDocumentFileList(files)}</ul>
-                          </div>
-                        );
-                      })}
-                      {filterShipmentDocumentsBySlot(shipmentDocuments, slot.document_type, null, { kind: "shipment_level" }).length >
-                        0 && (
-                        <div className={styles.shipmentDocSub}>
-                          <div className={styles.shipmentDocSubHeader}>
-                            <span className={styles.shipmentDocStatusLabel}>Not tied to a PO</span>
-                            <span className={styles.shipmentDocLegacyNote}>Earlier uploads without PO scope</span>
-                          </div>
-                          <ul className={styles.shipmentDocFileList}>
-                            {renderShipmentDocumentFileList(
-                              filterShipmentDocumentsBySlot(shipmentDocuments, slot.document_type, null, { kind: "shipment_level" })
+                  ) : null;
+                const prereqHintPo =
+                  !shipmentDocumentsLockedByDeliveredStatus &&
+                  canUploadPO(detail) &&
+                  !isPOUploaded(shipmentDocuments) &&
+                  slot.document_type !== "PO" ? (
+                    <p className={styles.shipmentDocLockedHint} role="note">
+                      Upload PO to unlock other documents.
+                    </p>
+                  ) : null;
+
+                return (
+                  <>
+                    <h3 className={styles.shipmentDocCategoryTitleRow}>
+                      {showSlotLock ? (
+                        <Lock className={styles.shipmentDocLockIcon} strokeWidth={2} aria-hidden />
+                      ) : null}
+                      <span className={styles.shipmentDocCategoryTitleText}>{slot.label}</span>
+                    </h3>
+                    {prereqHintPib}
+                    {prereqHintPo}
+                    {slot.per_linked_po ? (
+                      <>
+                        <p className={styles.shipmentDocPerPoHint}>
+                          Upload one or more files for each PO in this shipment group. PO number identifies the intake in
+                          the list below.
+                        </p>
+                        {!detail?.linked_pos?.length ? (
+                          <p className={styles.shipmentDocFileEmpty}>
+                            No PO in this group yet — add a purchase order to this shipment to upload {slot.label}{" "}
+                            documents per PO.
+                          </p>
+                        ) : (
+                          <div className={styles.shipmentDocPoGrid}>
+                            {detail.linked_pos.map((po) => {
+                              const slotKey = shipmentDocSlotKey(slot.document_type, null, po.intake_id);
+                              const files = filterShipmentDocumentsBySlot(shipmentDocuments, slot.document_type, null, {
+                                kind: "intake",
+                                intakeId: po.intake_id,
+                              });
+                              return (
+                                <ShipmentDocDropZone
+                                  key={po.intake_id}
+                                  className={subShell(blockReason !== null)}
+                                  blockReason={blockReason}
+                                  canAct={canUploadDocument}
+                                  onToastRestricted={toastRestricted}
+                                  showDropHint
+                                  onFile={(f) => handleShipmentDocumentUpload(slot.document_type, null, f, po.intake_id)}
+                                >
+                                  <div className={styles.shipmentDocSubHeader}>
+                                    <span className={styles.shipmentDocStatusLabel}>PO {display(po.po_number)}</span>
+                                    {canUploadDocument && (
+                                      <ShipmentDocUploadControl
+                                        disabled={uploadOff(slotKey)}
+                                        isUploading={uploadBusy(slotKey)}
+                                        labelTitle={uploadTitle}
+                                        buttonLabel={slot.document_type === "PO" ? "Upload PO" : "Upload"}
+                                        onFile={(f) => handleShipmentDocumentUpload(slot.document_type, null, f, po.intake_id)}
+                                      />
+                                    )}
+                                  </div>
+                                  <ul className={styles.shipmentDocFileList}>{renderShipmentDocumentFileList(files)}</ul>
+                                </ShipmentDocDropZone>
+                              );
+                            })}
+                            {filterShipmentDocumentsBySlot(shipmentDocuments, slot.document_type, null, {
+                              kind: "shipment_level",
+                            }).length > 0 && (
+                              <div className={styles.shipmentDocSub}>
+                                <div className={styles.shipmentDocSubHeader}>
+                                  <span className={styles.shipmentDocStatusLabel}>Not tied to a PO</span>
+                                  <span className={styles.shipmentDocLegacyNote}>Earlier uploads without PO scope</span>
+                                </div>
+                                <ul className={styles.shipmentDocFileList}>
+                                  {renderShipmentDocumentFileList(
+                                    filterShipmentDocumentsBySlot(shipmentDocuments, slot.document_type, null, {
+                                      kind: "shipment_level",
+                                    })
+                                  )}
+                                </ul>
+                              </div>
                             )}
-                          </ul>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </>
-              ) : slot.statuses ? (
-                <div className={styles.shipmentDocStatusGrid}>
-                  {slot.statuses.map((st) => {
-                    const slotKey = shipmentDocSlotKey(slot.document_type, st);
-                    const files = filterShipmentDocumentsBySlot(shipmentDocuments, slot.document_type, st);
-                    return (
-                      <div key={st} className={styles.shipmentDocSub}>
+                          </div>
+                        )}
+                      </>
+                    ) : slot.statuses ? (
+                      <div className={styles.shipmentDocStatusGrid}>
+                        {slot.statuses.map((st) => {
+                          const slotKey = shipmentDocSlotKey(slot.document_type, st);
+                          const files = filterShipmentDocumentsBySlot(shipmentDocuments, slot.document_type, st);
+                          return (
+                            <ShipmentDocDropZone
+                              key={st}
+                              className={subShell(blockReason !== null)}
+                              blockReason={blockReason}
+                              canAct={canUploadDocument}
+                              onToastRestricted={toastRestricted}
+                              showDropHint
+                              onFile={(f) => handleShipmentDocumentUpload(slot.document_type, st, f)}
+                            >
+                              <div className={styles.shipmentDocSubHeader}>
+                                <span className={styles.shipmentDocStatusLabel}>{st === "DRAFT" ? "Draft" : "Final"}</span>
+                                {canUploadDocument && (
+                                  <ShipmentDocUploadControl
+                                    disabled={uploadOff(slotKey)}
+                                    isUploading={uploadBusy(slotKey)}
+                                    labelTitle={uploadTitle}
+                                    onFile={(f) => handleShipmentDocumentUpload(slot.document_type, st, f)}
+                                  />
+                                )}
+                              </div>
+                              <ul className={styles.shipmentDocFileList}>{renderShipmentDocumentFileList(files)}</ul>
+                            </ShipmentDocDropZone>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <ShipmentDocDropZone
+                        className={subShell(blockReason !== null)}
+                        blockReason={blockReason}
+                        canAct={canUploadDocument}
+                        onToastRestricted={toastRestricted}
+                        showDropHint
+                        onFile={(f) => handleShipmentDocumentUpload(slot.document_type, null, f)}
+                      >
                         <div className={styles.shipmentDocSubHeader}>
-                          <span className={styles.shipmentDocStatusLabel}>{st === "DRAFT" ? "Draft" : "Final"}</span>
-                          {canEditShipment && (
-                            <label className={styles.shipmentDocUploadLabel}>
-                              <input
-                                type="file"
-                                className={styles.shipmentDocFileInput}
-                                accept=".pdf,.doc,.docx,.xls,.xlsx,image/*"
-                                disabled={uploadingDocSlotKey === slotKey || !!detail?.closed_at}
-                                onChange={(e) => {
-                                  const f = e.target.files?.[0];
-                                  if (f) handleShipmentDocumentUpload(slot.document_type, st, f);
-                                  e.target.value = "";
-                                }}
-                              />
-                              <span className={styles.shipmentDocUploadBtn}>
-                                {uploadingDocSlotKey === slotKey ? "Uploading…" : "Upload"}
-                              </span>
-                            </label>
+                          <span className={styles.shipmentDocStatusLabel}>Files</span>
+                          {canUploadDocument && (
+                            <ShipmentDocUploadControl
+                              disabled={uploadOff(shipmentDocSlotKey(slot.document_type, null))}
+                              isUploading={uploadBusy(shipmentDocSlotKey(slot.document_type, null))}
+                              labelTitle={uploadTitle}
+                              onFile={(f) => handleShipmentDocumentUpload(slot.document_type, null, f)}
+                            />
                           )}
                         </div>
-                        <ul className={styles.shipmentDocFileList}>{renderShipmentDocumentFileList(files)}</ul>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className={styles.shipmentDocSub}>
-                  <div className={styles.shipmentDocSubHeader}>
-                    <span className={styles.shipmentDocStatusLabel}>Files</span>
-                    {canEditShipment && (
-                      <label className={styles.shipmentDocUploadLabel}>
-                        <input
-                          type="file"
-                          className={styles.shipmentDocFileInput}
-                          accept=".pdf,.doc,.docx,.xls,.xlsx,image/*"
-                          disabled={
-                            uploadingDocSlotKey === shipmentDocSlotKey(slot.document_type, null) || !!detail?.closed_at
-                          }
-                          onChange={(e) => {
-                            const f = e.target.files?.[0];
-                            if (f) handleShipmentDocumentUpload(slot.document_type, null, f);
-                            e.target.value = "";
-                          }}
-                        />
-                        <span className={styles.shipmentDocUploadBtn}>
-                          {uploadingDocSlotKey === shipmentDocSlotKey(slot.document_type, null) ? "Uploading…" : "Upload"}
-                        </span>
-                      </label>
+                        <ul className={styles.shipmentDocFileList}>
+                          {renderShipmentDocumentFileList(
+                            filterShipmentDocumentsBySlot(shipmentDocuments, slot.document_type, null)
+                          )}
+                        </ul>
+                      </ShipmentDocDropZone>
                     )}
-                  </div>
-                  <ul className={styles.shipmentDocFileList}>
-                    {renderShipmentDocumentFileList(
-                      filterShipmentDocumentsBySlot(shipmentDocuments, slot.document_type, null)
-                    )}
-                  </ul>
-                </div>
-              )}
+                  </>
+                );
+              })()}
               </div>
             );
           })}
@@ -3304,7 +4549,45 @@ export function ShipmentDetail({ id }: { id: string }) {
         </>
       )}
 
-      {coupleModal && (
+      {deleteConfirmOpen && canEditShipment && (
+        <div
+          className={styles.modalOverlay}
+          onClick={() => !deletingShipment && setDeleteConfirmOpen(false)}
+          role="presentation"
+        >
+          <div className={styles.modal} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="delete-shipment-title">
+            <h3 id="delete-shipment-title" className={styles.modalTitle}>
+              Remove this shipment?
+            </h3>
+            <p className={styles.modalHint}>
+              This performs a soft delete: the shipment is hidden from lists and dashboards, and any Purchase Orders
+              still linked to it are detached. The record is kept in the database for audit. This cannot be undone from
+              the app.
+            </p>
+            <div className={styles.modalActions}>
+              <Button
+                type="button"
+                variant="primary"
+                onClick={handleConfirmSoftDelete}
+                disabled={deletingShipment}
+                className={styles.removeShipmentConfirmBtn}
+              >
+                {deletingShipment ? "Removing…" : "Yes, remove shipment"}
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setDeleteConfirmOpen(false)}
+                disabled={deletingShipment}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {coupleModal && canCoupleDecouplePo && (
         <div
           className={styles.modalOverlay}
           onClick={() => {

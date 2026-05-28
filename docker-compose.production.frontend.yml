@@ -1,0 +1,19 @@
+services:
+  frontend:
+    build:
+      context: ./frontEnd
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api/backend}
+    container_name: eos-frontend-prod
+    restart: unless-stopped
+    env_file:
+      - ./frontEnd/.env
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api/backend}
+      # Required for split-server deployment:
+      # set to reachable backend URL from frontend host/container (e.g. http://10.10.10.20:3003)
+      BACKEND_INTERNAL_URL: ${BACKEND_INTERNAL_URL}
+    ports:
+      - "${FRONTEND_PORT:-3020}:3000"

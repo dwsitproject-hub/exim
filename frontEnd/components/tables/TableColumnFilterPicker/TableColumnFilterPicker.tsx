@@ -12,6 +12,10 @@ type Props = {
   onChange: (nextSelected: string[]) => void;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** When true, filter icon is hidden until the parent header cell is hovered or focused within. */
+  revealIconOnHover?: boolean;
+  /** Render option label in the list (value remains `options` item for selection). */
+  formatOptionLabel?: (value: string) => string;
 };
 
 function FilterIcon({ active }: { active: boolean }) {
@@ -29,7 +33,16 @@ function FilterIcon({ active }: { active: boolean }) {
   );
 }
 
-export function TableColumnFilterPicker({ columnLabel, options, selected, onChange, open, onOpenChange }: Props) {
+export function TableColumnFilterPicker({
+  columnLabel,
+  options,
+  selected,
+  onChange,
+  open,
+  onOpenChange,
+  revealIconOnHover = false,
+  formatOptionLabel,
+}: Props) {
   const baseId = useId();
   const [query, setQuery] = useState("");
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -126,7 +139,8 @@ export function TableColumnFilterPicker({ columnLabel, options, selected, onChan
     <div className={styles.root} ref={rootRef}>
       <button
         type="button"
-        className={styles.iconBtn}
+        className={`${styles.iconBtn} ${revealIconOnHover ? styles.iconBtnReveal : ""}`.trim()}
+        data-filter-column-icon={revealIconOnHover ? "true" : undefined}
         aria-label={`Filter ${columnLabel}`}
         aria-expanded={open}
         onClick={() => onOpenChange(!open)}
@@ -183,7 +197,7 @@ export function TableColumnFilterPicker({ columnLabel, options, selected, onChan
                           checked={checked}
                           onChange={() => toggleValue(v)}
                         />
-                        <span>{v}</span>
+                        <span>{formatOptionLabel ? formatOptionLabel(v) : v}</span>
                       </label>
                     </li>
                   );

@@ -1,13 +1,15 @@
 /**
  * Create PO intake validation (ingestion / test-create). SaaS payload shape.
+ * Line items: aligned with frontEnd Create PO (at least one complete line).
  */
 
 import type { Request } from "express";
 import type { ErrorField } from "../../../shared/response.js";
 import type { CreatePoIntakeDto, PoIntakeItemDto } from "../dto/index.js";
+import { PO_ITEM_UNIT_OPTION_SET } from "../../../shared/po-item-units.js";
 
-function parseItems(body: unknown): PoIntakeItemDto[] | undefined {
-  if (!Array.isArray(body)) return undefined;
+function parseItems(body: unknown): PoIntakeItemDto[] {
+  if (!Array.isArray(body)) return [];
   return body.map((item) => {
     const o = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
     return {
@@ -34,12 +36,46 @@ export function validateCreateIntakeBody(
   const supplier_name = typeof body?.supplier_name === "string" ? body.supplier_name.trim() : "";
   if (!supplier_name) errors.push({ field: "supplier_name", message: "supplier_name is required" });
 
+  const rawItems = parseItems(body?.items);
+  if (rawItems.length === 0) {
+    errors.push({
+      field: "items",
+      message: "At least one line item is required (description, quantity > 0, unit, value ≥ 0).",
+    });
+  } else {
+    rawItems.forEach((it, index) => {
+      const prefix = `items[${index}]`;
+      const desc = (it.item_description ?? "").trim();
+      if (!desc) errors.push({ field: prefix, message: "item_description is required" });
+      const qty = it.qty;
+      if (qty == null || !Number.isFinite(qty) || qty <= 0) {
+        errors.push({ field: prefix, message: "qty must be a number greater than 0" });
+      }
+      const unit = (it.unit ?? "").trim();
+      if (!unit) errors.push({ field: prefix, message: "unit is required" });
+      else if (!PO_ITEM_UNIT_OPTION_SET.has(unit)) {
+        errors.push({ field: prefix, message: "unit must be a supported unit code" });
+      }
+      const value = it.value;
+      if (value == null || !Number.isFinite(value) || value < 0) {
+        errors.push({ field: prefix, message: "value must be a number ≥ 0" });
+      }
+    });
+  }
+
   if (errors.length > 0) return { ok: false, errors };
 
   const data: CreatePoIntakeDto = {
     external_id,
     po_number,
     supplier_name,
+    items: rawItems.map((it, i) => ({
+      line_number: i + 1,
+      item_description: (it.item_description ?? "").trim(),
+      qty: it.qty!,
+      unit: (it.unit ?? "").trim(),
+      value: it.value!,
+    })),
   };
   if (typeof body?.plant === "string") data.plant = body.plant.trim();
   if (typeof body?.pt === "string") data.pt = body.pt.trim();
@@ -54,8 +90,6 @@ export function validateCreateIntakeBody(
     }
   }
   if (typeof body?.currency === "string") data.currency = body.currency.trim();
-  const items = parseItems(body?.items);
-  if (items && items.length > 0) data.items = items;
 
   return { ok: true, data };
 }

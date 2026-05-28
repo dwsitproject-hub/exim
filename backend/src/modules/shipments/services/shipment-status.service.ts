@@ -1,31 +1,35 @@
 /**
  * Shipment status service: transition logic and timeline. Forward-only transitions.
+ * Validates required fields and documents (aligned with frontEnd shipment-status-requirements).
  */
 
 import { ShipmentRepository } from "../repositories/shipment.repository.js";
 import { ShipmentStatusHistoryRepository } from "../repositories/shipment-status-history.repository.js";
+import { ShipmentDocumentRepository } from "../repositories/shipment-document.repository.js";
+import { ShipmentBidRepository } from "../repositories/shipment-bid.repository.js";
 import { AppError } from "../../../middlewares/errorHandler.js";
 import {
-  SHIPMENT_STATUSES,
   type TimelineEntry,
   type UpdateStatusResponseData,
   type StatusSummaryData,
 } from "../dto/index.js";
 import { getNextAllowedShipmentStatus, isShipmentAllowedForwardTransition } from "../utils/shipment-status-chain.js";
 import { syncPoIntakeStatusesForShipment } from "../../po-intake/services/po-intake-status-sync.service.js";
-
-/** Full canonical chain (includes BIDDING_TRANSPORTER); any forward jump allowed (intermediate steps may be skipped). */
-export function isAllowedShipmentStatusTransition(currentStatus: string, newStatus: string): boolean {
-  const cur = SHIPMENT_STATUSES.indexOf(currentStatus as (typeof SHIPMENT_STATUSES)[number]);
-  const next = SHIPMENT_STATUSES.indexOf(newStatus as (typeof SHIPMENT_STATUSES)[number]);
-  if (cur === -1 || next === -1) return false;
-  return next > cur;
-}
+import { ShipmentService } from "./shipment.service.js";
+import {
+  getMissingRequiredFields,
+  getMissingRequiredDocuments,
+  getFieldLabel,
+  type ShipmentDetailForStatusValidation,
+} from "../utils/shipment-status-requirements.js";
 
 export class ShipmentStatusService {
   constructor(
     private readonly shipmentRepo: ShipmentRepository,
-    private readonly historyRepo: ShipmentStatusHistoryRepository
+    private readonly historyRepo: ShipmentStatusHistoryRepository,
+    private readonly shipmentService: ShipmentService,
+    private readonly documentRepo: ShipmentDocumentRepository,
+    private readonly bidRepo: ShipmentBidRepository
   ) {}
 
   async updateStatus(
@@ -39,7 +43,6 @@ export class ShipmentStatusService {
     if (shipment.closed_at && shipment.current_status === "DELIVERED") {
       throw new AppError("Cannot update status of a closed shipment", 409);
     }
-    // Allow final transition to DELIVERED when closed_at is already set via shipment detail save.
     if (shipment.closed_at && newStatus !== "DELIVERED") {
       throw new AppError("Cannot update status of a closed shipment", 409);
     }
@@ -53,6 +56,84 @@ export class ShipmentStatusService {
       throw new AppError(
         `Invalid status transition from ${currentStatus} to ${newStatus}. Only forward moves within the applicable lifecycle are allowed.${hint}`,
         409
+      );
+    }
+
+    const [detail, docRows, bids] = await Promise.all([
+      this.shipmentService.getById(shipmentId),
+      this.documentRepo.findByShipmentId(shipmentId),
+      this.bidRepo.findByShipmentId(shipmentId),
+    ]);
+    if (!detail) throw new AppError("Shipment not found", 404);
+
+    const validationDetail: ShipmentDetailForStatusValidation = {
+      incoterm: detail.incoterm,
+      ship_by: detail.ship_by,
+      pib_type: detail.pib_type,
+      no_request_pib: detail.no_request_pib,
+      ppjk_mkl: detail.ppjk_mkl,
+      nopen: detail.nopen,
+      nopen_date: detail.nopen_date,
+      coo: detail.coo,
+      origin_port_name: detail.origin_port_name,
+      origin_port_country: detail.origin_port_country,
+      etd: detail.etd,
+      eta: detail.eta,
+      forwarder_name: detail.forwarder_name,
+      shipment_method: detail.shipment_method,
+      destination_port_name: detail.destination_port_name,
+      destination_port_country: detail.destination_port_country,
+      surveyor: detail.surveyor,
+      bl_awb: detail.bl_awb,
+      atd: detail.atd,
+      ata: detail.ata,
+      depo: detail.depo,
+      product_classification: detail.product_classification,
+      closed_at: detail.closed_at,
+      incoterm_amount: detail.incoterm_amount,
+      bids,
+      linked_pos: detail.linked_pos.map((po) => ({
+        intake_id: po.intake_id,
+        currency: po.currency,
+        currency_rate: po.currency_rate,
+        line_received: po.line_received.map((l) => ({
+          received_qty: l.received_qty,
+          bm_percentage: l.bm_percentage,
+          ppn_percentage: l.ppn_percentage,
+          pph_percentage: l.pph_percentage,
+        })),
+      })),
+    };
+
+    const missingFields = getMissingRequiredFields(currentStatus, newStatus, validationDetail);
+    const missingDocs = getMissingRequiredDocuments(currentStatus, newStatus, shipment.incoterm, {
+      documents: docRows.map((d) => ({
+        document_type: d.document_type,
+        status: d.status,
+        intake_id: d.intake_id,
+      })),
+      linked_pos: detail.linked_pos.map((p) => ({ intake_id: p.intake_id })),
+      surveyor: detail.surveyor,
+      pib_type: detail.pib_type,
+    });
+
+    if (missingFields.length > 0 || missingDocs.length > 0) {
+      const parts: string[] = [];
+      const errors: { field: string; message: string }[] = [];
+      for (const k of missingFields) {
+        const label = getFieldLabel(k);
+        parts.push(label);
+        errors.push({ field: k, message: `${label} is required before this status change` });
+      }
+      for (const k of missingDocs) {
+        const label = getFieldLabel(k);
+        parts.push(label);
+        errors.push({ field: k, message: `${label} is required before this status change` });
+      }
+      throw new AppError(
+        `Cannot update status: complete the following first: ${parts.join("; ")}`,
+        400,
+        errors
       );
     }
 
@@ -94,11 +175,6 @@ export class ShipmentStatusService {
       ];
     }
 
-    /**
-     * History rows only record `new_status` per transition. The very first status
-     * (e.g. INITIATE_SHIPPING_DOCUMENT) is never stored as `new_status`, so we prepend
-     * it using shipment creation time so the UI can show when that step applied.
-     */
     const entries: TimelineEntry[] = [];
     const newStatuses = new Set(rows.map((r) => r.new_status));
     const first = rows[0];
@@ -112,11 +188,6 @@ export class ShipmentStatusService {
       });
     }
 
-    /**
-     * Remarks entered during transition belong to the status being exited (previous_status),
-     * not the new status. Build a lookup so each timeline status row can show its own
-     * exit remark.
-     */
     const exitRemarkByStatus = new Map<string, string | null>();
     for (const row of rows) {
       if (row.previous_status) {
@@ -134,7 +205,6 @@ export class ShipmentStatusService {
       });
     }
 
-    // Attach first transition remark to the prepended initial status (if present).
     if (entries.length > 0) {
       const firstStatus = entries[0]?.status;
       if (firstStatus) {
@@ -165,3 +235,4 @@ export class ShipmentStatusService {
     };
   }
 }
+

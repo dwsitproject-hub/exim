@@ -69,13 +69,16 @@ npm run start
 | `PORT` | No | Server port (default: 3003) |
 | `DATABASE_URL` | Yes | PostgreSQL connection string |
 | `JWT_ACCESS_SECRET` | When auth used | Secret for access tokens |
-| `JWT_REFRESH_SECRET` | When auth used | Secret for refresh tokens |
-| `JWT_ACCESS_EXPIRES_IN` | No | e.g. 1h |
-| `JWT_REFRESH_EXPIRES_IN` | No | e.g. 7d |
+| `JWT_REFRESH_SECRET` | No | Optional; not used by current code (refresh tokens are stored in DB) |
+| `JWT_ACCESS_EXPIRES_IN` | No | e.g. 4h (access JWT) |
+| `JWT_REFRESH_EXPIRES_IN` | No | e.g. 4h (refresh session / cookie; align with access for fixed session length) |
 | `STORAGE_TYPE` | No | local \| shared-folder \| s3 |
-| `STORAGE_LOCAL_PATH` | No | Path for local storage (default: ./uploads) |
+| `STORAGE_LOCAL_PATH` | No | Base folder for uploads (default: `./uploads`). If unset, can be built from `STORAGE_SYNOLOGY_ROOT` + `STORAGE_DEPLOYMENT` + `STORAGE_PROJECT_SLUG` (e.g. `dev` + `EOS`). See `.env.example`. |
+| `STORAGE_SYNOLOGY_ROOT` | No | With `STORAGE_DEPLOYMENT` and `STORAGE_PROJECT_SLUG`, composes the local path (ignored when `STORAGE_LOCAL_PATH` is set). |
+| `STORAGE_DEPLOYMENT` | No | e.g. `dev` or `prod` — folder under the Synology mount. |
+| `STORAGE_PROJECT_SLUG` | No | App folder on the share (e.g. `EOS`); other integrations use another slug. |
 | `LOG_LEVEL` | No | debug \| info \| warn \| error (default: info) |
-| `CORS_ORIGINS` | No | Comma-separated origins; empty = allow all |
+| `CORS_ORIGINS` | Yes when `NODE_ENV` ≠ `development` | Comma-separated allowed origins; in development, empty allows any origin |
 | `SEED_ADMIN_EMAIL` | For seed | Admin email when running `npm run seed` |
 | `SEED_ADMIN_PASSWORD` | For seed | Admin password (development only, or with `RUN_SEED=true`) |
 

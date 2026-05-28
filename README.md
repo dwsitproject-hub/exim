@@ -147,6 +147,14 @@ Postgres data is persisted in the `postgres_data` volume; backend uploads in `ba
 - To run migrations manually (e.g. when not using Docker): from `backend/`, run `npm run migrate` (requires `DATABASE_URL` in `.env`).
 - To seed an admin user in Docker: set `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD` in root `.env`, then `docker compose exec backend npm run seed`.
 
+## Production / go-live
+
+Before exposing EOS to real users or production data, work through **[docs/GO-LIVE-CHECKLIST.md](docs/GO-LIVE-CHECKLIST.md)** (CORS, secrets, TLS, backups, and items already implemented in-repo).
+
+## Database backups (production)
+
+Scheduled PostgreSQL dumps (daily **15:00 UTC** = **10 PM UTC+7**), **14-day** retention, **production-only** (`EOS_BACKUP_ENABLED` + `EOS_ENV`). See **`scripts/backup/README.md`** and **`docker-compose.backup.yml`**.
+
 ## Documentation references
 
 - **docs/** — Product and technical documentation:

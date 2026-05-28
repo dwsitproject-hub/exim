@@ -71,6 +71,16 @@ export class ShipmentDocumentRepository {
     return { ...row, po_number: r.rows[0]?.po_number ?? null };
   }
 
+  async existsByShipmentIdAndDocumentType(shipmentId: string, documentType: string): Promise<boolean> {
+    const result = await this.pool.query<{ ok: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM shipment_documents WHERE shipment_id = $1 AND document_type = $2
+       ) AS ok`,
+      [shipmentId, documentType]
+    );
+    return result.rows[0]?.ok === true;
+  }
+
   async findByShipmentId(shipmentId: string): Promise<ShipmentDocumentRow[]> {
     const result = await this.pool.query<ShipmentDocumentRow>(
       `SELECT d.id, d.shipment_id, d.document_type, d.status, d.intake_id, i.po_number,

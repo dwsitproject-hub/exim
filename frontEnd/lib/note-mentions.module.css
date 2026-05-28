@@ -1,0 +1,9 @@
+/* Tokens `@[Name](uuid)` rendered as highlighted @Name */
+
+.mention {
+  color: var(--color-semantic-primary-default, #c43a31);
+  font-weight: var(--typography-fontWeight-semibold, 600);
+  background: rgba(196, 58, 49, 0.08);
+  padding: 0 2px;
+  border-radius: 2px;
+}

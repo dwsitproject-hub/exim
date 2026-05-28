@@ -293,6 +293,7 @@
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: var(--spacing-3, 16px);
   margin-bottom: var(--spacing-3, 16px);
+  min-width: 0;
 }
 
 .grid {
@@ -301,23 +302,41 @@
   gap: var(--spacing-4, 24px);
   /* Space before the next subsection border / content so fields don’t sit on the line */
   margin-bottom: var(--spacing-4, 24px);
+  min-width: 0;
+}
+
+/* Let grid items shrink so long values wrap instead of overlapping the next column */
+.grid > *,
+.editGrid > *,
+.poArrivalMappingGroup > *,
+.bidFormGrid > *,
+.bidCardGrid > *,
+.shipmentDocStatusGrid > * {
+  min-width: 0;
 }
 
 .field {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-1, 4px);
+  min-width: 0;
+  max-width: 100%;
 }
 
 .fieldLabel {
   font-size: var(--typography-fontSize-small, 14px);
   font-weight: var(--typography-fontWeight-medium, 500);
   color: var(--color-primitive-text-steel, #6b6b6b);
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .fieldValue {
   font-size: var(--typography-fontSize-base, 16px);
   color: var(--color-primitive-text-charcoal, #2b2b2b);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .fieldHint {
@@ -334,13 +353,14 @@
   grid-column: 1 / -1;
 }
 
-/* Invoice / currency / rate per linked PO — Import duties row beside Total PO amount */
+/* Invoice / currency / rate per linked PO — Import duties row beside Total Invoice amount */
 .poArrivalMappingGroup {
   grid-column: 1 / -1;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: var(--spacing-4, 24px);
   align-items: start;
+  min-width: 0;
 }
 
 .poArrivalMappingPoTitle {
@@ -488,10 +508,8 @@
 .linkedPoMetaValue {
   font-size: var(--typography-fontSize-small, 14px);
   color: var(--color-primitive-text-charcoal, #2b2b2b);
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
   word-break: break-word;
 }
 
@@ -666,6 +684,7 @@
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
   gap: var(--spacing-3, 16px);
   margin-bottom: var(--spacing-3, 16px);
+  min-width: 0;
 }
 
 .bidFormActions {
@@ -699,6 +718,51 @@
   gap: var(--spacing-3, 16px);
 }
 
+.forwarderLinerPick {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2, 8px);
+  width: 100%;
+}
+
+.forwarderLinerPick > * {
+  width: 100%;
+  max-width: 100%;
+}
+
+.recentForwarderCard {
+  margin-bottom: var(--spacing-3, 16px);
+}
+
+.recentForwarderList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2, 8px);
+}
+
+.recentForwarderItem {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--spacing-2, 8px);
+  padding: var(--spacing-2, 8px) var(--spacing-3, 16px);
+  border: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  border-radius: var(--borderRadius-md, 8px);
+  background: var(--color-primitive-background-default, #fff);
+}
+
+.recentForwarderMain {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.recentForwarderMeta {
+  font-size: var(--typography-fontSize-small, 14px);
+  color: var(--color-primitive-text-steel, #6b6b6b);
+}
+
 .bidCard {
   padding: var(--spacing-3, 16px);
   border: 1px solid var(--color-primitive-border-light, #e0e0e0);
@@ -725,6 +789,7 @@
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   gap: var(--spacing-2, 8px);
   margin-bottom: var(--spacing-2, 8px);
+  min-width: 0;
 }
 
 .bidQuotation {
@@ -835,8 +900,54 @@
   border-top: 1px solid var(--color-primitive-border-light, #e0e0e0);
 }
 
+.headerActionsRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-2, 10px);
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.removeShipmentBtn {
+  padding: var(--spacing-2, 8px) var(--spacing-4, 20px);
+  min-height: 40px;
+  font-size: var(--typography-fontSize-small, 14px);
+  font-weight: var(--typography-fontWeight-medium, 500);
+  font-family: inherit;
+  color: var(--color-semantic-destructive-default, #b3261e);
+  background: var(--color-primitive-background-white, #ffffff);
+  border: 1px solid var(--color-semantic-destructive-default, #b3261e);
+  border-radius: var(--borderRadius-md, 8px);
+  cursor: pointer;
+  transition:
+    background-color var(--animation-duration-fast, 150ms) var(--animation-easing-default, ease-out),
+    color var(--animation-duration-fast, 150ms) var(--animation-easing-default, ease-out);
+}
+
+.removeShipmentBtn:hover {
+  background: rgba(179, 38, 30, 0.06);
+}
+
+.removeShipmentBtn:focus-visible {
+  outline: 2px solid var(--color-primitive-border-dark, #9e9e9e);
+  outline-offset: 2px;
+}
+
+.modalActions .removeShipmentConfirmBtn {
+  background: var(--color-semantic-destructive-default, #b3261e);
+  border-color: var(--color-semantic-destructive-default, #b3261e);
+  color: var(--color-primitive-background-white, #ffffff);
+}
+
+.modalActions .removeShipmentConfirmBtn:hover:not(:disabled) {
+  filter: brightness(0.95);
+}
+
 .input {
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   padding: var(--spacing-2, 10px) var(--spacing-3, 14px);
   font-size: var(--typography-fontSize-base, 16px);
   font-family: inherit;
@@ -853,6 +964,9 @@
 
 .fieldTextarea {
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   min-height: 5.5rem;
   padding: var(--spacing-2, 10px) var(--spacing-3, 14px);
   font-size: var(--typography-fontSize-base, 16px);
@@ -1175,7 +1289,8 @@
 
 .poDetailRow {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
+  flex-wrap: wrap;
   gap: var(--spacing-2, 8px);
   margin-bottom: var(--spacing-3, 16px);
 }
@@ -1185,11 +1300,17 @@
   font-weight: var(--typography-fontWeight-medium, 500);
   color: var(--color-primitive-text-steel, #6b6b6b);
   min-width: 90px;
+  flex-shrink: 0;
 }
 
 .poDetailValue {
   font-size: var(--typography-fontSize-base, 16px);
   color: var(--color-primitive-text-charcoal, #2b2b2b);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  flex: 1 1 12rem;
+  min-width: 0;
 }
 
 .poItemsTable {
@@ -1216,6 +1337,22 @@
 
 .poItemColRecv {
   min-width: 8.5rem;
+}
+
+.poItemColPct {
+  min-width: 4.25rem;
+  max-width: 5.5rem;
+}
+
+.poItemPctInput {
+  width: 100%;
+  min-width: 3.25rem;
+  max-width: 5rem;
+  font-size: var(--typography-fontSize-small, 13px);
+}
+
+.poItemPctReadonly {
+  font-size: var(--typography-fontSize-small, 13px);
 }
 
 .poItemColUnit {
@@ -1741,6 +1878,13 @@
 
 /* —— Shipment documents —— */
 
+.shipmentDocSectionIntro {
+  margin: calc(var(--spacing-2, 8px) * -1) 0 var(--spacing-4, 24px);
+  font-size: var(--typography-fontSize-small, 14px);
+  line-height: 1.45;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+}
+
 .shipmentDocCategories {
   display: flex;
   flex-direction: column;
@@ -1772,6 +1916,39 @@
   color: var(--color-primitive-text-charcoal, #2b2b2b);
 }
 
+.shipmentDocCategoryTitleRow {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2, 8px);
+  margin: 0 0 var(--spacing-2, 8px);
+  font-size: var(--typography-fontSize-base, 16px);
+  font-weight: var(--typography-fontWeight-semibold, 600);
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+}
+
+.shipmentDocCategoryTitleText {
+  flex: 1;
+  min-width: 0;
+}
+
+.shipmentDocLockIcon {
+  width: 1.125rem;
+  height: 1.125rem;
+  flex-shrink: 0;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+}
+
+.shipmentDocLockedHint {
+  margin: 0 0 var(--spacing-3, 12px);
+  padding: var(--spacing-2, 8px) var(--spacing-3, 12px);
+  font-size: var(--typography-fontSize-small, 13px);
+  line-height: 1.45;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  background: var(--color-primitive-background-light, #f4f4f4);
+  border-radius: var(--borderRadius-md, 8px);
+  border: 1px solid var(--color-primitive-border-light, #e0e0e0);
+}
+
 .shipmentDocPerPoHint {
   margin: 0 0 var(--spacing-3, 12px);
   font-size: var(--typography-fontSize-small, 14px);
@@ -1796,6 +1973,7 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: var(--spacing-4, 16px);
+  min-width: 0;
 }
 
 .shipmentDocSub {
@@ -1803,6 +1981,38 @@
   border-radius: var(--borderRadius-md, 8px);
   padding: var(--spacing-3, 12px);
   background: var(--color-primitive-background-lighter, #fafafa);
+  transition: border-color 0.35s ease, box-shadow 0.35s ease, opacity 0.35s ease;
+}
+
+.shipmentDocSubLocked {
+  opacity: 0.92;
+}
+
+.shipmentDocSubUnlocked {
+  border-color: rgba(196, 58, 49, 0.35);
+  box-shadow: 0 0 0 1px rgba(196, 58, 49, 0.08);
+}
+
+.shipmentDocDropZone {
+  border-radius: var(--borderRadius-md, 8px);
+  transition: outline 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.shipmentDocDropZoneDragging {
+  outline: 2px dashed var(--color-semantic-primary-default, #c43a31);
+  outline-offset: 2px;
+  background: rgba(196, 58, 49, 0.07);
+  box-shadow: inset 0 0 0 1px rgba(196, 58, 49, 0.12);
+}
+
+.shipmentDocDropHint {
+  margin: var(--spacing-2, 8px) 0 0;
+  padding-top: var(--spacing-2, 8px);
+  border-top: 1px dashed var(--color-primitive-border-light, #e0e0e0);
+  font-size: var(--typography-fontSize-xs, 12px);
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  text-align: center;
+  line-height: 1.45;
 }
 
 .shipmentDocSubHeader {
@@ -1823,33 +2033,51 @@
   overflow-wrap: anywhere;
 }
 
-.shipmentDocUploadLabel {
-  cursor: pointer;
+.shipmentDocUploadWrap {
+  position: relative;
+  display: inline-block;
   margin: 0;
 }
 
-.shipmentDocFileInput {
+/* Off-screen: opened via button onClick -> input.click() (keeps user activation; works in incognito). */
+.shipmentDocFileInputHidden {
   position: absolute;
-  width: 0.1px;
-  height: 0.1px;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  padding: 0;
+  left: -9999px;
+  top: 0;
   opacity: 0;
   overflow: hidden;
-  z-index: -1;
+  pointer-events: none;
 }
 
 .shipmentDocUploadBtn {
   display: inline-block;
   padding: var(--spacing-1, 4px) var(--spacing-3, 12px);
   font-size: var(--typography-fontSize-small, 14px);
-  font-weight: var(--typography-fontWeight-medium, 500);
+  font-weight: var(--typography-fontWeight-semibold, 600);
   color: var(--color-semantic-primary-default, #c43a31);
   border: 1px solid var(--color-semantic-primary-default, #c43a31);
   border-radius: var(--borderRadius-sm, 6px);
   background: var(--color-primitive-background-white, #ffffff);
+  cursor: pointer;
+  font-family: inherit;
+  margin: 0;
 }
 
-.shipmentDocUploadLabel:hover .shipmentDocUploadBtn {
+.shipmentDocUploadBtn:not(.shipmentDocUploadBtnDisabled):hover {
   background: var(--color-primitive-background-light, #f4f4f4);
+}
+
+/* True disabled: closed shipment or upload in progress — distinct from enabled outline (avoids “washed out” look). */
+.shipmentDocUploadBtnDisabled {
+  cursor: not-allowed;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  border-color: var(--color-primitive-border-medium, #c4c4c4);
+  background: var(--color-primitive-background-lighter, #fafafa);
+  font-weight: var(--typography-fontWeight-medium, 500);
 }
 
 .shipmentDocFileList {

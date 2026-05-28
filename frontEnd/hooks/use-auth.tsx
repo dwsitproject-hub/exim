@@ -1,14 +1,16 @@
 "use client";
 
 /**
- * Auth state handling — login, logout, refresh, user. Tokens in cookies for middleware; state for UI.
+ * Auth state — user and session. Access/refresh tokens are HttpOnly cookies (not readable by JS).
+ * `accessToken` state uses COOKIE_AUTH_SENTINEL when the session is cookie-based.
  */
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { getMe, login as authLogin, logout as authLogout, refresh as authRefresh } from "@/services/auth-service";
 import type { AuthUser, LoginResponseData } from "@/types/auth";
 import { isApiError } from "@/types/api";
-import { getAccessToken, getRefreshToken, setTokens, clearTokens } from "@/lib/cookies";
+import { COOKIE_AUTH_SENTINEL } from "@/lib/constants";
+import { clearTokens } from "@/lib/cookies";
 
 function normalizeAuthUser(raw: unknown): AuthUser | null {
   if (!raw || typeof raw !== "object") return null;
@@ -30,6 +32,7 @@ function normalizeAuthUser(raw: unknown): AuthUser | null {
 
 interface AuthState {
   user: AuthUser | null;
+  /** `COOKIE_AUTH_SENTINEL` when HttpOnly cookies carry tokens; legacy JWT string if ever migrated back. */
   accessToken: string | null;
   loading: boolean;
   initialized: boolean;
@@ -52,23 +55,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   });
 
   const refreshSession = useCallback(async (): Promise<boolean> => {
-    const refresh = getRefreshToken();
-    if (!refresh) {
-      setState((s) => ({ ...s, user: null, accessToken: null, loading: false, initialized: true }));
-      return false;
-    }
-    const res = await authRefresh(refresh);
-    if (isApiError(res) || !res.data) {
+    const res = await authRefresh();
+    if (isApiError(res) || !res.data?.user) {
       clearTokens();
       setState((s) => ({ ...s, user: null, accessToken: null, loading: false, initialized: true }));
       return false;
     }
-    setTokens(res.data.access_token, res.data.refresh_token, res.data.expires_in);
-    let nextUser = normalizeAuthUser(res.data.user);
-    if (!nextUser) {
-      const me = await getMe(res.data.access_token);
-      if (!isApiError(me) && me.data) nextUser = normalizeAuthUser(me.data);
-    }
+    const nextUser = normalizeAuthUser(res.data.user);
     if (!nextUser) {
       clearTokens();
       setState((s) => ({ ...s, user: null, accessToken: null, loading: false, initialized: true }));
@@ -77,7 +70,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setState((s) => ({
       ...s,
       user: nextUser,
-      accessToken: res.data!.access_token,
+      accessToken: COOKIE_AUTH_SENTINEL,
       loading: false,
       initialized: true,
     }));
@@ -85,27 +78,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const access = getAccessToken();
-    if (!access) {
-      setState((s) => ({ ...s, loading: false, initialized: true }));
-      return;
-    }
-    getMe(access)
+    getMe(null)
       .then((res) => {
-        if (isApiError(res) || !res.data) {
-          refreshSession();
+        if (!isApiError(res) && res.data) {
+          setState((s) => ({
+            ...s,
+            user: res.data as AuthUser,
+            accessToken: COOKIE_AUTH_SENTINEL,
+            loading: false,
+            initialized: true,
+          }));
           return;
         }
-        setState((s) => ({
-          ...s,
-          user: res.data as AuthUser,
-          accessToken: access,
-          loading: false,
-          initialized: true,
-        }));
+        refreshSession();
       })
       .catch(() => refreshSession());
   }, [refreshSession]);
+
+  useEffect(() => {
+    function onAccessRefreshed(e: Event) {
+      const detail = (e as CustomEvent<{ accessToken?: string }>).detail;
+      if (detail?.accessToken) {
+        setState((s) => ({ ...s, accessToken: detail.accessToken! }));
+      }
+    }
+    window.addEventListener("eos-access-token-refreshed", onAccessRefreshed);
+    return () => window.removeEventListener("eos-access-token-refreshed", onAccessRefreshed);
+  }, []);
 
   const login = useCallback(
     async (email: string, password: string): Promise<{ ok: boolean; error?: string; errors?: { field: string; message: string }[] }> => {
@@ -122,11 +121,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setState((s) => ({ ...s, loading: false }));
           return { ok: false, error: "Invalid user payload from server" };
         }
-        setTokens(data.access_token, data.refresh_token, data.expires_in);
         setState((s) => ({
           ...s,
           user: nu,
-          accessToken: data.access_token,
+          accessToken: COOKIE_AUTH_SENTINEL,
           loading: false,
           initialized: true,
         }));
@@ -140,8 +138,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const logout = useCallback(async () => {
-    const refresh = getRefreshToken();
-    if (refresh) await authLogout(refresh).catch(() => {});
+    await authLogout().catch(() => {});
     clearTokens();
     setState((s) => ({ ...s, user: null, accessToken: null }));
   }, []);

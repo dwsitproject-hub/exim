@@ -188,4 +188,33 @@ export class UserRepository {
     const row = result.rows[0];
     return row ? this.mapRow(row) : null;
   }
+
+  /** Active users for @mention autocomplete (VIEW_SHIPMENTS — not admin list). */
+  async listActiveForMentionSearch(
+    search: string | undefined,
+    limit: number
+  ): Promise<{ id: string; name: string; email: string }[]> {
+    const lim = Math.min(Math.max(1, limit), 50);
+    const s = search?.trim();
+    const hasSearch = Boolean(s);
+    const result = await this.pool.query<{ id: string; name: string; email: string }>(
+      `SELECT id, name, email FROM users
+       WHERE is_active = true
+         AND (NOT $1::boolean OR LOWER(name) LIKE '%' || LOWER($2) || '%' OR LOWER(email) LIKE '%' || LOWER($2) || '%')
+       ORDER BY name ASC NULLS LAST, email ASC
+       LIMIT $3`,
+      [hasSearch, hasSearch ? s : "", lim]
+    );
+    return result.rows;
+  }
+
+  /** Which of the given IDs refer to active users (for validating parsed @mentions). */
+  async filterExistingActiveUserIds(ids: string[]): Promise<Set<string>> {
+    if (ids.length === 0) return new Set();
+    const result = await this.pool.query<{ id: string }>(
+      `SELECT id FROM users WHERE id = ANY($1::uuid[]) AND is_active = true`,
+      [ids]
+    );
+    return new Set(result.rows.map((r) => r.id));
+  }
 }

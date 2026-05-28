@@ -7,7 +7,6 @@ import type { ErrorField } from "../../../shared/response.js";
 import {
   isAllowedShipmentDocumentType,
   shipmentDocumentRequiresIntakeId,
-  shipmentDocumentRequiresStatus,
   SHIPMENT_DOCUMENT_STATUSES,
   SHIPMENT_DOCUMENT_TYPES,
 } from "../constants/shipment-document-types.js";
@@ -51,12 +50,7 @@ export function validateShipmentDocumentUpload(
 
   if (errors.length > 0) return { ok: false, errors };
 
-  if (shipmentDocumentRequiresStatus(typeStr)) {
-    if (!status) {
-      errors.push({ field: "status", message: "status is required (DRAFT or FINAL) for BL" });
-      return { ok: false, errors };
-    }
-  } else if (status) {
+  if (status) {
     errors.push({ field: "status", message: "status must not be set for this document type" });
     return { ok: false, errors };
   }

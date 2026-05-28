@@ -18,9 +18,35 @@ export const shipmentRoutes = Router();
 
 shipmentRoutes.post("/", authMiddleware, requirePermission(PERMISSIONS.CREATE_SHIPMENT), shipmentController.create);
 shipmentRoutes.get("/", authMiddleware, requirePermission(PERMISSIONS.VIEW_SHIPMENTS), shipmentController.list);
+shipmentRoutes.get(
+  "/list-filter-options",
+  authMiddleware,
+  requirePermission(PERMISSIONS.VIEW_SHIPMENTS),
+  shipmentController.listFilterOptions
+);
+shipmentRoutes.get(
+  "/import/combined-template-csv",
+  authMiddleware,
+  requirePermission(PERMISSIONS.IMPORT_PO_CSV),
+  shipmentController.downloadCombinedImportTemplate
+);
+shipmentRoutes.post(
+  "/import/combined-csv",
+  authMiddleware,
+  requirePermission(PERMISSIONS.IMPORT_PO_CSV),
+  uploadSingle,
+  shipmentController.importCombinedCsv
+);
+shipmentRoutes.get(
+  "/import/history",
+  authMiddleware,
+  requirePermission(PERMISSIONS.IMPORT_PO_CSV),
+  shipmentController.listShipmentImportHistory
+);
 shipmentRoutes.get("/:id", authMiddleware, requirePermission(PERMISSIONS.VIEW_SHIPMENTS), shipmentController.getById);
 shipmentRoutes.put("/:id", authMiddleware, requirePermission(PERMISSIONS.UPDATE_SHIPMENT), shipmentController.update);
 shipmentRoutes.patch("/:id/close", authMiddleware, requirePermission(PERMISSIONS.UPDATE_SHIPMENT), shipmentController.close);
+shipmentRoutes.delete("/:id", authMiddleware, requirePermission(PERMISSIONS.UPDATE_SHIPMENT), shipmentController.softDelete);
 
 shipmentRoutes.patch("/:id/status", authMiddleware, requirePermission(PERMISSIONS.UPDATE_STATUS), statusController.updateStatus);
 shipmentRoutes.get("/:id/timeline", authMiddleware, requirePermission(PERMISSIONS.VIEW_SHIPMENTS), statusController.getTimeline);
@@ -28,7 +54,7 @@ shipmentRoutes.get("/:id/status-summary", authMiddleware, requirePermission(PERM
 shipmentRoutes.get("/:id/activity-log", authMiddleware, requirePermission(PERMISSIONS.VIEW_SHIPMENTS), activityController.getActivityLog);
 
 shipmentRoutes.get("/:id/notes", authMiddleware, requirePermission(PERMISSIONS.VIEW_SHIPMENTS), noteController.listNotes);
-shipmentRoutes.post("/:id/notes", authMiddleware, requirePermission(PERMISSIONS.VIEW_SHIPMENTS), noteController.createNote);
+shipmentRoutes.post("/:id/notes", authMiddleware, requirePermission(PERMISSIONS.UPDATE_SHIPMENT), noteController.createNote);
 
 shipmentRoutes.get("/:id/documents", authMiddleware, requirePermission(PERMISSIONS.VIEW_SHIPMENTS), shipmentDocumentController.listDocuments);
 shipmentRoutes.post(
@@ -56,6 +82,7 @@ shipmentRoutes.post("/:id/decouple-po", authMiddleware, requirePermission(PERMIS
 shipmentRoutes.patch("/:id/po/:intakeId", authMiddleware, requirePermission(PERMISSIONS.UPDATE_SHIPMENT), shipmentController.updatePoMapping);
 shipmentRoutes.patch("/:id/po/:intakeId/lines", authMiddleware, requirePermission(PERMISSIONS.UPDATE_SHIPMENT), shipmentController.updatePoLines);
 
+shipmentRoutes.get("/bids/recent", authMiddleware, requirePermission(PERMISSIONS.VIEW_SHIPMENTS), bidController.listRecentForwarders);
 shipmentRoutes.get("/:id/bids", authMiddleware, requirePermission(PERMISSIONS.VIEW_SHIPMENTS), bidController.listBids);
 shipmentRoutes.post("/:id/bids", authMiddleware, requirePermission(PERMISSIONS.UPDATE_SHIPMENT), bidController.createBid);
 shipmentRoutes.put("/:id/bids/:bidId", authMiddleware, requirePermission(PERMISSIONS.UPDATE_SHIPMENT), bidController.updateBid);

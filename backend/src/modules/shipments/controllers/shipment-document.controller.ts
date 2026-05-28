@@ -3,19 +3,22 @@
  */
 
 import type { Request, Response, NextFunction } from "express";
+import { unlink } from "fs/promises";
 import { sendSuccess, sendError } from "../../../shared/response.js";
 import { validateShipmentDocumentUpload } from "../validators/shipment-document.validator.js";
 import { ShipmentDocumentService } from "../services/shipment-document.service.js";
 import { ShipmentRepository } from "../repositories/shipment.repository.js";
 import { ShipmentDocumentRepository } from "../repositories/shipment-document.repository.js";
 import { ShipmentPoMappingRepository } from "../repositories/shipment-po-mapping.repository.js";
+import { PoIntakeRepository } from "../../po-intake/repositories/po-intake.repository.js";
 
 const shipmentRepo = new ShipmentRepository();
 const docRepo = new ShipmentDocumentRepository();
 const mappingRepo = new ShipmentPoMappingRepository();
-const service = new ShipmentDocumentService(shipmentRepo, docRepo, mappingRepo);
+const poIntakeRepo = new PoIntakeRepository();
+const service = new ShipmentDocumentService(shipmentRepo, docRepo, mappingRepo, poIntakeRepo);
 
-type MulterFile = { buffer: Buffer; originalname: string; mimetype?: string };
+type MulterFile = { path?: string; buffer?: Buffer; originalname: string; mimetype?: string };
 
 function actorFromRequest(req: Request): string {
   const name = req.user?.name?.trim();
@@ -39,11 +42,14 @@ export async function uploadDocument(req: Request, res: Response, next: NextFunc
   const shipmentId = req.params.id as string;
   const validation = validateShipmentDocumentUpload(req);
   if (!validation.ok) {
+    const orphan = (req as Request & { file?: MulterFile }).file?.path;
+    if (orphan) await unlink(orphan).catch(() => {});
     sendError(res, "Validation error", { errors: validation.errors, statusCode: 400 });
     return;
   }
   const file = (req as Request & { file?: MulterFile }).file;
-  if (!file?.buffer) {
+  const tempPath = file?.path;
+  if (!tempPath) {
     sendError(res, "File is required (field name: file)", { statusCode: 400 });
     return;
   }
@@ -53,7 +59,7 @@ export async function uploadDocument(req: Request, res: Response, next: NextFunc
       validation.data.document_type,
       validation.data.status,
       validation.data.intake_id,
-      file.buffer,
+      tempPath,
       file.originalname || "file",
       file.mimetype,
       actorFromRequest(req)
@@ -61,6 +67,8 @@ export async function uploadDocument(req: Request, res: Response, next: NextFunc
     sendSuccess(res, item, { message: "Document uploaded successfully", statusCode: 201 });
   } catch (e) {
     next(e);
+  } finally {
+    await unlink(tempPath).catch(() => {});
   }
 }
 

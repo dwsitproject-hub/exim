@@ -27,6 +27,11 @@
   outline-offset: 2px;
 }
 
+.iconBtnReveal {
+  opacity: 0;
+  transition: opacity var(--animation-duration-fast, 150ms) var(--animation-easing-default, ease-out);
+}
+
 .badge {
   position: absolute;
   top: -6px;

@@ -1,0 +1,35 @@
+/**
+ * Recent Shipments dashboard — status pill tokens.
+ * Tone keys match `getShipmentDashboardTone` in lib/shipment-dashboard-status-theme.ts.
+ */
+
+:root {
+  --shipment-dashboard-tone-success-bg: #dcfce7;
+  --shipment-dashboard-tone-success-fg: #166534;
+  --shipment-dashboard-tone-success-border: #bbf7d0;
+
+  --shipment-dashboard-tone-danger-bg: #fef2f2;
+  --shipment-dashboard-tone-danger-fg: #b91c1c;
+  --shipment-dashboard-tone-danger-border: #fecaca;
+
+  /* Action CTA (e.g. Initiate Shipping Document) — brand blue */
+  --shipment-dashboard-tone-action-bg: #2563eb;
+  --shipment-dashboard-tone-action-fg: #ffffff;
+  --shipment-dashboard-tone-action-border: #1d4ed8;
+
+  --shipment-dashboard-tone-accent-bg: #eff6ff;
+  --shipment-dashboard-tone-accent-fg: #1e40af;
+  --shipment-dashboard-tone-accent-border: #bfdbfe;
+
+  --shipment-dashboard-tone-info-bg: #f0fdfa;
+  --shipment-dashboard-tone-info-fg: #0f766e;
+  --shipment-dashboard-tone-info-border: #99f6e4;
+
+  --shipment-dashboard-tone-neutral-bg: #f1f5f9;
+  --shipment-dashboard-tone-neutral-fg: #475569;
+  --shipment-dashboard-tone-neutral-border: #e2e8f0;
+
+  --shipment-dashboard-tone-warning-bg: #fffbeb;
+  --shipment-dashboard-tone-warning-fg: #b45309;
+  --shipment-dashboard-tone-warning-border: #fde68a;
+}

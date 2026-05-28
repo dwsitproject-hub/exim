@@ -30,16 +30,19 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: ${NODE_ENV:-development}
+      # One hop (e.g. Next.js → API) so X-Forwarded-For matches express-rate-limit expectations
+      TRUST_PROXY: ${TRUST_PROXY:-1}
       PORT: 3003
       DATABASE_URL: postgres://${POSTGRES_USER:-eos}:${POSTGRES_PASSWORD:-eos_dev_password}@postgres:5432/${POSTGRES_DB:-eos_db}
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-change-me-in-production}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change-me-in-production}
-      JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN:-1h}
-      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
+      JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN:-4h}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-4h}
       PPN_PERCENTAGE: ${PPN_PERCENTAGE:-11}
       PPH_PERCENTAGE: ${PPH_PERCENTAGE:-2.5}
       STORAGE_TYPE: ${STORAGE_TYPE:-local}
-      STORAGE_LOCAL_PATH: /app/uploads
+      # Default: named volume. Override in .env for NAS bind (set STORAGE_HOST_BIND + STORAGE_LOCAL_PATH).
+      STORAGE_LOCAL_PATH: ${STORAGE_LOCAL_PATH:-/app/uploads}
       # Allow both localhost and 127.0.0.1 so login works from either URL
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3002,http://127.0.0.1:3002}
       ALLOW_ANY_EMAIL: ${ALLOW_ANY_EMAIL:-false}
@@ -58,7 +61,8 @@ services:
     ports:
       - "${BACKEND_PORT:-3003}:3003"
     volumes:
-      - backend_uploads:/app/uploads
+      # Named volume by default, or bind e.g. STORAGE_HOST_BIND=/mnt/synology/eos to match STORAGE_LOCAL_PATH
+      - ${STORAGE_HOST_BIND:-backend_uploads}:/app/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -69,11 +73,12 @@ services:
       context: ./frontEnd
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3003/api/v1}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api/backend}
     container_name: eos-frontend
     restart: unless-stopped
     environment:
       NODE_ENV: ${NODE_ENV:-development}
+      BACKEND_INTERNAL_URL: ${BACKEND_INTERNAL_URL:-http://backend:3003}
     ports:
       - "${FRONTEND_PORT:-3002}:3000"
     depends_on:

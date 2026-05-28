@@ -5,6 +5,8 @@ import styles from "./PageHeader.module.css";
 
 export interface PageHeaderProps {
   title: string;
+  /** Renders inline to the right of the title (e.g. status badge). */
+  titleAddon?: React.ReactNode;
   backHref?: string;
   backLabel?: string;
   actions?: React.ReactNode;
@@ -15,6 +17,7 @@ export interface PageHeaderProps {
 
 export function PageHeader({
   title,
+  titleAddon,
   backHref,
   backLabel = "Back",
   actions,
@@ -55,7 +58,10 @@ export function PageHeader({
         </div>
       )}
       <div className={styles.titleBlock}>
-        <h1 className={styles.title}>{title}</h1>
+        <div className={styles.titleRow}>
+          <h1 className={styles.title}>{title}</h1>
+          {titleAddon ? <div className={styles.titleAddon}>{titleAddon}</div> : null}
+        </div>
         {subtitle && <p className={styles.subtitle}>{subtitle}</p>}
       </div>
     </header>

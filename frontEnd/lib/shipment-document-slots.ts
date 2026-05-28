@@ -3,6 +3,8 @@
  * Visibility of some slots depends on shipment header fields (surveyor, PIB type, product classification).
  */
 
+import { isChemicalProductClassification } from "@/lib/product-classification";
+
 export type DocSlotVisibility =
   | "always"
   | "surveyor_yes"
@@ -25,7 +27,6 @@ export const SHIPMENT_DOCUMENT_SLOTS: ShipmentDocSlot[] = [
   { document_type: "INVOICE", label: "Commercial Invoice" },
   { document_type: "PACKING_LIST", label: "Packing List" },
   { document_type: "BL", label: "BL" },
-  { document_type: "FORWARDER_QUOTATION", label: "Quotation (forwarder bidding)" },
   { document_type: "COO", label: "COO (Certificate of Origin)" },
   { document_type: "INSURANCE", label: "Insurance" },
   { document_type: "PIB_BC", label: "PIB / BC" },
@@ -59,7 +60,7 @@ export function shipmentDocSlotVisible(slot: ShipmentDocSlot, detail: ShipmentDe
     case "pib_consignment_note":
       return isPibConsignmentNote(detail.pib_type);
     case "product_chemical":
-      return (detail.product_classification ?? "").trim() === "Chemical";
+      return isChemicalProductClassification(detail.product_classification);
     default:
       return true;
   }

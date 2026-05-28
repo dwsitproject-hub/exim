@@ -4,6 +4,7 @@
 
 import type { Request, Response, NextFunction } from "express";
 import { sendSuccess, sendError } from "../../../shared/response.js";
+import { clearAuthCookies, setAuthCookies } from "../auth-cookies.js";
 import { validateLoginBody, validateRefreshBody, validateVerifyEmail, validateForgotPasswordBody, validateResetPasswordBody } from "../validators/index.js";
 import { AuthService } from "../services/auth.service.js";
 import { UserRepository } from "../repositories/user.repository.js";
@@ -25,7 +26,12 @@ export async function login(req: Request, res: Response, next: NextFunction): Pr
   }
   try {
     const data = await authService.login(validation.data.email, validation.data.password);
-    sendSuccess(res, data, { message: "Login successful", statusCode: 201 });
+    setAuthCookies(res, data);
+    sendSuccess(
+      res,
+      { user: data.user, expires_in: data.expires_in, token_type: data.token_type },
+      { message: "Login successful", statusCode: 201 }
+    );
   } catch (e) {
     next(e);
   }
@@ -39,7 +45,16 @@ export async function refresh(req: Request, res: Response, next: NextFunction): 
   }
   try {
     const data = await authService.refresh(validation.data.refresh_token);
-    sendSuccess(res, data, { message: "Token refreshed successfully", statusCode: 200 });
+    setAuthCookies(res, {
+      access_token: data.access_token,
+      refresh_token: data.refresh_token,
+      expires_in: data.expires_in,
+    });
+    sendSuccess(
+      res,
+      { user: data.user, expires_in: data.expires_in, token_type: data.token_type },
+      { message: "Token refreshed successfully", statusCode: 200 }
+    );
   } catch (e) {
     next(e);
   }
@@ -53,6 +68,7 @@ export async function logout(req: Request, res: Response, next: NextFunction): P
   }
   try {
     await authService.logout(validation.data.refresh_token);
+    clearAuthCookies(res);
     sendSuccess(res, {}, { message: "Logout successful", statusCode: 200 });
   } catch (e) {
     next(e);
@@ -98,7 +114,7 @@ export async function forgotPassword(req: Request, res: Response, next: NextFunc
     return;
   }
   try {
-    await authService.forgotPassword(validation.data.email);
+    await authService.forgotPassword(validation.data.email, req.get("user-agent") ?? undefined);
     sendSuccess(res, {}, { message: "If an account exists with this email, you will receive a password reset link.", statusCode: 200 });
   } catch (e) {
     next(e);

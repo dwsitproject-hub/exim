@@ -5,6 +5,7 @@
 import type { Request } from "express";
 import type { ErrorField } from "../../../shared/response.js";
 import type { UpdateShipmentDto } from "../dto/index.js";
+import { normalizeFreightChargeCurrency } from "../../../shared/freight-currency.js";
 
 function parseDate(v: unknown): Date | null {
   if (v === null || v === undefined) return null;
@@ -50,6 +51,16 @@ export function validateUpdateShipmentBody(
     }
   }
 
+  const etdStr = typeof etdRaw === "string" ? etdRaw.trim() : "";
+  const etaStr = typeof etaRaw === "string" ? etaRaw.trim() : "";
+  if (etdStr && etaStr) {
+    const etdD = parseDate(etdStr);
+    const etaD = parseDate(etaStr);
+    if (etdD && etaD && etaD.getTime() <= etdD.getTime()) {
+      errors.push({ field: "eta", message: "ETA must be after ETD" });
+    }
+  }
+
   if (errors.length > 0) return { ok: false, errors };
 
   const data: UpdateShipmentDto = {};
@@ -66,12 +77,14 @@ export function validateUpdateShipmentBody(
   if (typeof body?.remarks === "string") data.remarks = body.remarks.trim();
   if (typeof body?.pib_type === "string") data.pib_type = body.pib_type.trim() || undefined;
   if (typeof body?.no_request_pib === "string") data.no_request_pib = body.no_request_pib.trim() || undefined;
+  if (typeof body?.ppjk_mkl === "string") data.ppjk_mkl = body.ppjk_mkl.trim() || undefined;
   if (typeof body?.nopen === "string") data.nopen = body.nopen.trim() || undefined;
   if (body?.nopen_date != null) {
     const nd = typeof body.nopen_date === "string" ? body.nopen_date.trim() : "";
     data.nopen_date = nd || undefined;
   }
-  if (typeof body?.ship_by === "string") data.ship_by = body.ship_by.trim() || undefined;
+  if (body?.ship_by === null) data.ship_by = null;
+  else if (typeof body?.ship_by === "string") data.ship_by = body.ship_by.trim() || null;
   if (typeof body?.bl_awb === "string") data.bl_awb = body.bl_awb.trim() || undefined;
   if (typeof body?.insurance_no === "string") data.insurance_no = body.insurance_no.trim() || undefined;
   if (typeof body?.coo === "string") data.coo = body.coo.trim() || undefined;
@@ -80,7 +93,14 @@ export function validateUpdateShipmentBody(
     if (!Number.isFinite(n) || n < 0) errors.push({ field: "incoterm_amount", message: "Must be a non-negative number" });
     else data.incoterm_amount = n;
   }
-  if (body?.cbm != null) {
+  if (body?.incoterm_currency != null && String(body.incoterm_currency).trim() !== "") {
+    const cur = normalizeFreightChargeCurrency(body.incoterm_currency);
+    if (!cur) errors.push({ field: "incoterm_currency", message: "Must be USD or IDR" });
+    else data.incoterm_currency = cur;
+  }
+  if (body?.cbm === null) {
+    data.cbm = null;
+  } else if (body?.cbm !== undefined && body?.cbm !== null) {
     const n = Number(body.cbm);
     if (!Number.isFinite(n) || n < 0) errors.push({ field: "cbm", message: "Must be a non-negative number" });
     else data.cbm = n;
@@ -95,10 +115,26 @@ export function validateUpdateShipmentBody(
     if (!Number.isFinite(n) || n < 0) errors.push({ field: "gross_weight_mt", message: "Must be a non-negative number" });
     else data.gross_weight_mt = n;
   }
-  if (body?.bm_percentage != null) {
-    const n = Number(body.bm_percentage);
-    if (!Number.isFinite(n) || n < 0 || n > 100) errors.push({ field: "bm_percentage", message: "BM percentage must be between 0 and 100" });
-    else data.bm_percentage = n;
+  if (body?.bm === null) {
+    data.bm = 0;
+  } else if (body?.bm !== undefined) {
+    const n = Number(body.bm);
+    if (!Number.isFinite(n) || n < 0) errors.push({ field: "bm", message: "Must be a non-negative number" });
+    else data.bm = n;
+  }
+  if (body?.ppn_amount === null) {
+    data.ppn_amount = 0;
+  } else if (body?.ppn_amount !== undefined) {
+    const n = Number(body.ppn_amount);
+    if (!Number.isFinite(n) || n < 0) errors.push({ field: "ppn_amount", message: "Must be a non-negative number" });
+    else data.ppn_amount = n;
+  }
+  if (body?.pph_amount === null) {
+    data.pph_amount = 0;
+  } else if (body?.pph_amount !== undefined) {
+    const n = Number(body.pph_amount);
+    if (!Number.isFinite(n) || n < 0) errors.push({ field: "pph_amount", message: "Must be a non-negative number" });
+    else data.pph_amount = n;
   }
   if (typeof body?.origin_port_name === "string") data.origin_port_name = body.origin_port_name.trim() || undefined;
   if (typeof body?.origin_port_country === "string") data.origin_port_country = body.origin_port_country.trim() || undefined;
@@ -164,3 +200,4 @@ export function validateUpdateShipmentBody(
 
   return { ok: true, data };
 }
+

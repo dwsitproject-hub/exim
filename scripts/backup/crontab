@@ -1,0 +1,3 @@
+# min hour day month weekday command
+# 15:00 UTC = 22:00 (10 PM) in UTC+7 — daily PostgreSQL backup
+0 15 * * * /usr/local/bin/postgres-backup.sh >> /backups/eos/scheduler.log 2>&1

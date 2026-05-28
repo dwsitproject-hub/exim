@@ -92,6 +92,27 @@
   min-width: 0;
 }
 
+.titleRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-3, 12px);
+  min-width: 0;
+}
+
+.titleRow .title {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.titleAddon {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2, 8px);
+  flex-shrink: 0;
+}
+
 .title {
   font-family: var(--typography-fontFamily-heading, var(--font-merriweather), Georgia, serif);
   font-size: var(--typography-fontSize-h2, 32px);

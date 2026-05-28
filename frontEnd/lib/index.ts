@@ -2,7 +2,7 @@ export { getResolvedTokens, getThemeCssVars, getToken, tokenPathToCssVar } from 
 export { config } from "./config";
 export { LOGIN_PATH, DEFAULT_AFTER_LOGIN_PATH } from "./constants";
 export { formatDateTime, formatDayMonthYear } from "./format-date";
-export { formatDecimal, roundTo2Decimals } from "./format-number";
+export { formatDecimal, formatPoUnitPrice, roundTo2Decimals, roundTo3Decimals } from "./format-number";
 export { INCOTERM_OPTIONS, type IncotermCode } from "./incoterms";
 export {
   getAccessToken,

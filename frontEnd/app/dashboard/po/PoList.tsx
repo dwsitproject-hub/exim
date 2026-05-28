@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { useTableColumnVisibility, type TableColumnDef } from "@/hooks/use-table-column-visibility";
-import { listPo } from "@/services/po-service";
+import { listPo, getPoListFilterOptions } from "@/services/po-service";
 import { Card } from "@/components/cards";
 import { LoadingSkeleton } from "@/components/feedback";
 import { Badge } from "@/components/badges";
@@ -23,9 +23,12 @@ import {
 import { intakeStatusToBadgeVariant, formatStatusLabel } from "@/lib/status-badge";
 import { formatPoStatusLabel } from "@/lib/po-status-label";
 import { isApiError } from "@/types/api";
-import type { PoListItem } from "@/types/po";
+import { can } from "@/lib/permissions";
+import { MANAGERIAL_LIST_FILTERS } from "@/lib/managerial-deep-link";
+import type { ListPoQuery, PoListFilterOptions, PoListItem } from "@/types/po";
 import type { ApiSuccess } from "@/types/api";
 import { RefreshIcon } from "@/components/icons/RefreshIcon";
+import { X } from "lucide-react";
 import styles from "./PoList.module.css";
 
 const DEFAULT_PAGE = 1;
@@ -53,6 +56,35 @@ const PO_TABLE_COLUMNS: TableColumnDef[] = [
   { id: "actions", label: "Actions", locked: true },
 ];
 
+function buildPoListColumnFilters(
+  columnFilters: Record<string, string[]>,
+  statusLabelToRaw: Map<string, string>
+): Partial<ListPoQuery> {
+  const q: Partial<ListPoQuery> = {};
+  const raw = (id: string) => columnFilters[id] ?? [];
+
+  const statusLabels = raw("intake_status");
+  if (statusLabels.length > 0) {
+    const statuses = statusLabels.map((l) => statusLabelToRaw.get(l)).filter((x): x is string => Boolean(x));
+    if (statuses.length) q.intake_statuses = statuses;
+  }
+  if (raw("po_number").length) q.po_numbers = raw("po_number");
+  if (raw("external_id").length) q.external_ids = raw("external_id");
+  if (raw("pt").length) q.pts = raw("pt");
+  if (raw("plant").length) q.plants = raw("plant");
+  if (raw("supplier").length) q.supplier_names = raw("supplier");
+  if (raw("delivery_location").length) q.delivery_locations = raw("delivery_location");
+  if (raw("incoterm_location").length) q.incoterm_locations = raw("incoterm_location");
+  if (raw("kawasan_berikat").length) q.kawasan_berikats = raw("kawasan_berikat");
+  if (raw("currency").length) q.currencies = raw("currency");
+  if (raw("taken_by_user_id").length) q.taken_by_user_ids = raw("taken_by_user_id");
+  if (raw("taken_by_name").length) q.taken_by_names = raw("taken_by_name");
+  if (raw("taken_at").length) q.taken_at_dates = raw("taken_at");
+  if (raw("created_at").length) q.created_at_dates = raw("created_at");
+  if (raw("updated_at").length) q.updated_at_dates = raw("updated_at");
+  return q;
+}
+
 function formatIsoDate(iso: string | null | undefined, dateOnly: boolean): string {
   if (iso == null || String(iso).trim() === "") return "—";
   try {
@@ -69,7 +101,9 @@ export function PoList() {
   const searchParams = useSearchParams();
   const statusFromUrl = searchParams.get("intake_status") ?? undefined;
   const searchFromUrl = searchParams.get("search") ?? "";
-  const { accessToken } = useAuth();
+  const filterFromUrl = searchParams.get("filter");
+  const daysFromUrl = searchParams.get("days");
+  const { accessToken, user } = useAuth();
   const { visibleById, toggleColumn, resetColumns, columns: poColumnDefs } = useTableColumnVisibility(
     PO_LIST_TABLE_COLUMNS_KEY,
     PO_TABLE_COLUMNS
@@ -83,6 +117,79 @@ export function PoList() {
   const [searchParam, setSearchParam] = useState("");
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
   const [openFilterColumnId, setOpenFilterColumnId] = useState<string | null>(null);
+  const [filterOptions, setFilterOptions] = useState<PoListFilterOptions | null>(null);
+  const [sortBy, setSortBy] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  const columnFiltersKey = JSON.stringify(columnFilters);
+
+  const statusLabelToRaw = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const raw of filterOptions?.intake_statuses ?? []) {
+      m.set(formatPoStatusLabel(raw), raw);
+    }
+    return m;
+  }, [filterOptions]);
+
+  const columnFilterOptions = useMemo(() => {
+    if (!filterOptions) return {} as Record<string, string[]>;
+    const o = filterOptions;
+    return {
+      po_number: o.po_numbers,
+      external_id: o.external_ids,
+      pt: o.pts,
+      plant: o.plants,
+      supplier: o.supplier_names,
+      delivery_location: o.delivery_locations,
+      incoterm_location: o.incoterm_locations,
+      kawasan_berikat: o.kawasan_berikats,
+      currency: o.currencies,
+      intake_status: o.intake_statuses.map((s) => formatPoStatusLabel(s)),
+      taken_by_user_id: o.taken_by_user_ids,
+      taken_by_name: o.taken_by_names,
+      taken_at: o.taken_at_dates,
+      created_at: o.created_at_dates,
+      updated_at: o.updated_at_dates,
+    };
+  }, [filterOptions]);
+
+  const listQuery = useMemo((): ListPoQuery => {
+    const fromCols = buildPoListColumnFilters(columnFilters, statusLabelToRaw);
+    const base: ListPoQuery = {
+      page,
+      limit: DEFAULT_LIMIT,
+      search: searchParam.trim() || undefined,
+      ...fromCols,
+    };
+    let out: ListPoQuery;
+    if (filterFromUrl === MANAGERIAL_LIST_FILTERS.stale) {
+      const d = Math.max(1, parseInt(daysFromUrl || "2", 10) || 2);
+      out = {
+        ...base,
+        intake_status: "NEW_PO_DETECTED",
+        unclaimed_only: true,
+        detected_older_than_days: d,
+      };
+    } else if (filterFromUrl === MANAGERIAL_LIST_FILTERS.uncoupled) {
+      out = { ...base, has_linked_shipment: false };
+    } else {
+      out = { ...base, intake_status: statusFromUrl };
+    }
+    if (sortBy && sortBy !== "actions") {
+      out = { ...out, sort_by: sortBy, sort_dir: sortDir };
+    }
+    return out;
+  }, [
+    page,
+    searchParam,
+    columnFiltersKey,
+    statusLabelToRaw,
+    filterFromUrl,
+    daysFromUrl,
+    statusFromUrl,
+    sortBy,
+    sortDir,
+  ]);
 
   const fetchList = useCallback(() => {
     if (!accessToken) {
@@ -90,15 +197,7 @@ export function PoList() {
       return;
     }
     setLoading(true);
-    listPo(
-      {
-        page,
-        limit: DEFAULT_LIMIT,
-        search: searchParam.trim() || undefined,
-        intake_status: statusFromUrl,
-      },
-      accessToken
-    )
+    listPo(listQuery, accessToken)
       .then((res) => {
         if (isApiError(res)) {
           setError(res.message);
@@ -120,10 +219,26 @@ export function PoList() {
       })
       .catch(() => setError("Failed to load Purchase Order"))
       .finally(() => setLoading(false));
-  }, [accessToken, page, searchParam, statusFromUrl]);
+  }, [accessToken, listQuery]);
 
   useEffect(() => {
     fetchList();
+  }, [fetchList]);
+
+  useEffect(() => {
+    if (!accessToken) return;
+    getPoListFilterOptions(accessToken).then((res) => {
+      if (isApiError(res) || !res.data) return;
+      setFilterOptions(res.data);
+    });
+  }, [accessToken]);
+
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "visible") fetchList();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
   }, [fetchList]);
 
   useEffect(() => {
@@ -132,7 +247,23 @@ export function PoList() {
     setPage(1);
   }, [searchFromUrl]);
 
+  useEffect(() => {
+    setPage(1);
+  }, [filterFromUrl, daysFromUrl, statusFromUrl]);
+
+  const clearManagerialFilter = useCallback(() => {
+    const p = new URLSearchParams(searchParams.toString());
+    p.delete("filter");
+    p.delete("days");
+    router.replace(`/dashboard/po${p.toString() ? `?${p.toString()}` : ""}`, { scroll: false });
+  }, [router, searchParams]);
+
   const totalPages = meta ? Math.ceil(meta.total / meta.limit) : 0;
+
+  const staleDaysChip =
+    filterFromUrl === MANAGERIAL_LIST_FILTERS.stale
+      ? Math.max(1, parseInt(daysFromUrl || "2", 10) || 2)
+      : 2;
 
   function handleRowClick(id: string) {
     router.push(`/dashboard/po/${id}`);
@@ -144,70 +275,18 @@ export function PoList() {
     setPage(1);
   }
 
-  const visiblePoColumns = poColumnDefs.filter((c) => visibleById[c.id] !== false);
-
-  function poCellValueForFilter(columnId: string, row: PoListItem): string {
-    switch (columnId) {
-      case "po_number":
-        return row.po_number ?? "";
-      case "external_id":
-        return row.external_id ?? "";
-      case "pt":
-        return row.pt ?? "";
-      case "plant":
-        return row.plant ?? "";
-      case "supplier":
-        return row.supplier_name ?? "";
-      case "delivery_location":
-        return row.delivery_location ?? "";
-      case "incoterm_location":
-        return row.incoterm_location ?? "";
-      case "kawasan_berikat":
-        return row.kawasan_berikat ?? "";
-      case "currency":
-        return row.currency ?? "";
-      case "intake_status":
-        return formatPoStatusLabel(row.intake_status);
-      case "taken_by_user_id":
-        return row.taken_by_user_id ?? "";
-      case "taken_by_name":
-        return row.taken_by_name ?? "";
-      case "taken_at":
-        return formatIsoDate(row.taken_at, false);
-      case "created_at":
-        return formatIsoDate(row.created_at, true);
-      case "updated_at":
-        return formatIsoDate(row.updated_at, false);
-      default:
-        return "";
+  function handleColumnSort(columnId: string) {
+    if (columnId === "actions") return;
+    setPage(1);
+    if (sortBy === columnId) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortBy(columnId);
+      setSortDir("asc");
     }
   }
 
-  const columnFilterOptions = useMemo(() => {
-    const out: Record<string, string[]> = {};
-    for (const col of PO_TABLE_COLUMNS) {
-      if (col.id === "actions") continue;
-      const set = new Set<string>();
-      for (const row of items) {
-        const v = poCellValueForFilter(col.id, row).trim();
-        set.add(v === "" ? "—" : v);
-      }
-      out[col.id] = Array.from(set).sort((a, b) => a.localeCompare(b));
-    }
-    return out;
-  }, [items]);
-
-  const filteredItems = useMemo(() => {
-    const active = Object.entries(columnFilters).filter(([, v]) => Array.isArray(v) && v.length > 0);
-    if (active.length === 0) return items;
-    return items.filter((row) => {
-      return active.every(([colId, selected]) => {
-        const v = poCellValueForFilter(colId, row).trim();
-        const normalized = v === "" ? "—" : v;
-        return selected.includes(normalized);
-      });
-    });
-  }, [items, columnFilters]);
+  const visiblePoColumns = poColumnDefs.filter((c) => visibleById[c.id] !== false);
 
   function renderPoRowCell(column: TableColumnDef, row: PoListItem) {
     switch (column.id) {
@@ -258,6 +337,11 @@ export function PoList() {
               <Link href={`/dashboard/po/${row.id}`} className={styles.actionBtn}>
                 View
               </Link>
+              {can(user, "UPDATE_PO_INTAKE") && (
+                <Link href={`/dashboard/po/${row.id}/edit`} className={styles.actionBtn}>
+                  Edit
+                </Link>
+              )}
             </div>
           </TableCell>
         );
@@ -313,11 +397,32 @@ export function PoList() {
         <LoadingSkeleton lines={6} />
       ) : (
         <Card>
+          {(filterFromUrl === MANAGERIAL_LIST_FILTERS.stale || filterFromUrl === MANAGERIAL_LIST_FILTERS.uncoupled) && (
+            <div className={styles.filterChipsBar}>
+              <span className={styles.filterChip}>
+                {filterFromUrl === MANAGERIAL_LIST_FILTERS.stale ? (
+                  <>
+                    Stale POs: New PO detected, unclaimed, detected &gt; {staleDaysChip} day(s) ago
+                  </>
+                ) : (
+                  <>Uncoupled: no active shipment link</>
+                )}
+                <button
+                  type="button"
+                  className={styles.filterChipRemove}
+                  aria-label="Clear managerial filter"
+                  onClick={clearManagerialFilter}
+                >
+                  <X size={14} />
+                </button>
+              </span>
+            </div>
+          )}
           {items.length === 0 ? (
             <EmptyState
               title="No Purchase Order found"
               description={
-                searchParam.trim() || statusFromUrl
+                searchParam.trim() || statusFromUrl || filterFromUrl
                   ? "Try adjusting your search or filter."
                   : "New Purchase Orders from the external system will appear here."
               }
@@ -328,7 +433,10 @@ export function PoList() {
                 <button
                   type="button"
                   className={styles.filterClear}
-                  onClick={() => setColumnFilters({})}
+                  onClick={() => {
+                    setPage(1);
+                    setColumnFilters({});
+                  }}
                   disabled={Object.values(columnFilters).every((v) => !Array.isArray(v) || v.length === 0)}
                 >
                   Clear column filters
@@ -344,17 +452,39 @@ export function PoList() {
                 <TableHead>
                   <TableRow>
                     {visiblePoColumns.map((c) => (
-                      <TableHeaderCell key={c.id}>
+                      <TableHeaderCell
+                        key={c.id}
+                        aria-sort={
+                          sortBy === c.id ? (sortDir === "asc" ? "ascending" : "descending") : undefined
+                        }
+                      >
                         <span className={styles.thWithFilter}>
-                          <span>{c.label}</span>
+                          {c.id === "actions" ? (
+                            <span className={styles.thLabelStatic}>{c.label}</span>
+                          ) : (
+                            <button
+                              type="button"
+                              className={styles.sortHeadBtn}
+                              onClick={() => handleColumnSort(c.id)}
+                              aria-label={`Sort by ${c.label}${sortBy === c.id ? `, ${sortDir === "asc" ? "ascending" : "descending"}` : ""}`}
+                            >
+                              <span>{c.label}</span>
+                              {sortBy === c.id ? (
+                                <span className={styles.sortIndicator} aria-hidden>
+                                  {sortDir === "asc" ? "↑" : "↓"}
+                                </span>
+                              ) : null}
+                            </button>
+                          )}
                           {c.id !== "actions" && (
                             <TableColumnFilterPicker
                               columnLabel={c.label}
                               options={columnFilterOptions[c.id] ?? []}
                               selected={columnFilters[c.id] ?? []}
-                              onChange={(nextSelected) =>
-                                setColumnFilters((prev) => ({ ...prev, [c.id]: nextSelected }))
-                              }
+                              onChange={(nextSelected) => {
+                                setPage(1);
+                                setColumnFilters((prev) => ({ ...prev, [c.id]: nextSelected }));
+                              }}
                               open={openFilterColumnId === c.id}
                               onOpenChange={(open) => setOpenFilterColumnId(open ? c.id : null)}
                             />
@@ -365,7 +495,7 @@ export function PoList() {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {filteredItems.map((row) => (
+                  {items.map((row) => (
                     <TableRow
                       key={row.id}
                       className={styles.clickableRow}
@@ -383,11 +513,6 @@ export function PoList() {
                       {visiblePoColumns.map((c) => renderPoRowCell(c, row))}
                     </TableRow>
                   ))}
-                  {filteredItems.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={visiblePoColumns.length}>No rows match current column filters.</TableCell>
-                    </TableRow>
-                  )}
                 </TableBody>
               </Table>
 

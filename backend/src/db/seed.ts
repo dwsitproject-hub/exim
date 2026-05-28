@@ -3,6 +3,7 @@
  * Safe to run multiple times (idempotent). Use only in development or with RUN_SEED=true.
  */
 
+import "./load-env.js";
 import bcrypt from "bcrypt";
 import { config } from "../config/index.js";
 import { getPool, closeDb } from "./index.js";

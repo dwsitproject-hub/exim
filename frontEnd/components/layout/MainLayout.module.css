@@ -7,6 +7,7 @@
   padding: var(--spacing-3, 16px) var(--spacing-4, 24px);
   margin: 0;
   background-color: var(--color-bg-lighter, var(--color-primitive-background-lighter, #fafafa));
+  transition: flex-basis var(--animation-duration-slow, 250ms) var(--animation-easing-default, ease-out);
 }
 
 @media (min-width: 768px) {

@@ -1,10 +1,6 @@
-import { Suspense } from "react";
-import { ManagementDashboard } from "./ManagementDashboard";
+import { redirect } from "next/navigation";
 
-export default function ManagementPage() {
-  return (
-    <Suspense fallback={<p className="utilLoadingFallback">Loading…</p>}>
-      <ManagementDashboard />
-    </Suspense>
-  );
+/** Legacy URL: management content lives on the main dashboard. */
+export default function ManagementRedirectPage() {
+  redirect("/dashboard");
 }

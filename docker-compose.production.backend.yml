@@ -1,0 +1,49 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: eos-postgres-prod
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-Exim}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-exim_db}
+    ports:
+      - "${POSTGRES_PORT:-5422}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-eos} -d ${POSTGRES_DB:-eos_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: eos-backend-prod
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      NODE_ENV: production
+      TRUST_PROXY: ${TRUST_PROXY:-1}
+      PORT: 3003
+      DATABASE_URL: postgres://${POSTGRES_USER:-eos}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-eos_db}
+      JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN:-4h}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-4h}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${BACKEND_PORT:-3003}:3003"
+    volumes:
+      # Host Synology path mounted into backend container.
+      - ${STORAGE_HOST_MOUNT:-/mnt/synology/EXIM/Import}:/mnt/synology/EXIM/Import
+
+volumes:
+  postgres_data:

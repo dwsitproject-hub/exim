@@ -3,8 +3,11 @@
  */
 
 import type { Request, Response, NextFunction } from "express";
+import { randomBytes } from "crypto";
 import multer from "multer";
+import { tmpdir } from "os";
 import { sendSuccess, sendError } from "../../../shared/response.js";
+import { readMulterFileAsUtf8 } from "../../../utils/read-multer-upload.js";
 import { UserRepository } from "../../auth/repositories/user.repository.js";
 import { AuthService } from "../../auth/services/auth.service.js";
 import { RefreshTokenRepository } from "../../auth/repositories/refresh-token.repository.js";
@@ -20,8 +23,15 @@ const passwordResetTokenRepo = new PasswordResetTokenRepository();
 const authService = new AuthService(userRepo, refreshTokenRepo, verificationTokenRepo, passwordResetTokenRepo);
 const userAdminService = new UserAdminService(userRepo, authService);
 
+const userImportDisk = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, tmpdir()),
+  filename: (_req, file, cb) =>
+    cb(null, `${randomBytes(16).toString("hex")}_${(file.originalname || "upload").replace(/[^a-zA-Z0-9._-]/g, "_")}`),
+});
+
+/** Disk temp (same pattern as shipment uploads); CSV text is read then temp file removed. */
 export const userImportUpload = multer({
-  storage: multer.memoryStorage(),
+  storage: userImportDisk,
   limits: { fileSize: 2 * 1024 * 1024 },
 });
 
@@ -99,7 +109,7 @@ export async function patch(req: Request, res: Response, next: NextFunction): Pr
 export async function importCsv(req: Request, res: Response, next: NextFunction): Promise<void> {
   let csvText = "";
   const file = req.file;
-  if (file?.buffer) csvText = file.buffer.toString("utf8");
+  if (file) csvText = await readMulterFileAsUtf8(file);
   else if (typeof req.body?.csv_text === "string") csvText = req.body.csv_text;
   if (!csvText.trim()) {
     sendError(res, 'Upload a CSV file (field "file") or send JSON { "csv_text": "..." }', { statusCode: 400 });

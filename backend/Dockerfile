@@ -5,6 +5,10 @@
 FROM node:20-alpine
 WORKDIR /app
 
+# Install Python3 and PyMuPDF for PDF-to-image rendering (OCR pipeline)
+RUN apk add --no-cache python3 py3-pip && \
+    pip3 install pymupdf --break-system-packages
+
 COPY package*.json ./
 RUN npm ci
 COPY . .

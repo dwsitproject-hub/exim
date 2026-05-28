@@ -2,7 +2,7 @@
  * Shipment notes (comments) — persistence only.
  */
 
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { getPool } from "../../../db/index.js";
 
 export interface ShipmentNoteRow {
@@ -45,5 +45,39 @@ export class ShipmentNoteRepository {
     const row = result.rows[0];
     if (!row) throw new Error("ShipmentNoteRepository.create: no row returned");
     return row;
+  }
+
+  async createWithClient(
+    client: PoolClient,
+    shipmentId: string,
+    note: string,
+    createdByUserId: string | null,
+    createdByName: string
+  ): Promise<ShipmentNoteRow> {
+    const result = await client.query<ShipmentNoteRow>(
+      `INSERT INTO shipment_notes (shipment_id, note, created_by_user_id, created_by_name)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, shipment_id, note, created_by_user_id, created_by_name, created_at`,
+      [shipmentId, note, createdByUserId, createdByName]
+    );
+    const row = result.rows[0];
+    if (!row) throw new Error("ShipmentNoteRepository.createWithClient: no row returned");
+    return row;
+  }
+
+  async insertMentionsWithClient(client: PoolClient, noteId: string, mentionedUserIds: string[]): Promise<void> {
+    if (mentionedUserIds.length === 0) return;
+    const values: unknown[] = [];
+    const placeholders: string[] = [];
+    let p = 1;
+    for (const uid of mentionedUserIds) {
+      placeholders.push(`($${p++}::uuid, $${p++}::uuid)`);
+      values.push(noteId, uid);
+    }
+    await client.query(
+      `INSERT INTO shipment_note_mentions (note_id, mentioned_user_id) VALUES ${placeholders.join(", ")}
+       ON CONFLICT DO NOTHING`,
+      values
+    );
   }
 }

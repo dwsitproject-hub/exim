@@ -226,3 +226,9 @@ npm run start
 ```
 
 Use a process manager (e.g. systemd, PM2) or orchestration (e.g. Kubernetes) in production; ensure `DATABASE_URL`, JWT secrets, and CORS are set correctly.
+
+---
+
+## Synology / shared storage
+
+For step-by-step NAS integration (CIFS mount, `dev/EOS` layout, Docker bind, Option B env vars), see **[SYNOLOGY-INTEGRATION.md](./SYNOLOGY-INTEGRATION.md)**.

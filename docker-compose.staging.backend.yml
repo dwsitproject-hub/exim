@@ -25,20 +25,25 @@ services:
       dockerfile: Dockerfile
     container_name: eos-backend-staging
     restart: unless-stopped
+    # Requires ./backend/.env (copy from backend/.env.example). Option B: STORAGE_SYNOLOGY_ROOT + DEPLOYMENT + PROJECT_SLUG
     env_file:
       - ./backend/.env
     environment:
-      NODE_ENV: production
+      NODE_ENV: development
+      TRUST_PROXY: ${TRUST_PROXY:-1}
       PORT: 3003
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      # Required when NODE_ENV is not development — override for your public staging URL
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3020,http://127.0.0.1:3020}
     depends_on:
       postgres:
         condition: service_healthy
     ports:
       - "3003:3003"
+    # Bind host NAS mount into the container. Set STORAGE_HOST_MOUNT in .env if the host path differs.
+    # backend/.env: STORAGE_LOCAL_PATH or dev composition → e.g. /mnt/synology/eos/dev/EOS (see backend/.env.example).
     volumes:
-      - backend_uploads:/app/uploads
+      - ${STORAGE_HOST_MOUNT:-/mnt/synology/eos}:/mnt/synology/dev
 
 volumes:
   postgres_data:
-  backend_uploads:

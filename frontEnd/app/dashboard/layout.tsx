@@ -1,9 +1,14 @@
 import { AppLayout } from "@/components/layout";
+import { GuideTourProvider } from "@/components/guide-tour";
 
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  return <AppLayout>{children}</AppLayout>;
+  return (
+    <GuideTourProvider>
+      <AppLayout>{children}</AppLayout>
+    </GuideTourProvider>
+  );
 }

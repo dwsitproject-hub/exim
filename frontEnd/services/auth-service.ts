@@ -32,14 +32,16 @@ export async function resetPassword(payload: {
   return apiPost<unknown>(`${AUTH_PREFIX}/reset-password`, payload);
 }
 
-export async function refresh(refreshToken: string): Promise<ApiResponse<RefreshResponseData>> {
-  return apiPost<RefreshResponseData>(`${AUTH_PREFIX}/refresh`, { refresh_token: refreshToken });
+/** Refresh uses HttpOnly `eos_refresh` cookie; body may be empty. */
+export async function refresh(): Promise<ApiResponse<RefreshResponseData>> {
+  return apiPost<RefreshResponseData>(`${AUTH_PREFIX}/refresh`, {});
 }
 
-export async function logout(refreshToken: string): Promise<ApiResponse<unknown>> {
-  return apiPost<unknown>(`${AUTH_PREFIX}/logout`, { refresh_token: refreshToken });
+/** Logout revokes refresh and clears HttpOnly cookies. */
+export async function logout(): Promise<ApiResponse<unknown>> {
+  return apiPost<unknown>(`${AUTH_PREFIX}/logout`, {});
 }
 
-export async function getMe(accessToken: string): Promise<ApiResponse<AuthUser>> {
-  return apiGet<AuthUser>(`${AUTH_PREFIX}/me`, accessToken);
+export async function getMe(accessToken?: string | null): Promise<ApiResponse<AuthUser>> {
+  return apiGet<AuthUser>(`${AUTH_PREFIX}/me`, accessToken ?? null);
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
@@ -9,7 +9,7 @@ import { Card } from "@/components/cards";
 import { PageHeader } from "@/components/navigation";
 import { Button, ComboboxSelect } from "@/components/forms";
 import { useToast } from "@/components/providers/ToastProvider";
-import { formatDecimal, formatPriceInputWithCommas, roundTo2Decimals } from "@/lib/format-number";
+import { formatPriceInputWithCommas, roundTo2Decimals, roundTo3Decimals } from "@/lib/format-number";
 import { INCOTERM_OPTIONS } from "@/lib/incoterms";
 import { PT_OPTION_LABELS, PO_ITEM_UNIT_OPTIONS, getPlantConfigForPt } from "@/lib/po-create-constants";
 import { isApiError } from "@/types/api";
@@ -32,7 +32,10 @@ type ItemFormLine = {
 
 const CURRENCY_OPTIONS = ["USD", "IDR", "EUR", "GBP", "SGD", "JPY", "CNY", "AUD", "MYR", "THB"];
 
-const UNIT_OPTIONS: string[] = [...PO_ITEM_UNIT_OPTIONS];
+const NBSP = "\u00a0";
+const UNIT_OPTIONS: string[] = PO_ITEM_UNIT_OPTIONS.filter(
+  (u) => u.trim() !== "" && !u.includes(NBSP)
+);
 const UNIT_OPTION_SET = new Set<string>(UNIT_OPTIONS);
 
 /** Allow partial decimal input while typing (qty only — no thousands separator). */
@@ -41,15 +44,31 @@ const DECIMAL_INPUT_PATTERN = /^\d*\.?\d*$/;
 const initialItem = (): ItemFormLine => ({
   item_description: "",
   qtyText: "",
-  unit: "PCS",
+  unit: "",
   priceText: "",
 });
+
+/** Total line display: en-US thousands + 2 decimals (e.g. 12,221,111.00). */
+function formatTotalAmountDisplay(value: number): string {
+  return value.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
 
 function parseOptionalDecimal(text: string): number | undefined {
   const t = text.replace(/,/g, "").trim();
   if (t === "" || t === ".") return undefined;
   const n = Number(t);
   return Number.isFinite(n) ? n : undefined;
+}
+
+function RequiredMark() {
+  return (
+    <span className={styles.labelRequired} aria-hidden>
+      *
+    </span>
+  );
 }
 
 export function CreatePo() {
@@ -94,6 +113,9 @@ export function CreatePo() {
     });
   }
 
+  const itemCount = form.items?.length ?? 0;
+  const prevItemLen = useRef<number | null>(null);
+
   function addItem() {
     setForm((prev) => ({
       ...prev,
@@ -101,10 +123,20 @@ export function CreatePo() {
     }));
   }
 
+  useEffect(() => {
+    const len = form.items?.length ?? 0;
+    if (prevItemLen.current !== null && len > prevItemLen.current) {
+      const idx = len - 1;
+      requestAnimationFrame(() => {
+        document.getElementById(`po-item-desc-${idx}`)?.focus();
+      });
+    }
+    prevItemLen.current = len;
+  }, [form.items?.length]);
+
   function removeItem(index: number) {
     setForm((prev) => {
       const items = [...(prev.items ?? [])];
-      if (items.length <= 1) return prev;
       items.splice(index, 1);
       return { ...prev, items };
     });
@@ -123,6 +155,15 @@ export function CreatePo() {
     setSubmitError(null);
     if (!accessToken) return;
 
+    if (!form.po_number.trim()) {
+      setSubmitError("PO number is required.");
+      return;
+    }
+    if (!form.supplier_name.trim()) {
+      setSubmitError("Supplier name is required.");
+      return;
+    }
+
     if (!form.pt.trim()) {
       setSubmitError("Please select PT.");
       return;
@@ -140,24 +181,26 @@ export function CreatePo() {
       return;
     }
 
-    const validItems = (form.items ?? []).filter(
-      (it) =>
-        it.item_description?.trim() ||
-        it.qtyText.trim() !== "" ||
-        it.unit?.trim() ||
-        it.priceText.trim() !== ""
-    );
-    if (validItems.length === 0) {
-      setSubmitError("Add at least one line item (e.g. description, quantity, or value).");
-      return;
-    }
-
-    for (const it of validItems) {
+    const completeItems = (form.items ?? []).filter((it) => {
+      const desc = it.item_description?.trim() ?? "";
+      const qty = parseOptionalDecimal(it.qtyText);
       const u = it.unit?.trim() ?? "";
-      if (u && !UNIT_OPTION_SET.has(u)) {
-        setSubmitError("Each line unit must be selected from the unit list.");
-        return;
-      }
+      const price = parseOptionalDecimal(it.priceText);
+      return (
+        desc !== "" &&
+        qty != null &&
+        qty > 0 &&
+        u !== "" &&
+        UNIT_OPTION_SET.has(u) &&
+        price != null &&
+        price >= 0
+      );
+    });
+    if (completeItems.length === 0) {
+      setSubmitError(
+        "Add at least one complete line item: description, quantity greater than 0, unit from the list, and price per unit."
+      );
+      return;
     }
 
     const payload: CreateTestPoPayload = {
@@ -172,14 +215,14 @@ export function CreatePo() {
     if (form.incoterm_location?.trim()) payload.incoterm_location = form.incoterm_location.trim();
     if (form.currency?.trim()) payload.currency = form.currency.trim();
 
-    payload.items = validItems.map((it) => {
+    payload.items = completeItems.map((it) => {
       const qty = parseOptionalDecimal(it.qtyText);
       const value = parseOptionalDecimal(it.priceText);
       return {
         item_description: it.item_description?.trim() || undefined,
         qty: qty != null ? roundTo2Decimals(qty) : undefined,
         unit: it.unit?.trim() || undefined,
-        value: value != null ? roundTo2Decimals(value) : undefined,
+        value: value != null ? roundTo3Decimals(value) : undefined,
       };
     });
 
@@ -200,19 +243,22 @@ export function CreatePo() {
   }
 
   const poCurrency = form.currency || "USD";
+  const showRemoveColumn = itemCount > 1;
 
   return (
     <section className={styles.section}>
       <PageHeader title="Create Purchase Order" backHref="/dashboard/po" backLabel="Purchase Order" />
 
-      <form onSubmit={handleSubmit}>
+      <form onSubmit={handleSubmit} className={styles.form}>
         {submitError && <p className={styles.formError}>{submitError}</p>}
 
         <Card className={styles.cardSpacing}>
           <h2 className={styles.sectionTitle}>General</h2>
           <div className={styles.grid}>
             <div className={styles.field}>
-              <label className={styles.fieldLabel} htmlFor="pt">PT *</label>
+              <label className={styles.fieldLabel} htmlFor="pt">
+                PT <RequiredMark />
+              </label>
               <select
                 id="pt"
                 className={styles.formSelect}
@@ -230,7 +276,9 @@ export function CreatePo() {
               </select>
             </div>
             <div className={styles.field}>
-              <label className={styles.fieldLabel} htmlFor="plant">Plant *</label>
+              <label className={styles.fieldLabel} htmlFor="plant">
+                Plant <RequiredMark />
+              </label>
               {!form.pt && (
                 <input
                   id="plant"
@@ -240,6 +288,7 @@ export function CreatePo() {
                   readOnly
                   disabled
                   placeholder="Select PT first"
+                  title="Select PT first"
                   aria-label="Plant"
                 />
               )}
@@ -272,7 +321,9 @@ export function CreatePo() {
               )}
             </div>
             <div className={styles.field}>
-              <label className={styles.fieldLabel} htmlFor="po_number">PO number *</label>
+              <label className={styles.fieldLabel} htmlFor="po_number">
+                PO number <RequiredMark />
+              </label>
               <input
                 id="po_number"
                 type="text"
@@ -284,7 +335,9 @@ export function CreatePo() {
               />
             </div>
             <div className={styles.field}>
-              <label className={styles.fieldLabel} htmlFor="supplier_name">Supplier name *</label>
+              <label className={styles.fieldLabel} htmlFor="supplier_name">
+                Supplier name <RequiredMark />
+              </label>
               <input
                 id="supplier_name"
                 type="text"
@@ -292,11 +345,13 @@ export function CreatePo() {
                 value={form.supplier_name}
                 onChange={(e) => updateField("supplier_name", e.target.value)}
                 required
-                placeholder="Supplier name"
+                autoComplete="off"
               />
             </div>
             <div className={styles.field}>
-              <label className={styles.fieldLabel} htmlFor="delivery_location">Delivery location *</label>
+              <label className={styles.fieldLabel} htmlFor="delivery_location">
+                Delivery location <RequiredMark />
+              </label>
               <input
                 id="delivery_location"
                 type="text"
@@ -304,11 +359,12 @@ export function CreatePo() {
                 value={form.delivery_location ?? ""}
                 onChange={(e) => updateField("delivery_location", e.target.value)}
                 required
-                placeholder="Delivery location"
               />
             </div>
             <div className={styles.field}>
-              <label className={styles.fieldLabel} htmlFor="incoterm_location">Incoterm</label>
+              <label className={styles.fieldLabel} htmlFor="incoterm_location">
+                Incoterm
+              </label>
               <select
                 id="incoterm_location"
                 className={styles.formSelect}
@@ -325,7 +381,9 @@ export function CreatePo() {
               </select>
             </div>
             <div className={styles.field}>
-              <label className={styles.fieldLabel} htmlFor="currency">Currency (for this PO)</label>
+              <label className={styles.fieldLabel} htmlFor="currency">
+                Currency (for this PO)
+              </label>
               <select
                 id="currency"
                 className={styles.formSelect}
@@ -341,7 +399,9 @@ export function CreatePo() {
               </select>
             </div>
             <div className={styles.field}>
-              <label className={styles.fieldLabel} htmlFor="kawasan_berikat">Kawasan berikat *</label>
+              <label className={styles.fieldLabel} htmlFor="kawasan_berikat">
+                Kawasan berikat <RequiredMark />
+              </label>
               <select
                 id="kawasan_berikat"
                 className={styles.formSelect}
@@ -365,112 +425,133 @@ export function CreatePo() {
           </h2>
 
           <div className={styles.itemsTableWrap}>
-            <table className={styles.itemsTable}>
-              <thead>
-                <tr>
-                  <th className={styles.itemsTh}>Description</th>
-                  <th className={`${styles.itemsTh} ${styles.thMetricsGroup}`} colSpan={3}>
-                    <div className={styles.metricsHeaderInner}>
-                      <span>Qty</span>
-                      <span>Unit</span>
-                      <span>Price per unit</span>
-                    </div>
-                  </th>
-                  <th className={`${styles.itemsTh} ${styles.itemsThCenter}`}>Total amount</th>
-                  <th className={styles.itemsThRemove} aria-label="Remove row" />
-                </tr>
-              </thead>
-              <tbody>
-                {(form.items ?? []).map((item, index) => {
-                  const total = getItemLineTotal(item);
-                  return (
-                    <tr key={index}>
-                      <td className={styles.itemsTd}>
-                        <textarea
-                          className={styles.itemDescriptionInput}
-                          value={item.item_description ?? ""}
-                          onChange={(e) => updateItem(index, "item_description", e.target.value)}
-                          placeholder="Item description"
-                          rows={3}
-                          aria-label="Item description"
-                        />
-                      </td>
-                      <td className={`${styles.itemsTd} ${styles.tdMetricsGroup}`} colSpan={3}>
-                        <div className={styles.metricsCluster}>
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            autoComplete="off"
-                            className={styles.itemsInput}
-                            value={item.qtyText}
-                            onChange={(e) => {
-                              const v = e.target.value;
-                              if (v === "" || DECIMAL_INPUT_PATTERN.test(v)) {
-                                updateItem(index, "qtyText", v);
+            {itemCount === 0 ? (
+              <div className={styles.itemsEmptyState} role="status">
+                <p className={styles.itemsEmptyTitle}>Please add at least one item to proceed</p>
+                <p className={styles.itemsEmptyHint}>Use &quot;+ Add item&quot; below to start a line.</p>
+              </div>
+            ) : (
+              <table className={styles.itemsTable}>
+                <thead>
+                  <tr>
+                    <th className={styles.itemsTh}>Description</th>
+                    <th className={`${styles.itemsTh} ${styles.thMetricsGroup}`} colSpan={3}>
+                      <div className={styles.metricsHeaderInner}>
+                        <span>Qty</span>
+                        <span>Unit</span>
+                        <span>Price per unit ({poCurrency})</span>
+                      </div>
+                    </th>
+                    <th className={`${styles.itemsTh} ${styles.itemsThTotal}`}>
+                      Total amount ({poCurrency})
+                    </th>
+                    {showRemoveColumn && (
+                      <th className={styles.itemsThRemove} aria-label="Remove row" />
+                    )}
+                  </tr>
+                </thead>
+                <tbody>
+                  {(form.items ?? []).map((item, index) => {
+                    const total = getItemLineTotal(item);
+                    const totalDisplay = total != null ? formatTotalAmountDisplay(total) : "";
+                    const totalTitle = total != null ? totalDisplay : undefined;
+                    return (
+                      <tr key={index}>
+                        <td className={styles.itemsTd}>
+                          <textarea
+                            id={`po-item-desc-${index}`}
+                            className={styles.itemDescriptionInput}
+                            value={item.item_description ?? ""}
+                            onChange={(e) => updateItem(index, "item_description", e.target.value)}
+                            rows={2}
+                            aria-label="Item description"
+                          />
+                        </td>
+                        <td className={`${styles.itemsTd} ${styles.tdMetricsGroup}`} colSpan={3}>
+                          <div className={styles.metricsCluster}>
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              autoComplete="off"
+                              className={`${styles.itemsInput} ${styles.itemsInputQty}`}
+                              value={item.qtyText}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                if (v === "" || DECIMAL_INPUT_PATTERN.test(v)) {
+                                  updateItem(index, "qtyText", v);
+                                }
+                              }}
+                              aria-label="Qty"
+                            />
+                            <ComboboxSelect
+                              className={styles.unitCombobox}
+                              inputClassName={`${styles.itemsInput} ${styles.itemsInputDatalist} ${styles.itemsInputUnit}`}
+                              options={UNIT_OPTIONS}
+                              value={item.unit ?? ""}
+                              onChange={(v) => updateItem(index, "unit", v)}
+                              allowEmpty
+                              emptyLabel="—"
+                              placeholder=""
+                              aria-label="Unit"
+                            />
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              autoComplete="off"
+                              className={`${styles.itemsInput} ${styles.itemsInputPrice}`}
+                              value={item.priceText}
+                              onChange={(e) =>
+                                updateItem(index, "priceText", formatPriceInputWithCommas(e.target.value, 3))
                               }
-                            }}
-                            placeholder="0"
-                            aria-label="Qty"
-                          />
-                          <ComboboxSelect
-                            className={styles.unitCombobox}
-                            inputClassName={`${styles.itemsInput} ${styles.itemsInputDatalist}`}
-                            options={UNIT_OPTIONS}
-                            value={item.unit ?? ""}
-                            onChange={(v) => updateItem(index, "unit", v || "PCS")}
-                            allowEmpty={false}
-                            placeholder="Type to search…"
-                            aria-label="Unit"
-                          />
+                              aria-label="Price per unit"
+                            />
+                          </div>
+                        </td>
+                        <td className={`${styles.itemsTd} ${styles.itemsTdTotal}`}>
                           <input
                             type="text"
-                            inputMode="decimal"
-                            autoComplete="off"
-                            className={styles.itemsInput}
-                            value={item.priceText}
-                            onChange={(e) =>
-                              updateItem(index, "priceText", formatPriceInputWithCommas(e.target.value))
-                            }
-                            placeholder="1,234.56"
-                            aria-label="Price per unit"
+                            readOnly
+                            tabIndex={-1}
+                            className={styles.totalAmountReadonly}
+                            value={totalDisplay || "—"}
+                            title={totalTitle}
+                            aria-label={`Total amount ${poCurrency}${totalTitle ? `: ${totalTitle}` : ""}`}
                           />
-                        </div>
-                      </td>
-                      <td className={`${styles.itemsTd} ${styles.itemsTdTotal}`}>
-                        {total != null ? formatDecimal(total) : "—"}
-                      </td>
-                      <td className={styles.itemsTdRemove}>
-                        <button
-                          type="button"
-                          className={styles.removeRowBtn}
-                          onClick={() => removeItem(index)}
-                          disabled={(form.items ?? []).length <= 1}
-                          aria-label="Remove item row"
-                          title="Remove row"
-                        >
-                          Remove
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                        </td>
+                        {showRemoveColumn && (
+                          <td className={styles.itemsTdRemove}>
+                            <button
+                              type="button"
+                              className={styles.removeRowBtn}
+                              onClick={() => removeItem(index)}
+                              aria-label="Remove item row"
+                              title="Remove row"
+                            >
+                              Remove
+                            </button>
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
           </div>
           <button type="button" className={styles.addRowBtn} onClick={addItem}>
             + Add item
           </button>
         </Card>
 
-        <div className={styles.formActions}>
-          <Button type="submit" variant="primary" disabled={submitting}>
-            {submitting ? "Creating…" : "Create Purchase Order"}
-          </Button>
-          <Link href="/dashboard/po">
-            <Button type="button" variant="secondary" disabled={submitting}>
+        <div className={styles.stickyFormActions}>
+          <div className={styles.stickyFormActionsInner}>
+            <Link href="/dashboard/po" className={styles.cancelOutline}>
               Cancel
+            </Link>
+            <Button type="submit" variant="primary" disabled={submitting} className={styles.createPrimary}>
+              {submitting ? "Creating…" : "Create Purchase Order"}
             </Button>
-          </Link>
+          </div>
         </div>
       </form>
     </section>

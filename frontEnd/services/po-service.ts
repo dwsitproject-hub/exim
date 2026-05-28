@@ -2,9 +2,22 @@
  * PO API — services layer. All PO (imported PO intake) API calls go through here.
  */
 
-import { apiGet, apiPost } from "./api-client";
-import type { PoListItem, PoDetail, ListPoQuery, CreateTestPoPayload } from "@/types/po";
+import { apiGet, apiPost, apiPatch, apiRequest } from "./api-client";
+import type {
+  PoListItem,
+  PoDetail,
+  ListPoQuery,
+  PoListFilterOptions,
+  CreateTestPoPayload,
+  UpdatePoPayload,
+  PoImportCsvResult,
+  PoImportHistoryItem,
+  PoIntakeActivityItem,
+  ParsedPoResult,
+} from "@/types/po";
 import type { ApiResponse } from "@/types/api";
+import { config } from "@/lib/config";
+import { COOKIE_AUTH_SENTINEL } from "@/lib/constants";
 
 function buildQueryString(query: ListPoQuery): string {
   const params = new URLSearchParams();
@@ -13,6 +26,27 @@ function buildQueryString(query: ListPoQuery): string {
   if (query.search) params.set("search", query.search);
   if (query.intake_status) params.set("intake_status", query.intake_status);
   if (query.po_number) params.set("po_number", query.po_number);
+  if (query.unclaimed_only) params.set("unclaimed_only", "true");
+  if (query.has_linked_shipment === true) params.set("has_linked_shipment", "true");
+  if (query.has_linked_shipment === false) params.set("has_linked_shipment", "false");
+  if (query.detected_older_than_days != null) params.set("detected_older_than_days", String(query.detected_older_than_days));
+  query.po_numbers?.forEach((v) => params.append("po_number_exact", v));
+  query.external_ids?.forEach((v) => params.append("external_id", v));
+  query.pts?.forEach((v) => params.append("pt", v));
+  query.plants?.forEach((v) => params.append("plant", v));
+  query.supplier_names?.forEach((v) => params.append("supplier_name", v));
+  query.delivery_locations?.forEach((v) => params.append("delivery_location", v));
+  query.incoterm_locations?.forEach((v) => params.append("incoterm_location", v));
+  query.kawasan_berikats?.forEach((v) => params.append("kawasan_berikat", v));
+  query.currencies?.forEach((v) => params.append("currency", v));
+  query.intake_statuses?.forEach((v) => params.append("intake_statuses", v));
+  query.taken_by_user_ids?.forEach((v) => params.append("taken_by_user_id", v));
+  query.taken_by_names?.forEach((v) => params.append("taken_by_name", v));
+  query.taken_at_dates?.forEach((v) => params.append("taken_at_date", v));
+  query.created_at_dates?.forEach((v) => params.append("created_at_date", v));
+  query.updated_at_dates?.forEach((v) => params.append("updated_at_date", v));
+  if (query.sort_by) params.set("sort_by", query.sort_by);
+  if (query.sort_dir) params.set("sort_dir", query.sort_dir);
   const qs = params.toString();
   return qs ? `?${qs}` : "";
 }
@@ -25,11 +59,32 @@ export async function listPo(
   return apiGet<PoListItem[]>(path, accessToken);
 }
 
+export async function getPoListFilterOptions(
+  accessToken: string | null
+): Promise<ApiResponse<PoListFilterOptions>> {
+  return apiGet<PoListFilterOptions>("po/list-filter-options", accessToken);
+}
+
 export async function getPoDetail(
   id: string,
   accessToken: string | null
 ): Promise<ApiResponse<PoDetail>> {
   return apiGet<PoDetail>(`po/${id}`, accessToken);
+}
+
+export async function getPoActivityLog(
+  id: string,
+  accessToken: string | null
+): Promise<ApiResponse<{ items: PoIntakeActivityItem[] }>> {
+  return apiGet<{ items: PoIntakeActivityItem[] }>(`po/${id}/activity-log`, accessToken);
+}
+
+export async function updatePo(
+  id: string,
+  body: UpdatePoPayload,
+  accessToken: string | null
+): Promise<ApiResponse<PoDetail>> {
+  return apiPatch<PoDetail>(`po/${id}`, body, accessToken);
 }
 
 export async function takeOwnership(
@@ -69,5 +124,53 @@ export async function lookupPoByPoNumber(
 ): Promise<ApiResponse<{ id: string }>> {
   const q = new URLSearchParams({ po_number: poNumber.trim() });
   return apiGet<{ id: string }>(`po/lookup-by-po-number?${q.toString()}`, accessToken);
+}
+
+export async function importPoCsv(
+  file: File,
+  accessToken: string | null
+): Promise<ApiResponse<PoImportCsvResult>> {
+  const form = new FormData();
+  form.append("file", file);
+  return apiRequest<PoImportCsvResult>("po/import/csv", {
+    method: "POST",
+    body: form,
+    accessToken,
+  });
+}
+
+/** POST /po/import/parse-pdf — OCR a PO PDF and return pre-fill data. Does NOT create a PO. */
+export async function parsePoPdf(
+  file: File,
+  accessToken: string | null
+): Promise<ApiResponse<ParsedPoResult>> {
+  const form = new FormData();
+  form.append("file", file);
+  return apiRequest<ParsedPoResult>("po/import/parse-pdf", {
+    method: "POST",
+    body: form,
+    accessToken,
+  });
+}
+
+export async function listPoImportHistory(
+  accessToken: string | null,
+  limit = 20
+): Promise<ApiResponse<PoImportHistoryItem[]>> {
+  const q = new URLSearchParams({ limit: String(limit) });
+  return apiGet<PoImportHistoryItem[]>(`po/import/history?${q.toString()}`, accessToken);
+}
+
+export async function downloadPoImportTemplate(accessToken: string | null): Promise<Blob> {
+  const url = `${config.apiBaseUrl}/po/import/template-csv`;
+  const headers: Record<string, string> = {};
+  if (accessToken && accessToken !== COOKIE_AUTH_SENTINEL) {
+    headers.Authorization = `Bearer ${accessToken}`;
+  }
+  const res = await fetch(url, { method: "GET", headers, credentials: "include" });
+  if (!res.ok) {
+    throw new Error("Failed to download template");
+  }
+  return res.blob();
 }
 

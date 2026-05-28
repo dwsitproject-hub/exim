@@ -1,0 +1,35 @@
+# Production-only PostgreSQL backup scheduler.
+# Merge with your main stack so `postgres` exists on the same project network:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.backup.yml --profile production-backup up -d
+#
+# Requirements in backend/.env (or environment):
+#   - DATABASE_URL pointing at the postgres service (e.g. postgres://user:pass@postgres:5432/eos_db)
+#   - EOS_BACKUP_ENABLED=true
+#   - EOS_ENV=production
+#
+# Schedule: 15:00 UTC daily (= 22:00 / 10 PM UTC+7). Retention: 14 days (see RETENTION_DAYS).
+#
+# Backups are written on the Linux host at /opt/exim/scripts/backup (bind mount), not in a Docker volume.
+# Create the directory first if you want specific ownership: sudo mkdir -p /opt/exim/scripts/backup
+
+services:
+  eos-backup-scheduler:
+    profiles: ["production-backup"]
+    build:
+      context: ./scripts/backup
+      dockerfile: Dockerfile
+    container_name: eos-backup-scheduler
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      EOS_BACKUP_ENABLED: "true"
+      EOS_ENV: production
+      BACKUP_DIR: /backups/eos
+      RETENTION_DAYS: "14"
+    volumes:
+      - /opt/exim/scripts/backup:/backups/eos
+    depends_on:
+      postgres:
+        condition: service_healthy

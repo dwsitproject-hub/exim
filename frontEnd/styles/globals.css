@@ -1,3 +1,7 @@
+@import "./shipment-dashboard-status.css";
+
+@tailwind utilities;
+
 /**
  * Global styles — use design tokens only (frontend/design-tokens.json).
  * Token values are injected by the root layout via getThemeCssVars(); this file adds base rules.
@@ -57,3 +61,4 @@ a:hover {
   font-size: var(--typography-fontSize-small, 14px);
   color: var(--color-primitive-text-steel, #6b6b6b);
 }
+

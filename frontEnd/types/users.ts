@@ -19,3 +19,10 @@ export interface UserImportResult {
   created: number;
   errors: { row: number; email?: string; message: string }[];
 }
+
+/** GET /users/mentionable — active users for @mentions (VIEW_SHIPMENTS). */
+export interface MentionableUser {
+  id: string;
+  name: string;
+  email: string;
+}

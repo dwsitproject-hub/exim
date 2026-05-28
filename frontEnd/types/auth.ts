@@ -12,16 +12,17 @@ export interface AuthUser {
 }
 
 export interface LoginResponseData {
-  access_token: string;
-  refresh_token: string;
+  /** Omitted when tokens are only in HttpOnly cookies. */
+  access_token?: string;
+  refresh_token?: string;
   token_type: string;
   expires_in: number;
   user: AuthUser;
 }
 
 export interface RefreshResponseData {
-  access_token: string;
-  refresh_token: string;
+  access_token?: string;
+  refresh_token?: string;
   token_type: string;
   expires_in: number;
   user: AuthUser;

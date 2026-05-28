@@ -83,7 +83,9 @@ export function ComboboxSelect({
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const base = options.filter((o) => o.length > 0);
+    const base = options.filter(
+      (o) => o.trim() !== "" && !o.includes("\u00a0")
+    );
     if (!q) return base;
     return base.filter((o) => o.toLowerCase().includes(q));
   }, [options, query]);

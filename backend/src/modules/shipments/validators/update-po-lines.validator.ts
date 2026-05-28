@@ -8,6 +8,9 @@ import type { ErrorField } from "../../../shared/response.js";
 export interface UpdatePoLineItemDto {
   item_id: string;
   received_qty: number;
+  bm_percentage?: number | null;
+  ppn_percentage?: number | null;
+  pph_percentage?: number | null;
 }
 
 export interface UpdatePoLinesDto {
@@ -38,7 +41,31 @@ export function validateUpdatePoLinesBody(
       errors.push({ field: `lines[${i}].received_qty`, message: "received_qty must be a non-negative number" });
       continue;
     }
-    lines.push({ item_id, received_qty });
+
+    const row: UpdatePoLineItemDto = { item_id, received_qty };
+    let lineErrors = false;
+    const setPct = (field: "bm_percentage" | "ppn_percentage" | "pph_percentage", raw: unknown) => {
+      if (raw === undefined) return;
+      if (raw === null) {
+        row[field] = null;
+        return;
+      }
+      const n = typeof raw === "number" ? raw : Number(raw);
+      if (!Number.isFinite(n) || n < 0 || n > 100) {
+        errors.push({
+          field: `lines[${i}].${field}`,
+          message: `${field} must be between 0 and 100 or null`,
+        });
+        lineErrors = true;
+        return;
+      }
+      row[field] = n;
+    };
+    setPct("bm_percentage", item.bm_percentage);
+    setPct("ppn_percentage", item.ppn_percentage);
+    setPct("pph_percentage", item.pph_percentage);
+    if (lineErrors) continue;
+    lines.push(row);
   }
 
   if (errors.length > 0) return { ok: false, errors };

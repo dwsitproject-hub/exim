@@ -10,7 +10,12 @@ function getEnv(key: string, defaultValue?: string): string {
   return (v ?? defaultValue ?? "") as string;
 }
 
+/**
+ * Browser-side API base:
+ * - Relative (default `/api/backend`): fetch goes to this Next.js app; `app/api/backend/*` proxies
+ *   server-side to `BACKEND_INTERNAL_URL` (VPC / Docker network). Browsers never touch the backend IP.
+ * - Absolute `http(s)://.../api/v1`: direct to backend (local dev only).
+ */
 export const config = {
-  /** Backend API base (e.g. http://localhost:3003/api/v1). Must be NEXT_PUBLIC_API_URL for client. */
-  apiBaseUrl: getEnv("NEXT_PUBLIC_API_URL", "http://localhost:3003/api/v1"),
+  apiBaseUrl: getEnv("NEXT_PUBLIC_API_URL", "/api/backend"),
 } as const;
