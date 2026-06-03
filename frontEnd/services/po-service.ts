@@ -13,6 +13,7 @@ import type {
   PoImportCsvResult,
   PoImportHistoryItem,
   PoIntakeActivityItem,
+  ParsedPoResult,
 } from "@/types/po";
 import type { ApiResponse } from "@/types/api";
 import { config } from "@/lib/config";
@@ -132,6 +133,20 @@ export async function importPoCsv(
   const form = new FormData();
   form.append("file", file);
   return apiRequest<PoImportCsvResult>("po/import/csv", {
+    method: "POST",
+    body: form,
+    accessToken,
+  });
+}
+
+/** POST /po/import/parse-pdf — OCR a PO PDF and return pre-fill data. Does NOT create a PO. */
+export async function parsePoPdf(
+  file: File,
+  accessToken: string | null
+): Promise<ApiResponse<ParsedPoResult>> {
+  const form = new FormData();
+  form.append("file", file);
+  return apiRequest<ParsedPoResult>("po/import/parse-pdf", {
     method: "POST",
     body: form,
     accessToken,

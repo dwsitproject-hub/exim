@@ -10,6 +10,7 @@ import { PERMISSIONS } from "../../shared/rbac.js";
 import { uploadSingle } from "../../middlewares/upload.middleware.js";
 import * as controller from "./controllers/po-intake.controller.js";
 import * as activityController from "./controllers/po-intake-activity.controller.js";
+import * as pdfParseController from "./controllers/po-pdf-parse.controller.js";
 
 export const poIntakeRoutes = Router();
 
@@ -50,6 +51,13 @@ poIntakeRoutes.post(
   requirePermission(PERMISSIONS.IMPORT_PO_CSV),
   uploadSingle,
   controller.importCsv
+);
+poIntakeRoutes.post(
+  "/import/parse-pdf",
+  authMiddleware,
+  requirePermission(PERMISSIONS.PARSE_PO_PDF),
+  uploadSingle,
+  pdfParseController.parsePdf
 );
 poIntakeRoutes.patch(
   "/:id",

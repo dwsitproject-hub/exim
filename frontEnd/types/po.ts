@@ -216,6 +216,34 @@ export interface PoImportHistoryItem {
   finished_at: string | null;
 }
 
+// ---------------------------------------------------------------------------
+// PDF parse (Phase 1 — pre-fill form from scanned document)
+// ---------------------------------------------------------------------------
+
+export interface ParsedPoItem {
+  item_description: string;
+  qty: number;
+  unit: string;
+  unit_original: string;
+  value: number;
+}
+
+/** Response from POST /po/import/parse-pdf */
+export interface ParsedPoResult {
+  po_number: string | null;
+  supplier_name: string | null;
+  currency: string | null;
+  incoterm_location: string | null;
+  delivery_location: string | null;
+  kawasan_berikat: "Yes" | "No" | null;
+  pt: string | null;
+  plant: string | null;
+  items: ParsedPoItem[];
+  warnings: string[];
+  confidence: "high" | "medium" | "low";
+  raw_text_preview: string;
+}
+
 /** GET /po/:id/activity-log — aligned with shipment activity log shape. */
 export interface PoIntakeActivityItem {
   id: string;
