@@ -2,6 +2,7 @@
 
 .section {
   padding-bottom: var(--spacing-6, 40px);
+  font-family: var(--font-inter, var(--typography-fontFamily-primary, "Inter", system-ui, sans-serif));
 }
 
 .headerStatusBadge,
