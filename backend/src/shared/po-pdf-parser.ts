@@ -308,6 +308,7 @@ function extractItems(text: string): { items: ParsedPoItem[]; warnings: string[]
   // Skip lines that look like section footers/headers rather than item rows.
   // Use "continue" (not "break") so a "Total" or "Terms" line mid-document does not
   // prevent items on later pages from being parsed.
+  // "Approved" appears in recurring page headers — do not stop on it.
   const stopKeywords = /^(Total|Grand\s+Total|Subtotal|Terms|Notes?|Remarks?|Billing)/i;
 
   // Detect European number format (period=thousands, comma=decimal) once per document.
