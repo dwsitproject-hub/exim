@@ -307,6 +307,9 @@ export function CreatePo() {
       {/* PDF upload + review panel — sits outside the form so its buttons don't submit */}
       <PoPdfUpload accessToken={accessToken} onApply={applyParsedPo} />
 
+      {/* PDF upload + review panel — sits outside the form so its buttons don't submit */}
+      <PoPdfUpload accessToken={accessToken} onApply={applyParsedPo} />
+
       <form onSubmit={handleSubmit} className={styles.form}>
         {submitError && <p className={styles.formError}>{submitError}</p>}
 

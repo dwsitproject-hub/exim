@@ -305,6 +305,9 @@ function extractItems(text: string): { items: ParsedPoItem[]; warnings: string[]
   const startIdx = headerIdx >= 0 ? headerIdx + 1 : 0;
   const relevantLines = lines.slice(startIdx);
 
+  // Skip lines that look like section footers/headers rather than item rows.
+  // Use "continue" (not "break") so a "Total" or "Terms" line mid-document does not
+  // prevent items on later pages from being parsed.
   // "Approved" appears in recurring page headers — do not stop on it.
   const stopKeywords = /^(Total|Grand\s+Total|Subtotal|Terms|Notes?|Remarks?|Billing)/i;
 
@@ -329,7 +332,7 @@ function extractItems(text: string): { items: ParsedPoItem[]; warnings: string[]
   );
 
   for (const rawLine of relevantLines) {
-    if (stopKeywords.test(rawLine)) break;
+    if (stopKeywords.test(rawLine)) continue;
     // Normalize common OCR substitutions before matching:
     // "T.NNN" → "1.NNN"  (OCR misreads "1" as "T" in quantities like "1.000")
     // Remove spaces that OCR inserts inside numbers, e.g. "70.186, 0000" → "70.186,0000"
@@ -411,8 +414,12 @@ function scoreConfidence(result: Omit<ParsedPoResult, "confidence">): "high" | "
  * @param pdfPath  Absolute path to the PDF file (temp file from multer).
  * @returns  Structured extracted fields + warnings. Does NOT create any DB records.
  */
-/** Maximum number of PDF pages to OCR (avoids excessive latency on very long documents). */
-const MAX_OCR_PAGES = 4;
+/**
+ * Maximum PDF pages to process per upload.
+ * 15 pages covers the longest realistic PO while preventing runaway latency
+ * if someone accidentally uploads a contract or T&C document.
+ */
+const MAX_OCR_PAGES = 15;
 
 export async function parsePoPdf(pdfPath: string): Promise<ParsedPoResult> {
   const pngPaths: string[] = [];
