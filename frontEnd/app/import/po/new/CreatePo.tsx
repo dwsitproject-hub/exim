@@ -15,6 +15,7 @@ import { PT_OPTION_LABELS, PO_ITEM_UNIT_OPTIONS, getPlantConfigForPt } from "@/l
 import { isApiError } from "@/types/api";
 import type { CreateTestPoPayload } from "@/types/po";
 import { PoPdfUpload, type ApplyPoData } from "./PoPdfUpload";
+import { ItemDescriptionInput } from "./ItemDescriptionInput";
 import styles from "./CreatePo.module.css";
 
 type CreatePoFormState = Omit<CreateTestPoPayload, "external_id" | "items"> & {
@@ -79,6 +80,7 @@ export function CreatePo() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [pdfApplied, setPdfApplied] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState(false);
   const [form, setForm] = useState<CreatePoFormState>({
     pt: "",
     po_number: "",
@@ -305,9 +307,10 @@ export function CreatePo() {
       <PageHeader title="Create Purchase Order" backHref="/import/po" backLabel="Purchase Order" />
 
       {/* PDF upload + review panel — sits outside the form so its buttons don't submit */}
-      <PoPdfUpload accessToken={accessToken} onApply={applyParsedPo} />
+      <PoPdfUpload accessToken={accessToken} onApply={applyParsedPo} onBusyChange={setPdfBusy} />
 
       <form onSubmit={handleSubmit} className={styles.form}>
+      <fieldset disabled={pdfBusy || submitting} className={styles.formFieldset}>
         {submitError && <p className={styles.formError}>{submitError}</p>}
 
         {pdfApplied && (
@@ -483,9 +486,9 @@ export function CreatePo() {
         </Card>
 
         <Card className={styles.cardSpacing}>
-          <h2 className={styles.sectionTitle}>
-            Items
-            <span className={styles.currencyBadge}>Currency: {poCurrency}</span>
+          <h2 className={styles.itemsSectionTitle}>
+            Line items
+            <span className={styles.itemsSectionMeta}>Currency: {poCurrency}</span>
           </h2>
 
           <div className={styles.itemsTableWrap}>
@@ -498,6 +501,7 @@ export function CreatePo() {
               <table className={styles.itemsTable}>
                 <thead>
                   <tr>
+                    <th className={`${styles.itemsTh} ${styles.itemsThNum}`}>#</th>
                     <th className={styles.itemsTh}>Description</th>
                     <th className={`${styles.itemsTh} ${styles.thMetricsGroup}`} colSpan={3}>
                       <div className={styles.metricsHeaderInner}>
@@ -521,14 +525,13 @@ export function CreatePo() {
                     const totalTitle = total != null ? totalDisplay : undefined;
                     return (
                       <tr key={index}>
-                        <td className={styles.itemsTd}>
-                          <textarea
+                        <td className={`${styles.itemsTd} ${styles.itemsTdNum}`}>{index + 1}</td>
+                        <td className={`${styles.itemsTd} ${styles.itemsTdDesc}`}>
+                          <ItemDescriptionInput
                             id={`po-item-desc-${index}`}
                             className={styles.itemDescriptionInput}
                             value={item.item_description ?? ""}
-                            onChange={(e) => updateItem(index, "item_description", e.target.value)}
-                            rows={2}
-                            aria-label="Item description"
+                            onChange={(v) => updateItem(index, "item_description", v)}
                           />
                         </td>
                         <td className={`${styles.itemsTd} ${styles.tdMetricsGroup}`} colSpan={3}>
@@ -617,6 +620,7 @@ export function CreatePo() {
             </Button>
           </div>
         </div>
+      </fieldset>
       </form>
     </section>
   );

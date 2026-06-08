@@ -35,6 +35,7 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       # Required when NODE_ENV is not development — override for your public staging URL
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3020,http://127.0.0.1:3020}
+      # PO PDF Claude: set PO_PDF_CLAUDE_ENABLED + ANTHROPIC_API_KEY in backend/.env (env_file above).
     depends_on:
       postgres:
         condition: service_healthy
