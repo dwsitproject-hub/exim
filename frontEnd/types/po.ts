@@ -216,6 +216,70 @@ export interface PoImportHistoryItem {
   finished_at: string | null;
 }
 
+// ---------------------------------------------------------------------------
+// PDF parse (Phase 1 — pre-fill form from scanned document)
+// ---------------------------------------------------------------------------
+
+export interface ParsedPoItem {
+  item_description: string;
+  qty: number;
+  unit: string;
+  unit_original: string;
+  value: number;
+}
+
+/** Response from POST /po/import/parse-pdf */
+export interface ParsedPoResult {
+  po_number: string | null;
+  supplier_name: string | null;
+  currency: string | null;
+  incoterm_location: string | null;
+  delivery_location: string | null;
+  kawasan_berikat: "Yes" | "No" | null;
+  pt: string | null;
+  plant: string | null;
+  items: ParsedPoItem[];
+  warnings: string[];
+  confidence: "high" | "medium" | "low";
+  raw_text_preview: string;
+  /** Max line number detected in OCR (e.g. 025 → 25 expected items). */
+  expected_item_count: number | null;
+  item_completeness: "complete" | "incomplete" | "unknown";
+  /** Matched layout template: sap or coupa. */
+  template_code: string | null;
+  /** True when Claude API assisted this parse. */
+  ai_assisted: boolean;
+  /** True when the user may run AI once for this file (server-enforced limit). */
+  ai_available: boolean;
+  /** Why Rescan with AI is hidden when ai_available is false. */
+  ai_unavailable_reason?: "claude_disabled" | "missing_api_key" | "quota_used" | "missing_session" | null;
+  /** Present when this response used AI — confidence before merge. */
+  confidence_before?: "high" | "medium" | "low" | null;
+}
+
+/** GET /po/admin/pdf-ai-requests — admin audit log for Rescan with AI. */
+export interface PoPdfAiRequestItem {
+  id: string;
+  content_hash: string;
+  user_id: string;
+  user_name: string;
+  user_email: string;
+  original_filename: string | null;
+  po_number: string | null;
+  template_code: string | null;
+  status: "success" | "failed";
+  confidence_before: "high" | "medium" | "low" | null;
+  confidence_after: "high" | "medium" | "low" | null;
+  items_before: number;
+  items_after: number;
+  item_completeness: "complete" | "incomplete" | "unknown" | null;
+  model: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  error_message: string | null;
+  created_at: string;
+}
+
 /** GET /po/:id/activity-log — aligned with shipment activity log shape. */
 export interface PoIntakeActivityItem {
   id: string;

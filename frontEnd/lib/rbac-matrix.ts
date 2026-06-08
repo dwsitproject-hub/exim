@@ -27,6 +27,7 @@ export const PERMISSION_CATALOG: readonly { key: string; label: string }[] = [
   { key: "UPDATE_EXPORT_BULKING_STATUS", label: "Update export bulking status" },
   { key: "MANAGE_SHIPPERS", label: "Manage shippers" },
   { key: "MANAGE_AGENTS", label: "Manage agents" },
+  { key: "VIEW_PO_PDF_AI_USAGE", label: "View PO PDF AI usage" },
   { key: "VIEW_EXPORT_DOCUMENTATION", label: "View export documentation" },
 ] as const;
 
@@ -53,6 +54,7 @@ export const ROLE_DEFAULT_PERMISSIONS: Readonly<Record<UserRoleOption, readonly 
     "UPDATE_EXPORT_BULKING_STATUS",
     "MANAGE_SHIPPERS",
     "MANAGE_AGENTS",
+    "VIEW_PO_PDF_AI_USAGE",
     "VIEW_EXPORT_DOCUMENTATION",
   ],
   EXIM_OFFICER: [

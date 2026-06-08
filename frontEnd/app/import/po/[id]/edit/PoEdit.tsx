@@ -30,6 +30,7 @@ import { can } from "@/lib/permissions";
 import { anyLinkedShipmentBlocksPoEdit, PO_EDIT_BLOCKED_BY_SHIPMENT_MESSAGE } from "@/lib/po-shipment-edit-lock";
 import { isApiError } from "@/types/api";
 import type { PoDetail as PoDetailType, UpdatePoPayload } from "@/types/po";
+import { ItemDescriptionInput } from "../../new/ItemDescriptionInput";
 import styles from "../../new/CreatePo.module.css";
 
 type EditPoFormState = {
@@ -561,15 +562,16 @@ export function PoEdit({ id }: { id: string }) {
         </Card>
 
         <Card className={styles.cardSpacing}>
-          <h2 className={styles.sectionTitle}>
-            Items
-            <span className={styles.currencyBadge}>Currency: {poCurrency}</span>
+          <h2 className={styles.itemsSectionTitle}>
+            Line items
+            <span className={styles.itemsSectionMeta}>Currency: {poCurrency}</span>
           </h2>
 
           <div className={styles.itemsTableWrap}>
             <table className={styles.itemsTable}>
               <thead>
                 <tr>
+                  <th className={`${styles.itemsTh} ${styles.itemsThNum}`}>#</th>
                   <th className={styles.itemsTh}>Description</th>
                   <th className={`${styles.itemsTh} ${styles.thMetricsGroup}`} colSpan={3}>
                     <div className={styles.metricsHeaderInner}>
@@ -587,15 +589,13 @@ export function PoEdit({ id }: { id: string }) {
                   const total = getItemLineTotal(item);
                   return (
                     <tr key={item.lineId ?? `new-${index}`}>
-                      <td className={styles.itemsTd}>
-                        <textarea
+                      <td className={`${styles.itemsTd} ${styles.itemsTdNum}`}>{index + 1}</td>
+                      <td className={`${styles.itemsTd} ${styles.itemsTdDesc}`}>
+                        <ItemDescriptionInput
                           className={styles.itemDescriptionInput}
                           value={item.item_description ?? ""}
-                          onChange={(e) => updateItem(index, "item_description", e.target.value)}
-                          placeholder="Item description"
-                          rows={3}
+                          onChange={(v) => updateItem(index, "item_description", v)}
                           disabled={formDisabled}
-                          aria-label="Item description"
                         />
                       </td>
                       <td className={`${styles.itemsTd} ${styles.tdMetricsGroup}`} colSpan={3}>

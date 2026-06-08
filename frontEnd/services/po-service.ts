@@ -13,6 +13,8 @@ import type {
   PoImportCsvResult,
   PoImportHistoryItem,
   PoIntakeActivityItem,
+  ParsedPoResult,
+  PoPdfAiRequestItem,
 } from "@/types/po";
 import type { ApiResponse } from "@/types/api";
 import { config } from "@/lib/config";
@@ -138,12 +140,45 @@ export async function importPoCsv(
   });
 }
 
+/** POST /po/import/parse-pdf — OCR a PO PDF and return pre-fill data. Does NOT create a PO. */
+export async function parsePoPdf(
+  file: File,
+  accessToken: string | null,
+  options?: { requestAi?: boolean }
+): Promise<ApiResponse<ParsedPoResult>> {
+  const form = new FormData();
+  form.append("file", file);
+  if (options?.requestAi) {
+    form.append("request_ai", "true");
+  }
+  return apiRequest<ParsedPoResult>("po/import/parse-pdf", {
+    method: "POST",
+    body: form,
+    accessToken,
+  });
+}
+
 export async function listPoImportHistory(
   accessToken: string | null,
   limit = 20
 ): Promise<ApiResponse<PoImportHistoryItem[]>> {
   const q = new URLSearchParams({ limit: String(limit) });
   return apiGet<PoImportHistoryItem[]>(`po/import/history?${q.toString()}`, accessToken);
+}
+
+/** GET /po/admin/pdf-ai-requests — admin audit log for PO PDF AI rescans. */
+export async function listPoPdfAiRequests(
+  accessToken: string | null,
+  options?: { page?: number; limit?: number }
+): Promise<ApiResponse<PoPdfAiRequestItem[]>> {
+  const q = new URLSearchParams();
+  if (options?.page != null) q.set("page", String(options.page));
+  if (options?.limit != null) q.set("limit", String(options.limit));
+  const qs = q.toString();
+  return apiGet<PoPdfAiRequestItem[]>(
+    `po/admin/pdf-ai-requests${qs ? `?${qs}` : ""}`,
+    accessToken
+  );
 }
 
 export async function downloadPoImportTemplate(accessToken: string | null): Promise<Blob> {

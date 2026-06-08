@@ -174,6 +174,17 @@ export const config = {
       return Number.isFinite(n) && n > 0 ? n : 16500;
     })(),
   },
+  /** PO PDF upload — optional Claude assist for unknown layouts / incomplete item capture. */
+  poPdfClaude: {
+    enabled: (getEnvOptional("PO_PDF_CLAUDE_ENABLED", "false") ?? "false").toLowerCase() === "true",
+    apiKey: getEnvOptional("ANTHROPIC_API_KEY", "") ?? "",
+    model: getEnvOptional("PO_PDF_CLAUDE_MODEL", "claude-haiku-4-5") ?? "claude-haiku-4-5",
+    maxTokens: (() => {
+      const raw = getEnvOptional("PO_PDF_CLAUDE_MAX_TOKENS", "8192") ?? "8192";
+      const n = parseInt(raw, 10);
+      return Number.isNaN(n) ? 8192 : Math.min(16384, Math.max(1024, n));
+    })(),
+  },
   smtp: {
     host: getEnvOptional("SMTP_HOST", "localhost"),
     port: (() => {

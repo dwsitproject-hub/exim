@@ -17,6 +17,7 @@ import {
   ChevronRight,
   Anchor,
   Briefcase,
+  ScanLine,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { can } from "@/lib/permissions";
@@ -52,6 +53,7 @@ const ADMIN_NAV: NavItem[] = [
   { href: "/admin/users", label: "User management", icon: Users },
   { href: "/admin/shippers", label: "Master Shipper", icon: Anchor },
   { href: "/admin/agents", label: "Master Agent", icon: Briefcase },
+  { href: "/admin/po-pdf-ai", label: "PO PDF AI usage", icon: ScanLine },
 ];
 
 const SECTION_LABELS: Record<AppSection, string> = {

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { LucideIcon } from "lucide-react";
-import { Users, Anchor, Briefcase } from "lucide-react";
+import { Users, Anchor, Briefcase, ScanLine } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { can, isAdminRole } from "@/lib/permissions";
 import { LoadingSkeleton } from "@/components/feedback";
@@ -12,6 +12,7 @@ import styles from "./AdminDashboardContent.module.css";
 const MANAGE_USERS = "MANAGE_USERS";
 const MANAGE_SHIPPERS = "MANAGE_SHIPPERS";
 const MANAGE_AGENTS = "MANAGE_AGENTS";
+const VIEW_PO_PDF_AI_USAGE = "VIEW_PO_PDF_AI_USAGE";
 
 interface AdminConfigItem {
   href: string;
@@ -42,6 +43,13 @@ const ADMIN_CONFIG_ITEMS: AdminConfigItem[] = [
     description: "Maintain agent master data for nominations and documentation.",
     permission: MANAGE_AGENTS,
     icon: Briefcase,
+  },
+  {
+    href: "/admin/po-pdf-ai",
+    title: "PO PDF AI usage",
+    description: "See who used Rescan with AI and confidence before vs after extraction.",
+    permission: VIEW_PO_PDF_AI_USAGE,
+    icon: ScanLine,
   },
 ];
 

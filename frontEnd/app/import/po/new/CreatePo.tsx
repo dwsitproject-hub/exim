@@ -14,6 +14,8 @@ import { INCOTERM_OPTIONS } from "@/lib/incoterms";
 import { PT_OPTION_LABELS, PO_ITEM_UNIT_OPTIONS, getPlantConfigForPt } from "@/lib/po-create-constants";
 import { isApiError } from "@/types/api";
 import type { CreateTestPoPayload } from "@/types/po";
+import { PoPdfUpload, type ApplyPoData } from "./PoPdfUpload";
+import { ItemDescriptionInput } from "./ItemDescriptionInput";
 import styles from "./CreatePo.module.css";
 
 type CreatePoFormState = Omit<CreateTestPoPayload, "external_id" | "items"> & {
@@ -77,6 +79,8 @@ export function CreatePo() {
   const { pushToast } = useToast();
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [pdfApplied, setPdfApplied] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState(false);
   const [form, setForm] = useState<CreatePoFormState>({
     pt: "",
     po_number: "",
@@ -88,6 +92,59 @@ export function CreatePo() {
     currency: "USD",
     items: [initialItem()],
   });
+
+  /**
+   * Called when user clicks "Apply to form" in the PDF upload review panel.
+   * Merges extracted data into form state; skips null/undefined values so
+   * manually-filled fields are not accidentally overwritten.
+   */
+  function applyParsedPo(data: ApplyPoData) {
+    setForm((prev) => {
+      const next: CreatePoFormState = { ...prev };
+
+      if (data.po_number) next.po_number = data.po_number;
+      if (data.supplier_name) next.supplier_name = data.supplier_name;
+      if (data.currency) next.currency = data.currency;
+      if (data.delivery_location) next.delivery_location = data.delivery_location;
+      if (data.kawasan_berikat) next.kawasan_berikat = data.kawasan_berikat;
+
+      // Incoterm: strip location part so only the code (e.g. "FOB") goes into the select
+      if (data.incoterm_location) {
+        const code = data.incoterm_location.split(/\s+/)[0] ?? "";
+        next.incoterm_location = INCOTERM_OPTIONS.includes(code as typeof INCOTERM_OPTIONS[number])
+          ? code
+          : data.incoterm_location;
+      }
+
+      // PT / Plant: only apply if non-null (parser currently always returns null for PT)
+      if (data.pt && PT_OPTION_LABELS.includes(data.pt as typeof PT_OPTION_LABELS[number])) {
+        next.pt = data.pt;
+        const config = getPlantConfigForPt(data.pt);
+        if (config?.mode === "fixed") next.plant = config.plant;
+        else if (data.plant) next.plant = data.plant;
+      }
+
+      // Items: replace only if at least one item was extracted
+      if (data.items.length > 0) {
+        next.items = data.items.map((it) => ({
+          item_description: it.item_description,
+          qtyText: String(it.qty),
+          unit: it.unit,
+          priceText: formatPriceInputWithCommas(String(it.value), 3),
+        }));
+      }
+
+      return next;
+    });
+
+    setPdfApplied(true);
+    pushToast("Extracted data applied to form. Review and submit when ready.", "success");
+
+    // Scroll down to the form cards so user can see pre-filled data
+    requestAnimationFrame(() => {
+      document.getElementById("po-general-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
 
   function updateField<K extends keyof CreatePoFormState>(field: K, value: string | undefined) {
     setForm((prev) => ({ ...prev, [field]: value ?? "" }));
@@ -249,10 +306,20 @@ export function CreatePo() {
     <section className={styles.section}>
       <PageHeader title="Create Purchase Order" backHref="/import/po" backLabel="Purchase Order" />
 
+      {/* PDF upload + review panel — sits outside the form so its buttons don't submit */}
+      <PoPdfUpload accessToken={accessToken} onApply={applyParsedPo} onBusyChange={setPdfBusy} />
+
       <form onSubmit={handleSubmit} className={styles.form}>
+      <fieldset disabled={pdfBusy || submitting} className={styles.formFieldset}>
         {submitError && <p className={styles.formError}>{submitError}</p>}
 
-        <Card className={styles.cardSpacing}>
+        {pdfApplied && (
+          <div className={styles.pdfAppliedBanner} role="status">
+            ✅ Form pre-filled from document — review all fields before submitting.
+          </div>
+        )}
+
+        <Card id="po-general-card" className={styles.cardSpacing}>
           <h2 className={styles.sectionTitle}>General</h2>
           <div className={styles.grid}>
             <div className={styles.field}>
@@ -419,9 +486,9 @@ export function CreatePo() {
         </Card>
 
         <Card className={styles.cardSpacing}>
-          <h2 className={styles.sectionTitle}>
-            Items
-            <span className={styles.currencyBadge}>Currency: {poCurrency}</span>
+          <h2 className={styles.itemsSectionTitle}>
+            Line items
+            <span className={styles.itemsSectionMeta}>Currency: {poCurrency}</span>
           </h2>
 
           <div className={styles.itemsTableWrap}>
@@ -434,6 +501,7 @@ export function CreatePo() {
               <table className={styles.itemsTable}>
                 <thead>
                   <tr>
+                    <th className={`${styles.itemsTh} ${styles.itemsThNum}`}>#</th>
                     <th className={styles.itemsTh}>Description</th>
                     <th className={`${styles.itemsTh} ${styles.thMetricsGroup}`} colSpan={3}>
                       <div className={styles.metricsHeaderInner}>
@@ -457,14 +525,13 @@ export function CreatePo() {
                     const totalTitle = total != null ? totalDisplay : undefined;
                     return (
                       <tr key={index}>
-                        <td className={styles.itemsTd}>
-                          <textarea
+                        <td className={`${styles.itemsTd} ${styles.itemsTdNum}`}>{index + 1}</td>
+                        <td className={`${styles.itemsTd} ${styles.itemsTdDesc}`}>
+                          <ItemDescriptionInput
                             id={`po-item-desc-${index}`}
                             className={styles.itemDescriptionInput}
                             value={item.item_description ?? ""}
-                            onChange={(e) => updateItem(index, "item_description", e.target.value)}
-                            rows={2}
-                            aria-label="Item description"
+                            onChange={(v) => updateItem(index, "item_description", v)}
                           />
                         </td>
                         <td className={`${styles.itemsTd} ${styles.tdMetricsGroup}`} colSpan={3}>
@@ -553,6 +620,7 @@ export function CreatePo() {
             </Button>
           </div>
         </div>
+      </fieldset>
       </form>
     </section>
   );
