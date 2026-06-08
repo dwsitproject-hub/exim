@@ -70,7 +70,8 @@ export type PoPdfAiUnavailableReason =
   | "claude_disabled"
   | "missing_api_key"
   | "quota_used"
-  | "missing_session";
+  | "missing_session"
+  | "high_confidence";
 
 export interface ParsePoPdfOptions {
   contentHash?: string;
@@ -811,10 +812,18 @@ export async function parsePoPdf(
 
   partial.ai_assisted = aiAssisted;
   const aiGate = await resolveAiAvailability(contentHash, userId);
-  partial.ai_available = aiGate.ai_available;
-  partial.ai_unavailable_reason = aiGate.ai_unavailable_reason;
 
   const confidence = scoreConfidence(partial);
+
+  let ai_available = aiGate.ai_available;
+  let ai_unavailable_reason = aiGate.ai_unavailable_reason;
+  if (!aiAssisted && confidence === "high") {
+    ai_available = false;
+    ai_unavailable_reason = "high_confidence";
+  }
+  partial.ai_available = ai_available;
+  partial.ai_unavailable_reason = ai_unavailable_reason;
+
   const result: ParsedPoResult = {
     ...partial,
     confidence,
