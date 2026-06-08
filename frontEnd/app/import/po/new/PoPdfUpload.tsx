@@ -76,6 +76,8 @@ function aiUnavailableHint(result: ParsedPoResult): { text: string; title: strin
       };
     case "missing_session":
       return { text: "Sign in required for AI", title: "Log in again and retry" };
+    case "high_confidence":
+      return { text: "", title: "" };
     default:
       return { text: "AI extraction unavailable", title: "Check server configuration or quota" };
   }
@@ -455,7 +457,7 @@ export function PoPdfUpload({ accessToken, onApply, onBusyChange }: Props) {
                 {!isBusy && <ConfidenceBadge result={result} />}
               </span>
               <span className={styles.uploadHint}>{fileName}</span>
-              {!isBusy && !result.ai_available && !result.ai_assisted ? (
+              {!isBusy && !result.ai_available && !result.ai_assisted && result.ai_unavailable_reason !== "high_confidence" ? (
                 <span className={styles.uploadHint}>{aiUnavailableHint(result).text}</span>
               ) : null}
               {!isBusy && result.ai_available && !result.ai_assisted ? (
@@ -635,7 +637,7 @@ export function PoPdfUpload({ accessToken, onApply, onBusyChange }: Props) {
                       >
                         Rescan with AI
                       </button>
-                    ) : (
+                    ) : result.ai_unavailable_reason !== "high_confidence" ? (
                       (() => {
                         const hint = aiUnavailableHint(result);
                         return (

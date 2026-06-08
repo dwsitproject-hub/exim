@@ -252,7 +252,7 @@ export interface ParsedPoResult {
   /** True when the user may run AI once for this file (server-enforced limit). */
   ai_available: boolean;
   /** Why Rescan with AI is hidden when ai_available is false. */
-  ai_unavailable_reason?: "claude_disabled" | "missing_api_key" | "quota_used" | "missing_session" | null;
+  ai_unavailable_reason?: "claude_disabled" | "missing_api_key" | "quota_used" | "missing_session" | "high_confidence" | null;
   /** Present when this response used AI — confidence before merge. */
   confidence_before?: "high" | "medium" | "low" | null;
 }

@@ -70,7 +70,8 @@ export type PoPdfAiUnavailableReason =
   | "claude_disabled"
   | "missing_api_key"
   | "quota_used"
-  | "missing_session";
+  | "missing_session"
+  | "high_confidence";
 
 export interface ParsePoPdfOptions {
   contentHash?: string;
@@ -684,19 +685,23 @@ export async function parsePoPdf(
 
   let aiAssisted = false;
 
-  const aiAllowed = requestAi && (await canUseClaude(contentHash, userId));
-
-  if (requestAi && !config.poPdfClaude.enabled) {
-    partial.warnings.push("AI extraction is not enabled on the server. Contact your administrator.");
-  } else if (requestAi && contentHash && userId && !(await canUseClaude(contentHash, userId))) {
-    partial.warnings.push(
-      "AI already used for this file (limit: 1 per document). Review results or upload a different scan."
-    );
-  }
-
   const confidenceBeforeAi = scoreConfidence(partial);
   const itemsBeforeAi = partial.items.length;
   const ocrWarnings = [...partial.warnings];
+
+  const claudeQuotaOk =
+    Boolean(contentHash && userId) && (await canUseClaude(contentHash, userId));
+  const aiAllowed = requestAi && claudeQuotaOk && confidenceBeforeAi !== "high";
+
+  if (requestAi && !config.poPdfClaude.enabled) {
+    partial.warnings.push("AI extraction is not enabled on the server. Contact your administrator.");
+  } else if (requestAi && contentHash && userId && !claudeQuotaOk) {
+    partial.warnings.push(
+      "AI already used for this file (limit: 1 per document). Review results or upload a different scan."
+    );
+  } else if (requestAi && confidenceBeforeAi === "high") {
+    partial.warnings.push("OCR extraction is already high confidence — AI rescan not needed.");
+  }
 
   if (aiAllowed && contentHash && userId) {
     const auditRepo = new PoPdfAiRequestRepository();
@@ -811,10 +816,17 @@ export async function parsePoPdf(
 
   partial.ai_assisted = aiAssisted;
   const aiGate = await resolveAiAvailability(contentHash, userId);
-  partial.ai_available = aiGate.ai_available;
-  partial.ai_unavailable_reason = aiGate.ai_unavailable_reason;
-
   const confidence = scoreConfidence(partial);
+
+  let ai_available = aiGate.ai_available;
+  let ai_unavailable_reason = aiGate.ai_unavailable_reason;
+  if (!aiAssisted && confidence === "high") {
+    ai_available = false;
+    ai_unavailable_reason = "high_confidence";
+  }
+  partial.ai_available = ai_available;
+  partial.ai_unavailable_reason = ai_unavailable_reason;
+
   const result: ParsedPoResult = {
     ...partial,
     confidence,
