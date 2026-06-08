@@ -1,0 +1,83 @@
+.poPdfAiUsageList {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.denied {
+  color: var(--color-text-muted, #64748b);
+}
+
+.loading {
+  margin-top: 1rem;
+}
+
+.meta {
+  font-size: 0.875rem;
+  color: var(--color-text-muted, #64748b);
+}
+
+.confidence {
+  text-transform: capitalize;
+}
+
+.confidenceArrow {
+  margin: 0 0.25rem;
+  color: var(--color-text-muted, #94a3b8);
+}
+
+.statusSuccess {
+  color: #15803d;
+  font-weight: 500;
+}
+
+.statusFailed {
+  color: #b91c1c;
+  font-weight: 500;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.pageBtn {
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+
+.pageBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pageInfo {
+  font-size: 0.875rem;
+  color: var(--color-text-muted, #64748b);
+}
+
+.error {
+  color: #b91c1c;
+}
+
+.filename {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.errorCell {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8125rem;
+  color: #b91c1c;
+}
