@@ -293,8 +293,8 @@ export function CreatePo() {
         }
         pushToast("Purchase Order created.", "success");
         const data = res.data as { id?: string };
-        if (data?.id) router.push(`/import/po/${data.id}`);
-        else router.push("/import/po");
+        if (data?.id) router.push(`/dashboard/po/${data.id}`);
+        else router.push("/dashboard/po");
       })
       .finally(() => setSubmitting(false));
   }
@@ -304,7 +304,7 @@ export function CreatePo() {
 
   return (
     <section className={styles.section}>
-      <PageHeader title="Create Purchase Order" backHref="/import/po" backLabel="Purchase Order" />
+      <PageHeader title="Create Purchase Order" backHref="/dashboard/po" backLabel="Purchase Order" />
 
       {/* PDF upload + review panel — sits outside the form so its buttons don't submit */}
       <PoPdfUpload accessToken={accessToken} onApply={applyParsedPo} onBusyChange={setPdfBusy} />
@@ -612,7 +612,7 @@ export function CreatePo() {
 
         <div className={styles.stickyFormActions}>
           <div className={styles.stickyFormActionsInner}>
-            <Link href="/import/po" className={styles.cancelOutline}>
+            <Link href="/dashboard/po" className={styles.cancelOutline}>
               Cancel
             </Link>
             <Button type="submit" variant="primary" disabled={submitting} className={styles.createPrimary}>

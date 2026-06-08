@@ -91,7 +91,7 @@ export function PoPdfAiUsageList() {
   if (!allowed) {
     return (
       <section>
-        <PageHeader title="PO PDF AI usage" backHref="/admin/dashboard" backLabel="Admin" />
+        <PageHeader title="PO PDF AI usage" backHref="/dashboard" backLabel="Admin" />
         <p className={styles.denied}>You do not have permission to view this page.</p>
       </section>
     );
@@ -104,7 +104,7 @@ export function PoPdfAiUsageList() {
       <PageHeader
         title="PO PDF AI usage"
         subtitle="Users who requested Rescan with AI on PO PDF uploads, with confidence before and after."
-        backHref="/admin/dashboard"
+        backHref="/dashboard"
         backLabel="Admin"
       />
 
