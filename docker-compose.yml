@@ -1,6 +1,10 @@
 # Exim Operation System (EOS) - Phase 1 Import
 # Production-oriented setup suitable for local development.
-# Usage: docker compose up
+#
+# Usage (from this directory — root .env is loaded automatically):
+#   docker compose up --build -d
+# After changing .env (e.g. ANTHROPIC_API_KEY), recreate backend so env is applied:
+#   docker compose up -d --build --force-recreate backend
 
 services:
   postgres:
@@ -28,6 +32,9 @@ services:
       dockerfile: Dockerfile
     container_name: eos-backend
     restart: unless-stopped
+    # Inject root .env into the container; `environment` below overrides conflicting keys (e.g. DATABASE_URL).
+    env_file:
+      - .env
     environment:
       NODE_ENV: ${NODE_ENV:-development}
       # One hop (e.g. Next.js → API) so X-Forwarded-For matches express-rate-limit expectations
@@ -58,6 +65,8 @@ services:
       # Default dev admin so login works out of the box. Set empty in production.
       SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@example.com}
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-ChangeMe123}
+      # PO PDF Claude vars come from env_file (.env) only — do NOT duplicate here with ${VAR:-}
+      # defaults or empty substitution overrides env_file and hides "Rescan with AI".
     ports:
       - "${BACKEND_PORT:-3003}:3003"
     volumes:

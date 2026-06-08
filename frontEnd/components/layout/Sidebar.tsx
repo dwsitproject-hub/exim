@@ -10,6 +10,7 @@ import {
   Truck,
   Upload,
   Users,
+  ScanLine,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
@@ -31,6 +32,7 @@ const BASE_NAV: NavItem[] = [
 
 const MANAGE_USERS = "MANAGE_USERS";
 const IMPORT_PO_CSV = "IMPORT_PO_CSV";
+const VIEW_PO_PDF_AI_USAGE = "VIEW_PO_PDF_AI_USAGE";
 
 function NavLink({
   item,
@@ -86,6 +88,9 @@ export function Sidebar({
     }
     if (can(user, MANAGE_USERS)) {
       items.push({ href: "/dashboard/users", label: "User management", icon: Users });
+    }
+    if (can(user, VIEW_PO_PDF_AI_USAGE)) {
+      items.push({ href: "/admin/po-pdf-ai", label: "PO PDF AI usage", icon: ScanLine });
     }
     return items;
   }, [user]);

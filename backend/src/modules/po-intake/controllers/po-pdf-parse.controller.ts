@@ -4,7 +4,8 @@
  */
 
 import type { Request, Response, NextFunction } from "express";
-import { unlink } from "fs/promises";
+import { createHash } from "crypto";
+import { readFile, unlink } from "fs/promises";
 import { sendSuccess, sendError } from "../../../shared/response.js";
 import { parsePoPdf } from "../../../shared/po-pdf-parser.js";
 import { logger } from "../../../utils/logger.js";
@@ -26,7 +27,23 @@ export async function parsePdf(req: Request, res: Response, next: NextFunction):
   }
 
   try {
-    const result = await parsePoPdf(file.path);
+    const fileBytes = await readFile(file.path);
+    const contentHash = createHash("sha256").update(fileBytes).digest("hex");
+    const userId = req.user?.id;
+
+    const requestAi =
+      req.body?.request_ai === true ||
+      req.body?.request_ai === "true" ||
+      req.body?.request_ai === "1";
+
+    logger.info("PO PDF parse request", { request_ai: requestAi, user_id: userId ?? null });
+
+    const result = await parsePoPdf(file.path, {
+      contentHash,
+      userId,
+      requestAi,
+      originalFilename: file.originalname ?? undefined,
+    });
     sendSuccess(res, result, {
       message:
         result.confidence === "low"
