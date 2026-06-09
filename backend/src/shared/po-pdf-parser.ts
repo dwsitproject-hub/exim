@@ -6,7 +6,7 @@ import { createWorker } from "tesseract.js";
 import { unlink } from "fs/promises";
 import { join } from "path";
 import { renderPdfPageToPng, getPdfPageCount, extractPdfPageText } from "./pdf-render.js";
-import { PO_ITEM_UNIT_OPTION_SET } from "./po-item-units.js";
+import { normalizeUnit } from "./po-unit-normalize.js";
 import { parseInternationalNumber } from "./csv-import-utils.js";
 import { logger } from "../utils/logger.js";
 import {
@@ -97,28 +97,6 @@ export interface ParseTemplateConfig {
 const INCOTERMS = ["EXW", "FCA", "FAS", "FOB", "CFR", "CNF", "CIF", "CPT", "CIP", "DAP", "DPU", "DDP"];
 const PRIORITY_CURRENCIES = ["USD", "EUR", "GBP", "SGD", "MYR", "CNY", "AUD", "THB", "JPY", "IDR"];
 
-const UNIT_NORMALIZE: Record<string, string> = {
-  piece: "PCS", pieces: "PCS", pce: "PCE", pc: "PC",
-  pcs: "PCS", pcset: "PCSET", pcun: "PCUN",
-  set: "SET", sets: "SETS",
-  kg: "KG", kgs: "KGS", kgm: "KGM",
-  kilogram: "KG", kilograms: "KG",
-  mt: "MT", ton: "MT", tons: "MT", tonne: "MT", tonnes: "MT",
-  m: "M", meter: "M", meters: "M", metre: "M", metres: "M",
-  m2: "M2", sqm: "M2",
-  l: "L", liter: "L", litre: "L", liters: "L", litres: "L",
-  box: "BOX", boxes: "BOX",
-  bag: "BAG", bags: "BAGS",
-  roll: "ROLL", rolls: "ROLL",
-  carton: "CARTONS", cartons: "CARTONS", ctn: "CTN",
-  ct: "CT", cs: "CS",
-  pallet: "PALLET", pallets: "PALLET",
-  lot: "LOT", lots: "LOT",
-  unit: "UNIT", units: "UNIT", un: "UNIT",
-  pack: "PACK", pkg: "PKG", pk: "PK",
-  cbm: "CBM", doz: "DOZ", niu: "NIU", oth: "OTH",
-};
-
 const DEFAULT_PO_PATTERNS = [
   /Purchase\s+Order\s+#\s*([A-Z0-9][\w-]{3,})/i,
   /SAP\s+PO\s+No[.\s:+]+(\d{6,})/i,
@@ -153,11 +131,18 @@ async function runOcr(imagePath: string): Promise<string> {
   }
 }
 
-export async function extractOcrTextFromPdf(pdfPath: string): Promise<string> {
+export interface OcrTextResult {
+  text: string;
+  pageCount: number;
+  truncated: boolean;
+}
+
+export async function extractOcrTextFromPdf(pdfPath: string): Promise<OcrTextResult> {
   const pngPaths: string[] = [];
   try {
     const pageCount = await getPdfPageCount(pdfPath);
     const pagesToProcess = Math.min(pageCount, MAX_OCR_PAGES);
+    const truncated = pageCount > MAX_OCR_PAGES;
     const pageTexts: string[] = [];
 
     for (let i = 0; i < pagesToProcess; i++) {
@@ -172,7 +157,7 @@ export async function extractOcrTextFromPdf(pdfPath: string): Promise<string> {
         pageTexts.push(await runOcr(png));
       }
     }
-    return pageTexts.join("\n");
+    return { text: pageTexts.join("\n"), pageCount, truncated };
   } finally {
     for (const p of pngPaths) await unlink(p).catch(() => undefined);
   }
@@ -300,14 +285,6 @@ function extractDeliveryLocation(
 function detectKawasanBerikat(text: string): "Yes" | "No" | null {
   if (/kawasan\s+berikat|bonded\s+zone/i.test(text)) return "Yes";
   return null;
-}
-
-function normalizeUnit(raw: string): { unit: string; mapped: boolean } {
-  const upper = raw.trim().toUpperCase();
-  if (PO_ITEM_UNIT_OPTION_SET.has(upper)) return { unit: upper, mapped: false };
-  const normalized = UNIT_NORMALIZE[raw.trim().toLowerCase()];
-  if (normalized) return { unit: normalized, mapped: true };
-  return { unit: "OTH", mapped: true };
 }
 
 function resolveEuFormat(text: string, tpl?: ParseTemplateConfig): boolean {
@@ -582,22 +559,30 @@ function applyCompletenessAfterAi(
   };
 }
 
-function pickHeaderField(base: string | null, patch?: string | null): string | null {
-  if (base != null && base.trim() !== "") return base;
-  return patch ?? base;
+/** AI merge: prefer Claude value when present. */
+export function pickHeaderFieldForAi(base: string | null, patch?: string | null): string | null {
+  if (patch != null && patch.trim() !== "") return patch.trim();
+  return base;
 }
 
-function pickKawasanBerikat(
+function pickKawasanBerikatForAi(
   base: "Yes" | "No" | null,
   patch?: "Yes" | "No" | null
 ): "Yes" | "No" | null {
-  if (base != null) return base;
-  return patch ?? base;
+  if (patch != null) return patch;
+  return base;
 }
 
-function pickItems(base: ParsedPoItem[], claude?: ParsedPoItem[]): ParsedPoItem[] {
+/** AI merge: prefer Claude items when they improve on incomplete OCR. */
+export function pickItemsForAi(
+  base: ParsedPoItem[],
+  claude: ParsedPoItem[] | undefined,
+  itemCompleteness: ItemCompleteness
+): ParsedPoItem[] {
   if (!claude || claude.length === 0) return base;
+  if (base.length === 0) return claude;
   if (claude.length >= base.length) return claude;
+  if (itemCompleteness === "incomplete") return claude;
   return base;
 }
 
@@ -614,28 +599,23 @@ function mergeClaudeData(
     items?: ParsedPoItem[];
   }
 ): ConfidenceInput {
-  const items = pickItems(base.items, data.items);
+  const items = pickItemsForAi(base.items, data.items, base.item_completeness);
   const merged: ConfidenceInput = {
     ...base,
-    po_number: pickHeaderField(base.po_number, data.po_number),
-    supplier_name: pickHeaderField(base.supplier_name, data.supplier_name),
-    currency: pickHeaderField(base.currency, data.currency),
-    incoterm_location: pickHeaderField(base.incoterm_location, data.incoterm_location),
-    delivery_location: pickHeaderField(base.delivery_location, data.delivery_location),
-    kawasan_berikat: pickKawasanBerikat(base.kawasan_berikat, data.kawasan_berikat),
+    po_number: pickHeaderFieldForAi(base.po_number, data.po_number),
+    supplier_name: pickHeaderFieldForAi(base.supplier_name, data.supplier_name),
+    currency: pickHeaderFieldForAi(base.currency, data.currency),
+    incoterm_location: pickHeaderFieldForAi(base.incoterm_location, data.incoterm_location),
+    delivery_location: pickHeaderFieldForAi(base.delivery_location, data.delivery_location),
+    kawasan_berikat: pickKawasanBerikatForAi(base.kawasan_berikat, data.kawasan_berikat),
     items,
     ai_assisted: true,
   };
   return applyCompletenessAfterAi(rawText, merged, true);
 }
 
-async function canUseClaude(contentHash: string | undefined, userId: string | undefined): Promise<boolean> {
-  if (!contentHash || !userId) return false;
-  const usageRepo = new PoPdfAiUsageRepository();
-  return !(await usageRepo.hasUsedAi(contentHash, userId));
-}
-
-async function recordSuccessfulAiUsage(contentHash: string, userId: string): Promise<boolean> {
+/** Atomically reserve one AI call per user per file — must run before Claude API. */
+async function reserveAiUsage(contentHash: string, userId: string): Promise<boolean> {
   const usageRepo = new PoPdfAiUsageRepository();
   return usageRepo.tryRecordUsage(contentHash, userId, "extract");
 }
@@ -672,8 +652,9 @@ export async function parsePoPdf(
 
   logger.info("PO PDF parse started", { pdf: pdfPath, request_ai: requestAi });
 
-  const rawText = await extractOcrTextFromPdf(pdfPath);
-  logger.debug("OCR complete", { chars: rawText.length });
+  const ocrResult = await extractOcrTextFromPdf(pdfPath);
+  const rawText = ocrResult.text;
+  logger.debug("OCR complete", { chars: rawText.length, pages: ocrResult.pageCount });
 
   const templateRepo = new PoDocumentTemplateRepository();
   const templates = await templateRepo.listActive();
@@ -683,83 +664,113 @@ export async function parsePoPdf(
   let partial = parseFieldsFromOcrText(rawText, tplConfig);
   partial.template_code = match?.template.code ?? null;
 
+  if (ocrResult.truncated) {
+    partial.warnings.push(
+      `Document has ${ocrResult.pageCount} pages; only the first ${MAX_OCR_PAGES} were scanned. Review line items carefully.`
+    );
+  }
+
   let aiAssisted = false;
 
-  const aiAllowed = requestAi && (await canUseClaude(contentHash, userId));
+  const aiRequestReady =
+    requestAi &&
+    Boolean(contentHash && userId) &&
+    config.poPdfClaude.enabled &&
+    Boolean(config.poPdfClaude.apiKey);
 
   if (requestAi && !config.poPdfClaude.enabled) {
     partial.warnings.push("AI extraction is not enabled on the server. Contact your administrator.");
-  } else if (requestAi && contentHash && userId && !(await canUseClaude(contentHash, userId))) {
-    partial.warnings.push(
-      "AI already used for this file (limit: 1 per document). Review results or upload a different scan."
-    );
   }
 
   const confidenceBeforeAi = scoreConfidence(partial);
   const itemsBeforeAi = partial.items.length;
   const ocrWarnings = [...partial.warnings];
 
-  if (aiAllowed && contentHash && userId) {
+  if (aiRequestReady && contentHash && userId) {
     const auditRepo = new PoPdfAiRequestRepository();
-    let extractError: string | null = null;
-    let extractModel: string | null = null;
-    let inputTokens: number | null = null;
-    let outputTokens: number | null = null;
 
-    try {
-      const extracted = await claudeExtractFromPdf(pdfPath, {
-        ocrItemCount: partial.items.length,
-        expectedItemCount: partial.expected_item_count,
-        po_number: partial.po_number,
-        supplier_name: partial.supplier_name,
-        currency: partial.currency,
-      });
+    const reserved = await reserveAiUsage(contentHash, userId);
+    if (!reserved) {
+      partial.warnings.push(
+        "AI already used for this file (limit: 1 per document). Review results or upload a different scan."
+      );
+    } else {
+      let extractError: string | null = null;
+      let extractModel: string | null = null;
+      let inputTokens: number | null = null;
+      let outputTokens: number | null = null;
 
-      if (extracted) {
-        extractModel = extracted.model;
-        inputTokens = extracted.inputTokens;
-        outputTokens = extracted.outputTokens;
-
-        const claudeItems = extracted.data.items ?? [];
-        const usedClaudeItems =
-          claudeItems.length > 0 && claudeItems.length >= itemsBeforeAi;
-
-        partial = mergeClaudeData(rawText, partial, extracted.data);
-        aiAssisted = true;
-
-        partial.warnings = rebuildWarningsAfterAi(ocrWarnings, partial, rawText, {
-          itemsBefore: itemsBeforeAi,
-          itemsAfter: partial.items.length,
-          usedClaudeItems,
-          aiFailed: false,
+      try {
+        const extracted = await claudeExtractFromPdf(pdfPath, {
+          ocrItemCount: partial.items.length,
+          expectedItemCount: partial.expected_item_count,
+          po_number: partial.po_number,
+          supplier_name: partial.supplier_name,
+          currency: partial.currency,
         });
 
-        const reserved = await recordSuccessfulAiUsage(contentHash, userId);
-        if (!reserved) {
-          partial.warnings.push(
-            "AI extraction succeeded but quota was already recorded for this file."
-          );
+        if (extracted) {
+          extractModel = extracted.model;
+          inputTokens = extracted.inputTokens;
+          outputTokens = extracted.outputTokens;
+
+          const claudeItems = extracted.data.items ?? [];
+          const usedClaudeItems =
+            claudeItems.length > 0 && claudeItems.length >= itemsBeforeAi;
+
+          partial = mergeClaudeData(rawText, partial, extracted.data);
+          aiAssisted = true;
+
+          partial.warnings = rebuildWarningsAfterAi(ocrWarnings, partial, rawText, {
+            itemsBefore: itemsBeforeAi,
+            itemsAfter: partial.items.length,
+            usedClaudeItems,
+            aiFailed: false,
+          });
+
+          const confidenceAfter = scoreConfidence(partial);
+          await auditRepo.insert({
+            contentHash,
+            userId,
+            originalFilename,
+            poNumber: partial.po_number,
+            templateCode: partial.template_code,
+            status: "success",
+            confidenceBefore: confidenceBeforeAi,
+            confidenceAfter,
+            itemsBefore: itemsBeforeAi,
+            itemsAfter: partial.items.length,
+            itemCompleteness: partial.item_completeness,
+            model: extractModel,
+            inputTokens,
+            outputTokens,
+          });
+        } else {
+          extractError = "AI returned no usable data";
+          partial.warnings = rebuildWarningsAfterAi(ocrWarnings, partial, rawText, {
+            itemsBefore: itemsBeforeAi,
+            itemsAfter: itemsBeforeAi,
+            usedClaudeItems: false,
+            aiFailed: true,
+          });
+          await auditRepo.insert({
+            contentHash,
+            userId,
+            originalFilename,
+            poNumber: partial.po_number,
+            templateCode: partial.template_code,
+            status: "failed",
+            confidenceBefore: confidenceBeforeAi,
+            confidenceAfter: confidenceBeforeAi,
+            itemsBefore: itemsBeforeAi,
+            itemsAfter: itemsBeforeAi,
+            itemCompleteness: partial.item_completeness,
+            model: config.poPdfClaude.model,
+            errorMessage: extractError,
+          });
         }
-
-        const confidenceAfter = scoreConfidence(partial);
-        await auditRepo.insert({
-          contentHash,
-          userId,
-          originalFilename,
-          poNumber: partial.po_number,
-          templateCode: partial.template_code,
-          status: "success",
-          confidenceBefore: confidenceBeforeAi,
-          confidenceAfter,
-          itemsBefore: itemsBeforeAi,
-          itemsAfter: partial.items.length,
-          itemCompleteness: partial.item_completeness,
-          model: extractModel,
-          inputTokens,
-          outputTokens,
-        });
-      } else {
-        extractError = "AI returned no usable data";
+      } catch (err) {
+        extractError = String(err).slice(0, 500);
         partial.warnings = rebuildWarningsAfterAi(ocrWarnings, partial, rawText, {
           itemsBefore: itemsBeforeAi,
           itemsAfter: itemsBeforeAi,
@@ -780,33 +791,10 @@ export async function parsePoPdf(
           itemCompleteness: partial.item_completeness,
           model: config.poPdfClaude.model,
           errorMessage: extractError,
+        }).catch((logErr) => {
+          logger.error("Failed to write PO PDF AI audit log", { error: String(logErr) });
         });
       }
-    } catch (err) {
-      extractError = String(err).slice(0, 500);
-      partial.warnings = rebuildWarningsAfterAi(ocrWarnings, partial, rawText, {
-        itemsBefore: itemsBeforeAi,
-        itemsAfter: itemsBeforeAi,
-        usedClaudeItems: false,
-        aiFailed: true,
-      });
-      await auditRepo.insert({
-        contentHash,
-        userId,
-        originalFilename,
-        poNumber: partial.po_number,
-        templateCode: partial.template_code,
-        status: "failed",
-        confidenceBefore: confidenceBeforeAi,
-        confidenceAfter: confidenceBeforeAi,
-        itemsBefore: itemsBeforeAi,
-        itemsAfter: itemsBeforeAi,
-        itemCompleteness: partial.item_completeness,
-        model: config.poPdfClaude.model,
-        errorMessage: extractError,
-      }).catch((logErr) => {
-        logger.error("Failed to write PO PDF AI audit log", { error: String(logErr) });
-      });
     }
   }
 
@@ -828,7 +816,7 @@ export async function parsePoPdf(
     ...partial,
     confidence,
     confidence_before: aiAssisted ? confidenceBeforeAi : undefined,
-    raw_text_preview: rawText.slice(0, 1000),
+    raw_text_preview: "",
   };
 
   logger.info("PO PDF parse complete", {

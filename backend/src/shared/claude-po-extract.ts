@@ -8,6 +8,7 @@ import { readFile } from "fs/promises";
 import { config } from "../config/index.js";
 import { logger } from "../utils/logger.js";
 import type { ParsedPoItem } from "./po-pdf-parser.js";
+import { normalizeUnit } from "./po-unit-normalize.js";
 
 const SYSTEM_PROMPT = `You extract structured purchase order data from PDF documents for an import system.
 Always respond with valid JSON only — no markdown fences, no commentary.
@@ -73,7 +74,11 @@ function extractJsonBlock(text: string): unknown {
   const trimmed = text.trim();
   const fence = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
   const raw = fence ? fence[1]!.trim() : trimmed;
-  return JSON.parse(raw);
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new Error("Claude response was not valid JSON");
+  }
 }
 
 export function normalizeClaudeItems(raw: unknown): ParsedPoItem[] {
@@ -85,8 +90,8 @@ export function normalizeClaudeItems(raw: unknown): ParsedPoItem[] {
     const desc = String(r.item_description ?? "").trim();
     const qty = Number(r.qty);
     const value = Number(r.value);
-    const unit = String(r.unit ?? "OTH").trim().toUpperCase();
-    const unitOriginal = String(r.unit_original ?? r.unit ?? unit).trim();
+    const unitOriginal = String(r.unit_original ?? r.unit ?? "OTH").trim();
+    const { unit } = normalizeUnit(unitOriginal);
     if (!desc || !Number.isFinite(qty) || qty <= 0) continue;
     if (!Number.isFinite(value) || value < 0) continue;
     items.push({

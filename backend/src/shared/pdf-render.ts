@@ -5,7 +5,7 @@
  * In Docker (node:20-alpine), add to Dockerfile: apk add python3 py3-pip && pip3 install pymupdf
  */
 
-import { spawn, spawnSync } from "child_process";
+import { spawn, spawnSync, type ChildProcess } from "child_process";
 import { tmpdir } from "os";
 import { join } from "path";
 import { randomBytes } from "crypto";
@@ -31,6 +31,42 @@ function resolvePythonExe(): string {
 
 /** Cached Python executable path, resolved once at module load. */
 const PYTHON_EXE = resolvePythonExe();
+
+const PYTHON_TIMEOUT_MS = 60_000;
+
+interface SpawnResult {
+  code: number | null;
+  stdout: string;
+  stderr: string;
+  timedOut: boolean;
+}
+
+function runPythonProcess(args: string[], timeoutMs = PYTHON_TIMEOUT_MS): Promise<SpawnResult> {
+  return new Promise((resolve) => {
+    const proc: ChildProcess = spawn(PYTHON_EXE, args);
+    let stdout = "";
+    let stderr = "";
+    let timedOut = false;
+
+    const timer = setTimeout(() => {
+      timedOut = true;
+      proc.kill("SIGKILL");
+    }, timeoutMs);
+
+    proc.stdout?.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
+    proc.stderr?.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
+
+    proc.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({ code, stdout, stderr, timedOut });
+    });
+
+    proc.on("error", (err) => {
+      clearTimeout(timer);
+      resolve({ code: null, stdout, stderr: err.message, timedOut });
+    });
+  });
+}
 
 /**
  * Python script: extracts the embedded text layer from one PDF page.
@@ -83,20 +119,14 @@ export async function getPdfPageCount(pdfPath: string): Promise<number> {
   const scriptPath = join(tmpdir(), `pdf_count_${id}.py`);
   const script = `import sys, fitz\ndoc = fitz.open(sys.argv[1])\nprint(doc.page_count)\ndoc.close()\n`;
   await writeFile(scriptPath, script, "utf8");
-  return new Promise((resolve) => {
-    const proc = spawn(PYTHON_EXE, [scriptPath, pdfPath]);
-    let stdout = "";
-    proc.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
-    proc.on("close", async () => {
-      await unlink(scriptPath).catch(() => undefined);
-      const n = parseInt(stdout.trim(), 10);
-      resolve(Number.isFinite(n) && n > 0 ? n : 1);
-    });
-    proc.on("error", async () => {
-      await unlink(scriptPath).catch(() => undefined);
-      resolve(1);
-    });
-  });
+  const result = await runPythonProcess([scriptPath, pdfPath]);
+  await unlink(scriptPath).catch(() => undefined);
+  if (result.timedOut) {
+    logger.warn("PDF page count timed out", { pdf: pdfPath });
+    return 1;
+  }
+  const n = parseInt(result.stdout.trim(), 10);
+  return Number.isFinite(n) && n > 0 ? n : 1;
 }
 
 /**
@@ -115,30 +145,21 @@ export async function extractPdfPageText(pdfPath: string, pageIndex = 0): Promis
   const scriptPath = join(tmpdir(), `pdf_text_${id}.py`);
   await writeFile(scriptPath, TEXT_SCRIPT, "utf8");
 
-  return new Promise((resolve) => {
-    const proc = spawn(PYTHON_EXE, [scriptPath, pdfPath, String(pageIndex)]);
-    let stdout = "";
-    let stderr = "";
-
-    proc.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
-    proc.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
-
-    proc.on("close", async (code) => {
-      await unlink(scriptPath).catch(() => undefined);
-      if (code !== 0) {
-        logger.debug("PDF text extraction failed, will fall back to OCR", { page: pageIndex, stderr: stderr.trim() });
-        resolve("");
-      } else {
-        logger.debug("PDF text extracted", { page: pageIndex, chars: stdout.length });
-        resolve(stdout);
-      }
+  const result = await runPythonProcess([scriptPath, pdfPath, String(pageIndex)]);
+  await unlink(scriptPath).catch(() => undefined);
+  if (result.timedOut) {
+    logger.warn("PDF text extraction timed out, will fall back to OCR", { page: pageIndex });
+    return "";
+  }
+  if (result.code !== 0) {
+    logger.debug("PDF text extraction failed, will fall back to OCR", {
+      page: pageIndex,
+      stderr: result.stderr.trim(),
     });
-
-    proc.on("error", async () => {
-      await unlink(scriptPath).catch(() => undefined);
-      resolve("");
-    });
-  });
+    return "";
+  }
+  logger.debug("PDF text extracted", { page: pageIndex, chars: result.stdout.length });
+  return result.stdout;
 }
 
 /**
@@ -156,27 +177,16 @@ export async function renderPdfPageToPng(pdfPath: string, pageIndex = 0): Promis
 
   await writeFile(scriptPath, RENDER_SCRIPT, "utf8");
 
-  return new Promise((resolve, reject) => {
-    const proc = spawn(PYTHON_EXE, [scriptPath, pdfPath, outPngPath, String(pageIndex)]);
-    let stderr = "";
-
-    proc.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString();
-    });
-
-    proc.on("close", async (code) => {
-      await unlink(scriptPath).catch(() => undefined);
-      if (code !== 0) {
-        reject(new Error(`PDF render failed (exit ${code}): ${stderr.trim()}`));
-      } else {
-        logger.debug("PDF page rendered", { pdf: pdfPath, page: pageIndex, out: outPngPath });
-        resolve(outPngPath);
-      }
-    });
-
-    proc.on("error", (err) => {
-      unlink(scriptPath).catch(() => undefined);
-      reject(new Error(`Failed to spawn Python: ${err.message}`));
-    });
-  });
+  const result = await runPythonProcess([scriptPath, pdfPath, outPngPath, String(pageIndex)]);
+  await unlink(scriptPath).catch(() => undefined);
+  if (result.timedOut) {
+    await unlink(outPngPath).catch(() => undefined);
+    throw new Error("PDF render timed out");
+  }
+  if (result.code !== 0) {
+    await unlink(outPngPath).catch(() => undefined);
+    throw new Error(`PDF render failed (exit ${result.code}): ${result.stderr.trim()}`);
+  }
+  logger.debug("PDF page rendered", { pdf: pdfPath, page: pageIndex, out: outPngPath });
+  return outPngPath;
 }
