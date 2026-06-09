@@ -646,7 +646,7 @@ export function PoPdfUpload({ accessToken, onApply, onBusyChange }: Props) {
                           </span>
                         );
                       })()
-                    )}
+                    ) : null}
                   </div>
                   <div className={styles.modalFooterActions}>
                     <button
