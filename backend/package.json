@@ -11,12 +11,14 @@
     "migrate:prod": "node dist/db/run-migrations.js",
     "migrate:create": "echo 'Migration create script to be implemented' && exit 0",
     "seed": "tsx src/db/seed.ts",
-    "seed:prod": "node dist/db/seed.js"
+    "seed:prod": "node dist/db/seed.js",
+    "test": "node --import tsx --test src/shared/po-pdf-merge.test.ts src/shared/po-pdf-completeness.test.ts src/shared/claude-po-extract.test.ts"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
     "@sentry/node": "^8.55.1",
     "bcrypt": "^5.1.1",
     "cookie-parser": "^1.4.7",
@@ -29,6 +31,7 @@
     "multer": "^1.4.5-lts.1",
     "nodemailer": "^8.0.5",
     "pg": "^8.12.0",
+    "tesseract.js": "^7.0.0",
     "uuid": "^9.0.1"
   },
   "overrides": {

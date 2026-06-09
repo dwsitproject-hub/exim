@@ -8,8 +8,11 @@ import { authMiddleware } from "../auth/auth.middleware.js";
 import { requirePermission } from "../auth/rbac.middleware.js";
 import { PERMISSIONS } from "../../shared/rbac.js";
 import { uploadSingle } from "../../middlewares/upload.middleware.js";
+import { parsePdfLimiter } from "../../middlewares/po-pdf-rate-limit.js";
 import * as controller from "./controllers/po-intake.controller.js";
 import * as activityController from "./controllers/po-intake-activity.controller.js";
+import * as pdfParseController from "./controllers/po-pdf-parse.controller.js";
+import * as pdfAiAdminController from "./controllers/po-pdf-ai-admin.controller.js";
 
 export const poIntakeRoutes = Router();
 
@@ -50,6 +53,20 @@ poIntakeRoutes.post(
   requirePermission(PERMISSIONS.IMPORT_PO_CSV),
   uploadSingle,
   controller.importCsv
+);
+poIntakeRoutes.post(
+  "/import/parse-pdf",
+  authMiddleware,
+  requirePermission(PERMISSIONS.PARSE_PO_PDF),
+  parsePdfLimiter,
+  uploadSingle,
+  pdfParseController.parsePdf
+);
+poIntakeRoutes.get(
+  "/admin/pdf-ai-requests",
+  authMiddleware,
+  requirePermission(PERMISSIONS.VIEW_PO_PDF_AI_USAGE),
+  pdfAiAdminController.listPdfAiRequests
 );
 poIntakeRoutes.patch(
   "/:id",
