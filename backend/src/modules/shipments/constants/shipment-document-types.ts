@@ -19,6 +19,10 @@ export const SHIPMENT_DOCUMENT_TYPES = [
   "MSDS",
   "B3",
   "DG",
+  "BILLING",
+  "BPN",
+  "INBOUND_CHARGE",
+  "BUKTI_BAYAR",
 ] as const;
 
 export type ShipmentDocumentType = (typeof SHIPMENT_DOCUMENT_TYPES)[number];
