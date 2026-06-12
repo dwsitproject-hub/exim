@@ -142,6 +142,14 @@ function docKeyForDocumentType(documentType: string): string | null {
       return "doc:sppbmcp";
     case "VO":
       return "doc:vo";
+    case "BILLING":
+      return "doc:billing";
+    case "BPN":
+      return "doc:bpn";
+    case "INBOUND_CHARGE":
+      return "doc:inbound_charge";
+    case "BUKTI_BAYAR":
+      return "doc:bukti_bayar";
     default:
       return null;
   }
@@ -2043,6 +2051,12 @@ export function ShipmentDetail({ id }: { id: string }) {
   }, [detail?.linked_pos]);
 
   const primaryGroupedPo = detail?.linked_pos?.[0] ?? null;
+  const shipmentHeaderPoLabel = useMemo(() => {
+    const poNumbers = (detail?.linked_pos ?? [])
+      .map((po) => po.po_number.trim())
+      .filter(Boolean);
+    return poNumbers.length > 0 ? poNumbers.join(", ") : null;
+  }, [detail?.linked_pos]);
   const primaryGroupedPoCurrency = primaryGroupedPo
     ? resolvePoCurrencyCode(primaryGroupedPo, poDetailsCache[primaryGroupedPo.intake_id])
     : null;
@@ -2722,14 +2736,18 @@ export function ShipmentDetail({ id }: { id: string }) {
   return (
     <section className={styles.section}>
       <PageHeader
-        title={detail.shipment_number}
-        subtitle={detail.vendor_name ?? undefined}
+        title={shipmentHeaderPoLabel ?? detail.shipment_number}
+        subtitle={
+          shipmentHeaderPoLabel
+            ? detail.shipment_number
+            : detail.vendor_name ?? undefined
+        }
         backHref="/dashboard/shipments"
         backLabel="Shipments"
         breadcrumbs={[
           { label: "Dashboard", href: "/dashboard" },
           { label: "Shipments", href: "/dashboard/shipments" },
-          { label: detail.shipment_number },
+          { label: shipmentHeaderPoLabel ?? detail.shipment_number },
         ]}
         actions={
           <div className={styles.headerActionsRow}>
@@ -3507,10 +3525,6 @@ export function ShipmentDetail({ id }: { id: string }) {
             ) : (
               <span className={styles.fieldValue}>{displayPibTypeLabel(detail.pib_type)}</span>
             )}
-            <span className={styles.fieldHint} role="note">
-              Required for document upload
-              {isUpdatingShipment ? " — save shipment after selecting PIB type." : "."}
-            </span>
           </div>
           <div className={statusFieldClass("no_request_pib")} data-status-field="no_request_pib">
             <span className={styles.fieldLabel}>PIB Doc No</span>
