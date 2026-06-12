@@ -53,6 +53,13 @@ import {
   type ExportBulkingListView,
 } from "@/lib/export-bulking-backlog";
 import {
+  EXPORT_DOC_COLUMN_IDS,
+  expandRowAriaLabel,
+  getAvailableBulkingListViews,
+  isDocumentationBacklogFilter,
+  resolveBulkingListView,
+} from "@/lib/export-workspace";
+import {
   BulkingExpandDocsPanel,
   fetchBulkingExpandDocs,
   type BulkingExpandDocsData,
@@ -86,7 +93,7 @@ interface GridColumnDef extends TableColumnDef {
 
 const BASE_COLUMNS: GridColumnDef[] = [
   { id: "_expand", label: "", locked: true, width: 36 },
-  { id: "shipment_no", label: "Shipment No.", locked: true, width: 128 },
+  { id: "shipment_no", label: "Shipment No.", locked: true, width: 148 },
   { id: "progress", label: "Progress", width: 88 },
   { id: "status", label: "Status", locked: true, width: 144 },
   { id: "vessel", label: "Vessel Name", locked: true, width: 168, editable: true, dbField: "vessel_name" },
@@ -267,21 +274,40 @@ export function ExportBulkingList() {
   const { accessToken, user } = useAuth();
   const { pushToast } = useToast();
 
-  const listView = viewFromUrl ?? getDefaultBulkingView(user);
+  const defaultListView = getDefaultBulkingView(user);
+  const listView = resolveBulkingListView(viewFromUrl, user, defaultListView);
   const backlogFilter = backlogFromUrl;
   const backlogActive = backlogFilter != null;
 
   const canViewDocs = can(user, "VIEW_EXPORT_DOCUMENTATION");
   const canEditCargo = can(user, "UPDATE_EXPORT_BULKING");
   const canCreateShipment = can(user, "CREATE_EXPORT_BULKING");
+  const availableListViews = useMemo(() => getAvailableBulkingListViews(user), [user]);
+
+  useEffect(() => {
+    if (viewFromUrl && !availableListViews.includes(viewFromUrl)) {
+      syncParamsToUrl({
+        view: listView,
+        backlog: isDocumentationBacklogFilter(backlogFromUrl) ? null : backlogFromUrl ?? undefined,
+      });
+      return;
+    }
+    if (!canViewDocs && isDocumentationBacklogFilter(backlogFromUrl)) {
+      syncParamsToUrl({ backlog: null });
+    }
+  }, [viewFromUrl, availableListViews, listView, syncParamsToUrl, canViewDocs, backlogFromUrl]);
 
   const columnStorageKey = `${TABLE_COLUMNS_KEY}.${listView}`;
 
   const allColumns = useMemo<GridColumnDef[]>(() => {
-    const base = [...BASE_COLUMNS];
+    const docIds = new Set<string>(EXPORT_DOC_COLUMN_IDS);
+    let base = [...BASE_COLUMNS];
+    if (!canViewDocs) {
+      base = base.filter((c) => !docIds.has(c.id));
+    }
     if (listView === "operations") {
       return base.map((c) => {
-        if (["si_no", "invoice_no", "pl_no"].includes(c.id)) return { ...c, defaultVisible: false };
+        if (docIds.has(c.id)) return { ...c, defaultVisible: false };
         if (["vessel", "voyage", "shipper", "loadport", "total_qty", "eta", "progress"].includes(c.id)) {
           return { ...c, defaultVisible: true };
         }
@@ -298,7 +324,7 @@ export function ExportBulkingList() {
       });
     }
     return base;
-  }, [listView]);
+  }, [listView, canViewDocs]);
 
   const {
     visibleById,
@@ -897,7 +923,7 @@ export function ExportBulkingList() {
             type="button"
             className={styles.expandToggleBtn}
             onClick={(e) => toggleRowExpand(row.id, e)}
-            aria-label={expandedRows.has(row.id) ? "Collapse documents" : "Expand documents"}
+            aria-label={expandRowAriaLabel(expandedRows.has(row.id), listView, canViewDocs)}
           >
             {expandedRows.has(row.id)
               ? <ChevronDown size={14} strokeWidth={2} />
@@ -1105,7 +1131,13 @@ export function ExportBulkingList() {
         </div>
 
         <div className={styles.toolbarRight}>
-          <button type="button" className={styles.dateRangeBtn} title="Filter by date range (coming soon)" disabled>
+          <button
+            type="button"
+            className={styles.dateRangeBtn}
+            title="Date range filter — coming in a future release"
+            aria-label="Date range filter — coming soon"
+            disabled
+          >
             <CalendarRange size={14} aria-hidden />
             Date range
           </button>
@@ -1143,7 +1175,7 @@ export function ExportBulkingList() {
 
       <div className={styles.viewTabsRow}>
         <div className={styles.viewTabs} role="tablist" aria-label="Bulking list view">
-          {LIST_VIEW_OPTIONS.map(({ id, label }) => (
+          {LIST_VIEW_OPTIONS.filter(({ id }) => availableListViews.includes(id)).map(({ id, label }) => (
             <button
               key={id}
               type="button"

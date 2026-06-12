@@ -7,6 +7,7 @@ import type { ExportBulkingStatus } from "../dto/index.js";
 
 export type SiLineForRequirements = {
   cargo_line_id?: string | null;
+  quantity?: number | null;
   bl_split_qty?: number | null;
 };
 
@@ -132,16 +133,9 @@ const REQUIREMENTS_BEFORE_ADVANCE: Record<ExportBulkingStatus, string[]> = {
     "demurrage_rate_pdpr",
     "incoterms",
   ],
-  SI_RECEIVE: [
-    "received_shipping_instruction",
-    "has_shipping_instructions",
-    ...SI_HEADER_FIELD_KEYS,
-    "si_cargo_lines",
-  ],
   ARRIVAL: ["ata", "etb"],
   AT_BERTH: ["atb"],
-  LOADING: ["commence_loading", "etc"],
-  NPE: ["npe_date"],
+  LOADING: ["commence_loading", "etc", "atc"],
   CASE_OFF: ["td"],
 };
 
@@ -161,9 +155,9 @@ function siCargoLinesSatisfied(sis: SiForRequirements[]): boolean {
     (si.lines ?? []).some(
       (line) =>
         Boolean(line.cargo_line_id) &&
-        line.bl_split_qty != null &&
-        !Number.isNaN(Number(line.bl_split_qty)) &&
-        Number(line.bl_split_qty) > 0,
+        line.quantity != null &&
+        !Number.isNaN(Number(line.quantity)) &&
+        Number(line.quantity) > 0,
     ),
   );
 }

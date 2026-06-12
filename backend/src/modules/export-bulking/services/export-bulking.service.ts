@@ -14,6 +14,15 @@ import {
   type PackingListLineDto,
 } from "../dto/index.js";
 import { getMissingRequirementLabels } from "../utils/export-status-requirements.js";
+import {
+  validateSiTotalsMatchCargo,
+  validateInvoiceTotalsMatchSi,
+  packingListLinesFromSi,
+  type CargoLineQty,
+  type SiWithLines,
+  type InvoiceWithLines,
+} from "../utils/quantity-reconciliation.js";
+import { syncExportSentDocumentNotifications } from "./export-sent-doc-notifications.js";
 
 export class ExportBulkingService {
   constructor(private readonly repo: ExportBulkingRepository) {}
@@ -41,7 +50,11 @@ export class ExportBulkingService {
   }
 
   async update(id: string, dto: UpdateExportBulkingShipmentDto): Promise<ExportBulkingShipmentRow | null> {
-    return this.repo.update(id, dto);
+    const updated = await this.repo.update(id, dto);
+    if (updated) {
+      await syncExportSentDocumentNotifications(updated);
+    }
+    return updated;
   }
 
   async updateStatus(id: string, newStatus: string, userId?: string): Promise<ExportBulkingShipmentRow | null> {
@@ -155,11 +168,35 @@ export class ExportBulkingService {
     return this.repo.listShippingInstructions(shipmentId);
   }
 
+  private async assertSiQuantityReconciliation(
+    shipmentId: string,
+    shippingInstructions: SiWithLines[],
+    options?: { overrideSiId?: string; overrideLines?: ShippingInstructionDto["lines"] },
+  ): Promise<void> {
+    const cargoLines = (await this.repo.listCargoLines(shipmentId)) as CargoLineQty[];
+    const issues = validateSiTotalsMatchCargo(
+      cargoLines,
+      shippingInstructions,
+      options?.overrideSiId,
+      options?.overrideLines,
+    );
+    if (issues.length > 0) {
+      throw new AppError(issues.map((i) => i.message).join("; "), 400);
+    }
+  }
+
   async createShippingInstruction(
     shipmentId: string,
     dto: ShippingInstructionDto,
     userId?: string | null,
   ): Promise<unknown> {
+    if (dto.lines !== undefined) {
+      const existing = (await this.repo.listShippingInstructions(shipmentId)) as SiWithLines[];
+      await this.assertSiQuantityReconciliation(shipmentId, [
+        ...existing,
+        { id: "__pending__", lines: dto.lines },
+      ]);
+    }
     return this.repo.createShippingInstruction(shipmentId, dto, userId);
   }
 
@@ -168,6 +205,15 @@ export class ExportBulkingService {
     dto: ShippingInstructionDto,
     actingUserId?: string | null,
   ): Promise<unknown> {
+    if (dto.lines !== undefined) {
+      const shipmentId = await this.repo.getShippingInstructionShipmentId(id);
+      if (!shipmentId) throw new AppError("Shipping instruction not found", 404);
+      const existing = (await this.repo.listShippingInstructions(shipmentId)) as SiWithLines[];
+      await this.assertSiQuantityReconciliation(shipmentId, existing, {
+        overrideSiId: id,
+        overrideLines: dto.lines,
+      });
+    }
     return this.repo.updateShippingInstruction(id, dto, actingUserId);
   }
 
@@ -185,11 +231,57 @@ export class ExportBulkingService {
     return this.repo.listInvoices(shipmentId);
   }
 
+  private async assertInvoiceQuantityReconciliation(
+    shipmentId: string,
+    siId: string,
+    invoices: InvoiceWithLines[],
+    options?: {
+      overrideInvoiceId?: string;
+      overrideLines?: InvoiceDto["lines"];
+      additionalLines?: InvoiceDto["lines"];
+    },
+  ): Promise<void> {
+    const shippingInstructions = (await this.repo.listShippingInstructions(shipmentId)) as SiWithLines[];
+    const si = shippingInstructions.find((s) => s.id === siId);
+    if (!si) throw new AppError("Shipping instruction not found for this shipment", 400);
+    const issues = validateInvoiceTotalsMatchSi(si, invoices, {
+      overrideInvoiceId: options?.overrideInvoiceId,
+      overrideLines: options?.overrideLines,
+      additionalLines: options?.additionalLines,
+    });
+    if (issues.length > 0) {
+      throw new AppError(issues.map((i) => i.message).join("; "), 400);
+    }
+  }
+
   async createInvoice(shipmentId: string, dto: InvoiceDto, userId?: string | null): Promise<unknown> {
+    const siId = (dto.shipping_instruction_id ?? "").trim();
+    if (siId && dto.lines?.length) {
+      const invoices = (await this.repo.listInvoices(shipmentId)) as InvoiceWithLines[];
+      await this.assertInvoiceQuantityReconciliation(shipmentId, siId, invoices, {
+        additionalLines: dto.lines,
+      });
+    }
     return this.repo.createInvoice(shipmentId, dto, userId);
   }
 
   async updateInvoice(id: string, dto: InvoiceDto, actingUserId?: string | null): Promise<unknown> {
+    if (dto.lines !== undefined) {
+      const cur = await this.repo.getInvoiceHeader(id);
+      if (!cur) throw new AppError("Invoice not found", 404);
+      const siId = (
+        dto.shipping_instruction_id !== undefined
+          ? dto.shipping_instruction_id
+          : cur.shipping_instruction_id
+      )?.trim();
+      if (siId) {
+        const invoices = (await this.repo.listInvoices(cur.shipment_id)) as InvoiceWithLines[];
+        await this.assertInvoiceQuantityReconciliation(cur.shipment_id, siId, invoices, {
+          overrideInvoiceId: id,
+          overrideLines: dto.lines,
+        });
+      }
+    }
     return this.repo.updateInvoice(id, dto, actingUserId);
   }
 
@@ -203,39 +295,56 @@ export class ExportBulkingService {
 
   /* ───── packing lists ───── */
 
-  private async assertPackingListLinesValid(
+  private async assertPackingListSiValid(
     shipmentId: string,
-    lines: PackingListLineDto[] | undefined,
+    siId: string | null | undefined,
     excludePackingListId?: string,
   ): Promise<void> {
-    if (lines === undefined) return;
-    if (lines.length > 1) {
-      throw new AppError("A packing list can only have one cargo line", 400);
+    const trimmed = (siId ?? "").trim();
+    if (!trimmed) {
+      throw new AppError("Shipping instruction is required for packing list", 400);
     }
-    if (lines.length === 0) return;
-
-    const cargoId = lines[0].cargo_line_id?.trim();
-    if (!cargoId) {
-      throw new AppError("Cargo line is required for packing list", 400);
+    const shippingInstructions = (await this.repo.listShippingInstructions(shipmentId)) as SiWithLines[];
+    if (!shippingInstructions.some((s) => s.id === trimmed)) {
+      throw new AppError("Shipping instruction does not belong to this shipment", 400);
     }
-
-    const cargoLines = (await this.repo.listCargoLines(shipmentId)) as { id: string }[];
-    if (!cargoLines.some((c) => c.id === cargoId)) {
-      throw new AppError("Cargo line does not belong to this shipment", 400);
-    }
-
     const packingLists = (await this.repo.listPackingLists(shipmentId)) as {
       id: string;
-      lines: { cargo_line_id?: string | null }[];
+      shipping_instruction_id?: string | null;
     }[];
     for (const pl of packingLists) {
       if (excludePackingListId && pl.id === excludePackingListId) continue;
-      for (const line of pl.lines) {
-        if (line.cargo_line_id === cargoId) {
-          throw new AppError("This cargo already has a packing list", 400);
-        }
+      if ((pl.shipping_instruction_id ?? "").trim() === trimmed) {
+        throw new AppError("This shipping instruction already has a packing list", 400);
       }
     }
+  }
+
+  private async enrichPackingListFromSi(
+    shipmentId: string,
+    dto: PackingListDto,
+  ): Promise<PackingListDto> {
+    const siId = (dto.shipping_instruction_id ?? "").trim();
+    if (!siId) return dto;
+    const [shippingInstructions, cargoLines] = await Promise.all([
+      this.repo.listShippingInstructions(shipmentId) as Promise<SiWithLines[]>,
+      this.repo.listCargoLines(shipmentId) as Promise<
+        { id: string; item_description?: string | null; cargo_name?: string | null; destination_port?: string | null; destination_country?: string | null }[]
+      >,
+    ]);
+    const si = shippingInstructions.find((s) => s.id === siId);
+    if (!si) throw new AppError("Shipping instruction not found", 400);
+    const derived = packingListLinesFromSi(si, cargoLines);
+    const packingByCargo = new Map(
+      (dto.lines ?? []).map((l) => [(l.cargo_line_id ?? "").trim(), l.packing ?? null]),
+    );
+    return {
+      ...dto,
+      lines: derived.map((line) => ({
+        ...line,
+        packing: packingByCargo.get((line.cargo_line_id ?? "").trim()) ?? undefined,
+      })),
+    };
   }
 
   async listPackingLists(shipmentId: string): Promise<unknown[]> {
@@ -243,8 +352,9 @@ export class ExportBulkingService {
   }
 
   async createPackingList(shipmentId: string, dto: PackingListDto, userId?: string | null): Promise<unknown> {
-    await this.assertPackingListLinesValid(shipmentId, dto.lines);
-    return this.repo.createPackingList(shipmentId, dto, userId);
+    await this.assertPackingListSiValid(shipmentId, dto.shipping_instruction_id);
+    const enriched = await this.enrichPackingListFromSi(shipmentId, dto);
+    return this.repo.createPackingList(shipmentId, enriched, userId);
   }
 
   async updatePackingList(
@@ -253,13 +363,14 @@ export class ExportBulkingService {
     actingUserId?: string | null,
     shipmentId?: string,
   ): Promise<unknown> {
-    if (dto.lines !== undefined) {
-      if (!shipmentId) {
-        throw new AppError("Shipment id is required to update packing list lines", 400);
-      }
-      await this.assertPackingListLinesValid(shipmentId, dto.lines, id);
+    const resolvedShipmentId = shipmentId ?? (await this.repo.getPackingListShipmentId(id));
+    if (!resolvedShipmentId) throw new AppError("Packing list not found", 404);
+    if (dto.shipping_instruction_id !== undefined) {
+      await this.assertPackingListSiValid(resolvedShipmentId, dto.shipping_instruction_id, id);
     }
-    return this.repo.updatePackingList(id, dto, actingUserId);
+    const siId = (dto.shipping_instruction_id ?? "").trim();
+    const body = siId ? await this.enrichPackingListFromSi(resolvedShipmentId, dto) : dto;
+    return this.repo.updatePackingList(id, body, actingUserId);
   }
 
   async regeneratePackingListNumber(packingListId: string, userId: string): Promise<unknown | null> {

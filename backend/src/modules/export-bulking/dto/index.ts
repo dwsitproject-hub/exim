@@ -1,11 +1,9 @@
 export const EXPORT_BULKING_STATUSES = [
   "SHIPMENT_PLANNING",
   "NOMINATION",
-  "SI_RECEIVE",
   "ARRIVAL",
   "AT_BERTH",
   "LOADING",
-  "NPE",
   "CASE_OFF",
 ] as const;
 
@@ -13,12 +11,10 @@ export type ExportBulkingStatus = (typeof EXPORT_BULKING_STATUSES)[number];
 
 export const STATUS_TRANSITIONS: Record<ExportBulkingStatus, ExportBulkingStatus | null> = {
   SHIPMENT_PLANNING: "NOMINATION",
-  NOMINATION: "SI_RECEIVE",
-  SI_RECEIVE: "ARRIVAL",
+  NOMINATION: "ARRIVAL",
   ARRIVAL: "AT_BERTH",
   AT_BERTH: "LOADING",
-  LOADING: "NPE",
-  NPE: "CASE_OFF",
+  LOADING: "CASE_OFF",
   CASE_OFF: null,
 };
 
@@ -71,6 +67,7 @@ export interface UpdateExportBulkingShipmentDto {
   sent_sr?: string;
   sent_sustainability?: string;
   present_docs?: string;
+  required_sent_documents?: string[];
   peb_request_no?: string;
   peb_no?: string;
   peb_date?: string;
@@ -145,6 +142,7 @@ export interface ExportBulkingShipmentRow {
   sent_sr: string | null;
   sent_sustainability: string | null;
   present_docs: string | null;
+  required_sent_documents: string[] | null;
   peb_request_no: string | null;
   peb_no: string | null;
   peb_date: string | null;
@@ -207,12 +205,19 @@ export interface ShippingInstructionDto {
   lines?: SiLineDto[];
 }
 
+export interface BlSplitEntryDto {
+  count: number;
+  quantity: number;
+}
+
 export interface SiLineDto {
   id?: string;
   cargo_line_id?: string;
   description_of_goods?: string;
   quantity?: number;
   bl_split_qty?: number;
+  bl_splits?: BlSplitEntryDto[];
+  bl_split_text?: string;
   destination_port?: string;
 }
 
@@ -249,6 +254,8 @@ export interface PackingListDto {
   packing_list_number?: string;
   loadport_snapshot?: string;
   destination_snapshot?: string;
+  /** One packing list per shipping instruction; qty follows SI lines. */
+  shipping_instruction_id?: string | null;
   lines?: PackingListLineDto[];
 }
 

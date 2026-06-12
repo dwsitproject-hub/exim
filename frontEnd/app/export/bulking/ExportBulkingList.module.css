@@ -548,6 +548,39 @@
   line-height: 1.45;
 }
 
+.permissionDenied {
+  padding: 16px 18px;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: var(--borderRadius-md, 8px);
+  max-width: 420px;
+}
+
+.permissionDeniedTitle {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #78350f;
+}
+
+.permissionDeniedBody {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: #92400e;
+  line-height: 1.45;
+}
+
+.permissionDeniedLink {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-semantic-primary-default, #c43a31);
+  text-decoration: none;
+}
+
+.permissionDeniedLink:hover {
+  text-decoration: underline;
+}
+
 .queueStats {
   display: flex;
   flex-wrap: wrap;

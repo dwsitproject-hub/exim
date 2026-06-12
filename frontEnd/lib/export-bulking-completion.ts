@@ -61,7 +61,7 @@ function nominationDone(d: ExportCompletionListInput): boolean {
 }
 
 function siDone(d: ExportCompletionListInput): boolean {
-  return (d.si_numbers?.length ?? 0) > 0 || statusAtLeast(d.current_status, "SI_RECEIVE");
+  return (d.si_numbers?.length ?? 0) > 0;
 }
 
 function arrivalDone(d: ExportCompletionListInput): boolean {

@@ -7,6 +7,11 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
 import { useAuth } from "@/hooks/use-auth";
+import { can } from "@/lib/permissions";
+import {
+  canEditExportBulking,
+  canViewExportDocumentation,
+} from "@/lib/export-workspace";
 
 import {
 
@@ -68,6 +73,15 @@ const STATUS_PILL_CLASS: Record<string, string> = {
 export function ExportDashboardContent() {
 
   const { user, accessToken, loading: authLoading } = useAuth();
+  const showOpsBand = canEditExportBulking(user) || !canViewExportDocumentation(user);
+  const showDocsBand = canViewExportDocumentation(user);
+  const dashboardSubtitle = user
+    ? showOpsBand && showDocsBand
+      ? `Welcome, ${user.name}. Overview of export bulking operations and documentation.`
+      : showDocsBand
+        ? `Welcome, ${user.name}. Documentation queue and shipment document status.`
+        : `Welcome, ${user.name}. Operations overview for export bulking shipments.`
+    : undefined;
 
   const [loading, setLoading] = useState(true);
 
@@ -193,7 +207,7 @@ export function ExportDashboardContent() {
 
 
 
-  const voyageCount = (statusCounts.ARRIVAL ?? 0) + (statusCounts.AT_BERTH ?? 0) + (statusCounts.LOADING ?? 0) + (statusCounts.NPE ?? 0) + (statusCounts.CASE_OFF ?? 0);
+  const voyageCount = (statusCounts.ARRIVAL ?? 0) + (statusCounts.AT_BERTH ?? 0) + (statusCounts.LOADING ?? 0) + (statusCounts.CASE_OFF ?? 0);
 
 
 
@@ -247,7 +261,7 @@ export function ExportDashboardContent() {
 
         title="Export Dashboard"
 
-        subtitle={user ? `Welcome, ${user.name}. Overview of export bulking operations and documentation.` : undefined}
+        subtitle={dashboardSubtitle}
 
         backHref="/"
 
@@ -265,6 +279,7 @@ export function ExportDashboardContent() {
 
         <>
 
+          {showOpsBand && (
           <div className={styles.kpiBand}>
 
             <h2 className={styles.kpiBandLabel}>Operations</h2>
@@ -313,7 +328,7 @@ export function ExportDashboardContent() {
 
                 value={voyageCount}
 
-                href="/export/bulking?view=operations&statuses=ARRIVAL,AT_BERTH,LOADING,NPE,CASE_OFF"
+                href="/export/bulking?view=operations&statuses=ARRIVAL,AT_BERTH,LOADING,CASE_OFF"
 
                 icon={<IconCheck />}
 
@@ -322,9 +337,11 @@ export function ExportDashboardContent() {
             </div>
 
           </div>
+          )}
 
 
 
+          {showDocsBand && (
           <div className={styles.kpiBand}>
 
             <h2 className={styles.kpiBandLabel}>Documentation</h2>
@@ -382,6 +399,7 @@ export function ExportDashboardContent() {
             </div>
 
           </div>
+          )}
 
 
 
@@ -391,13 +409,24 @@ export function ExportDashboardContent() {
 
             <div className={styles.quickActionsButtons}>
 
+              {can(user, "CREATE_EXPORT_BULKING") && (
               <Link href="/export/bulking?create=1" className={styles.btnPrimary}>
 
                 New shipment
 
               </Link>
+              )}
 
-              <Link href="/export/bulking" className={styles.btnSecondary}>
+              <Link
+                href={
+                  showDocsBand && !showOpsBand
+                    ? "/export/bulking?view=documentation"
+                    : showOpsBand
+                      ? "/export/bulking?view=operations"
+                      : "/export/bulking"
+                }
+                className={styles.btnSecondary}
+              >
 
                 View all bulking
 
@@ -477,6 +506,7 @@ export function ExportDashboardContent() {
 
           <div className={styles.attentionGrid}>
 
+            {showOpsBand && (
             <div className={styles.attentionSection}>
 
               <h2 className={styles.attentionTitle}>Needs attention — Operations</h2>
@@ -522,9 +552,11 @@ export function ExportDashboardContent() {
               )}
 
             </div>
+            )}
 
 
 
+            {showDocsBand && (
             <div className={styles.attentionSection}>
 
               <h2 className={styles.attentionTitle}>Needs attention — Documentation</h2>
@@ -555,7 +587,7 @@ export function ExportDashboardContent() {
 
                       </span>
 
-                      <Link href={`/export/bulking/${row.id}?focus=documents`} className={styles.attentionLink}>
+                      <Link href={`/export/bulking/${row.id}?tab=documentation`} className={styles.attentionLink}>
 
                         Open →
 
@@ -570,6 +602,7 @@ export function ExportDashboardContent() {
               )}
 
             </div>
+            )}
 
           </div>
 

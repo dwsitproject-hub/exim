@@ -2,7 +2,7 @@
  * Labels for admin user RBAC UI (keys must match backend PERMISSIONS).
  */
 
-export const USER_ROLE_OPTIONS = ["ADMIN", "EXIM_OFFICER", "VIEWER", "DOCS"] as const;
+export const USER_ROLE_OPTIONS = ["ADMIN", "IMPORT_OFFICER", "VIEWER", "DOCS"] as const;
 
 export type UserRoleOption = (typeof USER_ROLE_OPTIONS)[number];
 
@@ -57,7 +57,7 @@ export const ROLE_DEFAULT_PERMISSIONS: Readonly<Record<UserRoleOption, readonly 
     "VIEW_PO_PDF_AI_USAGE",
     "VIEW_EXPORT_DOCUMENTATION",
   ],
-  EXIM_OFFICER: [
+  IMPORT_OFFICER: [
     "VIEW_TRANSACTIONS",
     "CREATE_TRANSACTION",
     "UPDATE_TRANSACTION",

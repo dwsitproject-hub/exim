@@ -64,7 +64,10 @@ export function ShippingInstructionDocument({
   const quantityLine =
     qtyNum != null && !Number.isNaN(qtyNum) ? `${formatNumberDisplay(qtyNum)} MT` : "—";
 
-  const blSplitDisplay = blSplitText?.trim() ? blSplitText.trim() : "—";
+  const blSplitDisplay =
+    blSplitText?.trim() ||
+    first?.bl_split_text?.trim() ||
+    "—";
   const destination = dash(first?.destination_port ?? cargo?.destination_port);
 
   const shipperText = si.shipper_snapshot?.trim() || shipment.shipper?.trim() || "—";

@@ -136,7 +136,7 @@ export function getDefaultBulkingView(user: AuthUser | null | undefined): Export
   return "all";
 }
 
-const VOYAGE_STATUSES = new Set(["ARRIVAL", "AT_BERTH", "LOADING", "NPE", "CASE_OFF"]);
+const VOYAGE_STATUSES = new Set(["ARRIVAL", "AT_BERTH", "LOADING", "CASE_OFF"]);
 
 export function getOpsAttentionReason(row: ExportBulkingListItem): string | null {
   const summary = buildExportCompletionSummary(listItemToCompletionInput(row));
@@ -166,7 +166,7 @@ export function getDocsAttentionReason(row: ExportBulkingListItem): string | nul
   if (summary.isBusinessComplete) return null;
 
   const inDocsOrVoyage =
-    row.current_status === "SI_RECEIVE" || VOYAGE_STATUSES.has(row.current_status);
+    row.current_status === "NOMINATION" || VOYAGE_STATUSES.has(row.current_status);
 
   if (!hasSi(input)) {
     if (inDocsOrVoyage) return "No shipping instruction";

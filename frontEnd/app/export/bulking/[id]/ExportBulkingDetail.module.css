@@ -1157,6 +1157,35 @@ select.fieldInput {
   margin: 0 0 var(--spacing-3, 16px);
 }
 
+.blSplitList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.blSplitRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.blSplitCount {
+  width: 4.5rem;
+  flex-shrink: 0;
+}
+
+.blSplitQty {
+  flex: 1;
+  min-width: 10rem;
+}
+
+.blSplitTimes {
+  font-size: 0.875rem;
+  color: var(--muted-fg, #64748b);
+  font-weight: 500;
+}
+
 .siCargoRowHeading {
   font-size: 12px;
   font-weight: 600;
@@ -2099,6 +2128,172 @@ textarea.fieldInputReadonly:focus {
   cursor: default;
   background: var(--color-primitive-background-subtle, #f4f4f4) !important;
   color: var(--color-primitive-text-charcoal, #2b2b2b);
+}
+
+.workspaceBanner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+  padding: 10px 14px;
+  margin-bottom: var(--spacing-3, 16px);
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--borderRadius-md, 8px);
+  font-size: 13px;
+  color: #1e3a8a;
+}
+
+.workspaceBanner strong {
+  font-weight: 700;
+}
+
+.detailTabsRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-3, 16px);
+  padding: var(--spacing-2, 8px) var(--spacing-3, 16px);
+  margin-bottom: var(--spacing-3, 16px);
+  border: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  border-radius: var(--borderRadius-md, 8px);
+  background: var(--color-primitive-background-lighter, #f8fafc);
+}
+
+.detailTabs {
+  display: flex;
+  gap: 4px;
+}
+
+.detailTab {
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: var(--borderRadius-md, 8px);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  cursor: pointer;
+}
+
+.detailTab:hover {
+  background: var(--color-primitive-background-white, #fff);
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+}
+
+.detailTabActive {
+  background: var(--color-primitive-background-white, #fff);
+  border-color: var(--color-primitive-border-light, #e0e0e0);
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.detailTabsHint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  text-align: right;
+  max-width: 360px;
+  line-height: 1.4;
+}
+
+.sentDocsGate {
+  margin: 0;
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  background: var(--color-primitive-background-lighter, #f8fafc);
+  border: 1px dashed var(--color-primitive-border-light, #e0e0e0);
+  border-radius: var(--borderRadius-md, 8px);
+}
+
+.sentDocsIntro {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+}
+
+.sentDocsAlert {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: var(--borderRadius-md, 8px);
+}
+
+.sentDocsChecklist {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  background: var(--color-primitive-background-lighter, #f8fafc);
+  border: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  border-radius: var(--borderRadius-md, 8px);
+}
+
+.sentDocsChecklistTitle {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+}
+
+.sentDocsEmpty {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+}
+
+.docManagedNotice {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 14px 16px;
+  background: #f8fafc;
+  border: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  border-radius: var(--borderRadius-md, 8px);
+}
+
+.docManagedIcon {
+  flex-shrink: 0;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  margin-top: 2px;
+}
+
+.docManagedTitle {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+}
+
+.docManagedBody {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  line-height: 1.5;
+}
+
+.summaryValueMuted {
+  font-size: 12px;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  font-weight: 500;
+}
+
+.summaryLockHint {
+  color: #a1a1aa;
+}
+
+.overviewChipHint {
+  font-weight: 400;
+  font-size: 10px;
+  color: var(--color-primitive-text-steel, #6b6b6b);
 }
 
 .readOnlyPage .actions,

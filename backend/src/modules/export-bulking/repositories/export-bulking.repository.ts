@@ -45,7 +45,7 @@ const SHIPMENT_COLUMNS = `id, shipment_no, current_status, vessel_name, voyage_n
   etc, atc, hose_off, bl_figure, ship_figure, npe_date,
   quantity_spb, spb, delivery_order_pgi, spr, bill_of_lading_no, bill_of_lading_date,
   bill_of_lading_nn_obl, sent_bl, sent_coo, sent_phyto, sent_hc, sent_sr,
-  sent_sustainability, present_docs, peb_request_no, peb_no, peb_date, pe_no, pe_date,
+  sent_sustainability, present_docs, required_sent_documents, peb_request_no, peb_no, peb_date, pe_no, pe_date,
   hs_code, currency_tax, biaya_keluar_price_usd_mt, biaya_keluar_amount_idr, biaya_keluar_billing_no,
   levy_price_usd_mt, levy_amount_idr, levy_billing_no, billing_to_gl, td,
   surveyor, surveyor_reason, agent, laytime_rate_mtph, demurrage_rate_pdpr, total_quantity,
@@ -251,6 +251,11 @@ export class ExportBulkingRepository {
       }
     }
 
+    if (dto.required_sent_documents !== undefined) {
+      updates.push(`required_sent_documents = $${idx++}::jsonb`);
+      params.push(JSON.stringify(dto.required_sent_documents));
+    }
+
     if (params.length === 0) return this.getById(id);
 
     params.push(id);
@@ -347,7 +352,7 @@ export class ExportBulkingRepository {
       `SELECT id, shipment_id, old_status, new_status, changed_by, changed_at, remarks
        FROM export_bulking_status_events
        WHERE shipment_id = $1
-       ORDER BY changed_at ASC`,
+       ORDER BY changed_at DESC`,
       [shipmentId],
     );
     return result.rows;
@@ -488,11 +493,14 @@ export class ExportBulkingRepository {
         for (const line of dto.lines) {
           const lineRes = await client.query(
             `INSERT INTO export_bulking_si_lines
-              (si_id, cargo_line_id, description_of_goods, quantity, bl_split_qty, destination_port, created_at, updated_at)
-             VALUES ($1,$2,$3,$4,$5,$6,NOW(),NOW())
+              (si_id, cargo_line_id, description_of_goods, quantity, bl_split_qty, bl_splits, bl_split_text, destination_port, created_at, updated_at)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW(),NOW())
              RETURNING *`,
             [si.id, line.cargo_line_id ?? null, line.description_of_goods ?? null,
-             line.quantity ?? null, line.bl_split_qty ?? null, line.destination_port ?? null],
+             line.quantity ?? null, line.bl_split_qty ?? null,
+             line.bl_splits?.length ? JSON.stringify(line.bl_splits) : null,
+             line.bl_split_text ?? null,
+             line.destination_port ?? null],
           );
           if (lineRes.rows[0]) si.lines.push(lineRes.rows[0]);
         }
@@ -569,11 +577,14 @@ export class ExportBulkingRepository {
           for (const line of dto.lines) {
             const lineRes = await client.query(
               `INSERT INTO export_bulking_si_lines
-                (si_id, cargo_line_id, description_of_goods, quantity, bl_split_qty, destination_port, created_at, updated_at)
-               VALUES ($1,$2,$3,$4,$5,$6,NOW(),NOW())
+                (si_id, cargo_line_id, description_of_goods, quantity, bl_split_qty, bl_splits, bl_split_text, destination_port, created_at, updated_at)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW(),NOW())
                RETURNING *`,
               [id, line.cargo_line_id ?? null, line.description_of_goods ?? null,
-               line.quantity ?? null, line.bl_split_qty ?? null, line.destination_port ?? null],
+               line.quantity ?? null, line.bl_split_qty ?? null,
+               line.bl_splits?.length ? JSON.stringify(line.bl_splits) : null,
+               line.bl_split_text ?? null,
+               line.destination_port ?? null],
             );
             if (lineRes.rows[0]) si.lines.push(lineRes.rows[0]);
           }
@@ -779,6 +790,24 @@ export class ExportBulkingRepository {
   async deleteShippingInstruction(id: string): Promise<void> {
     await this.pool.query(`DELETE FROM export_bulking_si_lines WHERE si_id = $1`, [id]);
     await this.pool.query(`DELETE FROM export_bulking_shipping_instructions WHERE id = $1`, [id]);
+  }
+
+  async getShippingInstructionShipmentId(siId: string): Promise<string | null> {
+    const r = await this.pool.query(
+      `SELECT shipment_id FROM export_bulking_shipping_instructions WHERE id = $1`,
+      [siId],
+    );
+    const row = r.rows[0] as { shipment_id?: string } | undefined;
+    return row?.shipment_id ?? null;
+  }
+
+  async getPackingListShipmentId(plId: string): Promise<string | null> {
+    const r = await this.pool.query(
+      `SELECT shipment_id FROM export_bulking_packing_lists WHERE id = $1`,
+      [plId],
+    );
+    const row = r.rows[0] as { shipment_id?: string } | undefined;
+    return row?.shipment_id ?? null;
   }
 
   /* ───────── invoices ───────── */
@@ -987,6 +1016,19 @@ export class ExportBulkingRepository {
     await this.pool.query(`DELETE FROM export_bulking_invoices WHERE id = $1`, [id]);
   }
 
+  async getInvoiceHeader(id: string): Promise<{ shipment_id: string; shipping_instruction_id: string | null } | null> {
+    const r = await this.pool.query(
+      `SELECT shipment_id, shipping_instruction_id FROM export_bulking_invoices WHERE id = $1`,
+      [id],
+    );
+    const row = r.rows[0] as { shipment_id?: string; shipping_instruction_id?: string | null } | undefined;
+    if (!row?.shipment_id) return null;
+    return {
+      shipment_id: row.shipment_id,
+      shipping_instruction_id: row.shipping_instruction_id ?? null,
+    };
+  }
+
   /* ───────── packing lists ───────── */
 
   async listPackingLists(shipmentId: string): Promise<unknown[]> {
@@ -1018,12 +1060,17 @@ export class ExportBulkingRepository {
         plNumber = formatPlDocumentNumber(year, month, serial);
       }
 
+      const siId = dto.shipping_instruction_id ?? null;
+      if (siId) {
+        await assertShippingInstructionMatchesShipment(client, shipmentId, siId);
+      }
+
       const plRes = await client.query(
         `INSERT INTO export_bulking_packing_lists
-          (shipment_id, packing_list_number, loadport_snapshot, destination_snapshot, doc_number_held_by_user_id, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,NOW(),NOW())
+          (shipment_id, shipping_instruction_id, packing_list_number, loadport_snapshot, destination_snapshot, doc_number_held_by_user_id, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,NOW(),NOW())
          RETURNING *`,
-        [shipmentId, plNumber,
+        [shipmentId, siId, plNumber,
          dto.loadport_snapshot ?? null, dto.destination_snapshot ?? null, holder],
       );
       const pl = plRes.rows[0] as { id: string; lines?: unknown[] };
@@ -1059,12 +1106,14 @@ export class ExportBulkingRepository {
     try {
       await client.query("BEGIN");
       const prevRes = await client.query(
-        `SELECT packing_list_number, loadport_snapshot, destination_snapshot, doc_number_held_by_user_id
+        `SELECT shipment_id, shipping_instruction_id, packing_list_number, loadport_snapshot, destination_snapshot, doc_number_held_by_user_id
          FROM export_bulking_packing_lists WHERE id = $1 FOR UPDATE`,
         [id],
       );
       const prev = prevRes.rows[0] as
         | {
+            shipment_id: string;
+            shipping_instruction_id: string | null;
             packing_list_number: string | null;
             loadport_snapshot: string | null;
             destination_snapshot: string | null;
@@ -1088,15 +1137,24 @@ export class ExportBulkingRepository {
       const dest =
         dto.destination_snapshot !== undefined ? dto.destination_snapshot : prev.destination_snapshot;
 
+      let nextSiId = prev.shipping_instruction_id;
+      if (dto.shipping_instruction_id !== undefined) {
+        nextSiId = dto.shipping_instruction_id === null ? null : dto.shipping_instruction_id;
+      }
+      if (nextSiId) {
+        await assertShippingInstructionMatchesShipment(client, prev.shipment_id, nextSiId);
+      }
+
       const plRes = await client.query(
         `UPDATE export_bulking_packing_lists SET
           packing_list_number=$1, loadport_snapshot=$2, destination_snapshot=$3,
-          doc_number_held_by_user_id=$4, updated_at=NOW()
-         WHERE id=$5 RETURNING *`,
+          shipping_instruction_id=$4, doc_number_held_by_user_id=$5, updated_at=NOW()
+         WHERE id=$6 RETURNING *`,
         [
           dto.packing_list_number !== undefined ? (dto.packing_list_number?.trim() || null) : prev.packing_list_number,
           loadport,
           dest,
+          nextSiId,
           nextHolder,
           id,
         ],

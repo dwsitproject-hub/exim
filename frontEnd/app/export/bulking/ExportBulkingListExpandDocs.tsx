@@ -460,11 +460,19 @@ export function BulkingExpandDocsPanel({
       </div>
       )}
       {listView === "documentation" && !canViewDocs && (
-        <p className={styles.queueSummary}>You do not have permission to view export documentation.</p>
+        <div className={styles.permissionDenied} role="status">
+          <p className={styles.permissionDeniedTitle}>Documentation is managed by the Document team</p>
+          <p className={styles.permissionDeniedBody}>
+            Shipping instructions, invoices, and packing lists are not available in your workspace.
+          </p>
+          <Link href="/export/bulking?view=operations" className={styles.permissionDeniedLink}>
+            Switch to Operations view →
+          </Link>
+        </div>
       )}
       <div className={styles.expandActions}>
         <Link
-          href={listView === "documentation" ? `/export/bulking/${row.id}?focus=documents` : `/export/bulking/${row.id}`}
+          href={listView === "documentation" ? `/export/bulking/${row.id}?tab=documentation` : `/export/bulking/${row.id}`}
           className={styles.expandDetailLink}
         >
           Open full detail →

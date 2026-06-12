@@ -1,11 +1,9 @@
 export const EXPORT_BULKING_STATUSES = [
   "SHIPMENT_PLANNING",
   "NOMINATION",
-  "SI_RECEIVE",
   "ARRIVAL",
   "AT_BERTH",
   "LOADING",
-  "NPE",
   "CASE_OFF",
 ] as const;
 
@@ -14,17 +12,25 @@ export type ExportBulkingStatus = (typeof EXPORT_BULKING_STATUSES)[number];
 export const EXPORT_BULKING_STATUS_LABELS: Record<ExportBulkingStatus, string> = {
   SHIPMENT_PLANNING: "Shipment Planning",
   NOMINATION: "Nomination",
-  SI_RECEIVE: "SI Received",
   ARRIVAL: "Arrival",
   AT_BERTH: "At Berth",
   LOADING: "Loading",
-  NPE: "Pre-shipment",
   CASE_OFF: "Case Off",
+};
+
+/** Legacy DB values kept for display of historical status events. */
+export const EXPORT_BULKING_LEGACY_STATUS_LABELS: Record<string, string> = {
+  SI_RECEIVE: "SI Received",
+  NPE: "Pre-shipment",
 };
 
 export function formatExportBulkingStatus(raw: string | null | undefined): string {
   if (!raw) return "—";
-  return EXPORT_BULKING_STATUS_LABELS[raw as ExportBulkingStatus] ?? raw.replace(/_/g, " ");
+  return (
+    EXPORT_BULKING_STATUS_LABELS[raw as ExportBulkingStatus] ??
+    EXPORT_BULKING_LEGACY_STATUS_LABELS[raw] ??
+    raw.replace(/_/g, " ")
+  );
 }
 
 export interface ExportBulkingListItem {
@@ -97,6 +103,7 @@ export interface ExportBulkingShipmentDetail {
   sent_sr: string | null;
   sent_sustainability: string | null;
   present_docs: string | null;
+  required_sent_documents: string[] | null;
   peb_request_no: string | null;
   peb_no: string | null;
   peb_date: string | null;
@@ -179,6 +186,8 @@ export interface ShippingInstruction {
   lines: SiLine[];
 }
 
+export type BlSplitEntry = { count: number; quantity: number };
+
 export interface SiLine {
   id: string;
   si_id: string;
@@ -186,6 +195,8 @@ export interface SiLine {
   description_of_goods: string | null;
   quantity: number | null;
   bl_split_qty: number | null;
+  bl_splits?: BlSplitEntry[] | null;
+  bl_split_text?: string | null;
   destination_port: string | null;
 }
 
@@ -221,6 +232,7 @@ export interface InvoiceLine {
 export interface PackingList {
   id: string;
   shipment_id: string;
+  shipping_instruction_id?: string | null;
   packing_list_number: string | null;
   doc_number_held_by_user_id?: string | null;
   loadport_snapshot: string | null;

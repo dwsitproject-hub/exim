@@ -14,6 +14,8 @@ export function ProcessChecklist({
   compact?: boolean;
 }) {
   const summary = buildExportCompletionSummary(input);
+  const barTone =
+    summary.percent >= 70 ? styles.barFillHigh : summary.percent >= 30 ? styles.barFillMid : styles.barFillLow;
 
   return (
     <div
@@ -38,7 +40,7 @@ export function ProcessChecklist({
         aria-valuemin={0}
         aria-valuemax={100}
       >
-        <div className={styles.barFill} style={{ width: `${summary.percent}%` }} />
+        <div className={`${styles.barFill} ${barTone}`} style={{ width: `${summary.percent}%` }} />
       </div>
       {!compact && (
         <ul className={styles.list}>
