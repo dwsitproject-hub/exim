@@ -39,3 +39,11 @@ export function isPibTypeConsignmentNote(stored: string | null | undefined): boo
   const canonical = PIB_TYPE_CANONICAL[v] ?? v;
   return canonical === "Consignment Note";
 }
+
+/** PIB BC 2.0 (incl. legacy "BC 20"): arrival customs docs include Billing and BPN. */
+export function isPibTypeBc20(stored: string | null | undefined): boolean {
+  const v = stored != null ? String(stored).trim() : "";
+  if (!v) return false;
+  const canonical = PIB_TYPE_CANONICAL[v] ?? v;
+  return canonical === "BC 2.0";
+}

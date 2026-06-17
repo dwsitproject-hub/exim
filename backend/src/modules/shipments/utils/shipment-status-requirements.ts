@@ -5,7 +5,7 @@
  * **Ship by** (Sea): only when leaving TRANSPORT_CONFIRMED, not Initiate.
  */
 
-import { isPibTypeBc23, isPibTypeConsignmentNote } from "../../../shared/pib-type.js";
+import { isPibTypeBc23, isPibTypeBc20, isPibTypeConsignmentNote } from "../../../shared/pib-type.js";
 
 export const SHIPMENT_STATUS_ORDER = [
   "INITIATE_SHIPPING_DOCUMENT",
@@ -81,6 +81,10 @@ const STATUS_DOC_LABELS: Record<string, string> = {
   "doc:sppb": "SPPB (Documents)",
   "doc:sppbmcp": "SPPBMCP (Documents)",
   "doc:vo": "VO (Documents — required at Ready Pickup when Surveyor is Yes)",
+  "doc:billing": "Billing (Documents)",
+  "doc:bpn": "BPN (Documents)",
+  "doc:inbound_charge": "Inbound Charge (Documents)",
+  "doc:bukti_bayar": "Bukti Bayar (Documents)",
 };
 
 const STATUS_REQUIRED_DOCS: Record<string, string[]> = {
@@ -411,6 +415,22 @@ function hasVoDoc(docs: DocumentRowForValidation[]): boolean {
   return docs.some((d) => d.document_type === "VO");
 }
 
+function hasBillingDoc(docs: DocumentRowForValidation[]): boolean {
+  return docs.some((d) => d.document_type === "BILLING");
+}
+
+function hasBpnDoc(docs: DocumentRowForValidation[]): boolean {
+  return docs.some((d) => d.document_type === "BPN");
+}
+
+function hasInboundChargeDoc(docs: DocumentRowForValidation[]): boolean {
+  return docs.some((d) => d.document_type === "INBOUND_CHARGE");
+}
+
+function hasBuktiBayarDoc(docs: DocumentRowForValidation[]): boolean {
+  return docs.some((d) => d.document_type === "BUKTI_BAYAR");
+}
+
 function isSurveyorYes(surveyor: string | null | undefined): boolean {
   return (surveyor ?? "").trim() === "Yes";
 }
@@ -447,6 +467,13 @@ function addEnforcedDocsForLifecycleStatus(
   if (statusKey === "CUSTOMS_CLEARANCE") {
     if (isPibTypeConsignmentNote(pibType)) {
       if (!hasSppbmcpDoc(docs)) missing.add("doc:sppbmcp");
+      if (!hasInboundChargeDoc(docs)) missing.add("doc:inbound_charge");
+      if (!hasBuktiBayarDoc(docs)) missing.add("doc:bukti_bayar");
+    } else if (isPibTypeBc20(pibType)) {
+      if (!hasPibBcDoc(docs)) missing.add("doc:pib_bc");
+      if (!hasSppbDoc(docs)) missing.add("doc:sppb");
+      if (!hasBillingDoc(docs)) missing.add("doc:billing");
+      if (!hasBpnDoc(docs)) missing.add("doc:bpn");
     } else {
       if (!hasPibBcDoc(docs)) missing.add("doc:pib_bc");
       if (!hasSppbDoc(docs)) missing.add("doc:sppb");

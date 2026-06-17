@@ -14,7 +14,7 @@
  */
 
 import type { ShipmentDocumentListItem } from "@/types/shipments";
-import { isPibTypeBc23, isPibTypeConsignmentNote } from "@/lib/pib-type-label";
+import { isPibTypeBc23, isPibTypeBc20, isPibTypeConsignmentNote } from "@/lib/pib-type-label";
 
 export const SHIPMENT_STATUS_ORDER = [
   "INITIATE_SHIPPING_DOCUMENT",
@@ -99,6 +99,10 @@ export const STATUS_DOC_REQUIREMENT_LABELS: Record<string, string> = {
   "doc:sppb": "SPPB (Documents)",
   "doc:sppbmcp": "SPPBMCP (Documents)",
   "doc:vo": "VO (Documents — required at Ready Pickup when Surveyor is Yes)",
+  "doc:billing": "Billing (Documents)",
+  "doc:bpn": "BPN (Documents)",
+  "doc:inbound_charge": "Inbound Charge (Documents)",
+  "doc:bukti_bayar": "Bukti Bayar (Documents)",
 };
 
 /**
@@ -438,6 +442,22 @@ function hasVoDoc(docs: ShipmentDocumentListItem[]): boolean {
   return docs.some((d) => d.document_type === "VO");
 }
 
+function hasBillingDoc(docs: ShipmentDocumentListItem[]): boolean {
+  return docs.some((d) => d.document_type === "BILLING");
+}
+
+function hasBpnDoc(docs: ShipmentDocumentListItem[]): boolean {
+  return docs.some((d) => d.document_type === "BPN");
+}
+
+function hasInboundChargeDoc(docs: ShipmentDocumentListItem[]): boolean {
+  return docs.some((d) => d.document_type === "INBOUND_CHARGE");
+}
+
+function hasBuktiBayarDoc(docs: ShipmentDocumentListItem[]): boolean {
+  return docs.some((d) => d.document_type === "BUKTI_BAYAR");
+}
+
 function isSurveyorYes(surveyor: string | null | undefined): boolean {
   return (surveyor ?? "").trim() === "Yes";
 }
@@ -488,6 +508,13 @@ function addEnforcedDocsForLifecycleStatus(
   if (statusKey === "CUSTOMS_CLEARANCE") {
     if (isPibTypeConsignmentNote(pibType)) {
       if (!hasSppbmcpDoc(docs)) missing.add("doc:sppbmcp");
+      if (!hasInboundChargeDoc(docs)) missing.add("doc:inbound_charge");
+      if (!hasBuktiBayarDoc(docs)) missing.add("doc:bukti_bayar");
+    } else if (isPibTypeBc20(pibType)) {
+      if (!hasPibBcDoc(docs)) missing.add("doc:pib_bc");
+      if (!hasSppbDoc(docs)) missing.add("doc:sppb");
+      if (!hasBillingDoc(docs)) missing.add("doc:billing");
+      if (!hasBpnDoc(docs)) missing.add("doc:bpn");
     } else {
       if (!hasPibBcDoc(docs)) missing.add("doc:pib_bc");
       if (!hasSppbDoc(docs)) missing.add("doc:sppb");
@@ -531,7 +558,8 @@ export function getRequiredDocsForStatus(status: string): string[] {
 }
 
 function customsClearanceDocHintLines(pibType: string | null | undefined): string[] {
-  if (isPibTypeConsignmentNote(pibType)) return ["SPPBMCP"];
+  if (isPibTypeConsignmentNote(pibType)) return ["SPPBMCP", "Inbound Charge", "Bukti Bayar"];
+  if (isPibTypeBc20(pibType)) return ["PIB / BC", "SPPB", "Billing", "BPN"];
   return STATUS_REQUIRED_DOCS.CUSTOMS_CLEARANCE ?? [];
 }
 
