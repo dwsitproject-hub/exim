@@ -9,6 +9,8 @@ export const EXPORT_BULKING_STATUSES = [
 
 export type ExportBulkingStatus = (typeof EXPORT_BULKING_STATUSES)[number];
 
+export type ExportBulkingAssignmentFilter = "unassigned" | "assigned_to_me";
+
 export const EXPORT_BULKING_STATUS_LABELS: Record<ExportBulkingStatus, string> = {
   SHIPMENT_PLANNING: "Shipment Planning",
   NOMINATION: "Nomination",
@@ -58,7 +60,15 @@ export interface ExportBulkingListItem {
   si_numbers?: string[] | null;
   invoice_numbers?: string[] | null;
   pl_numbers?: string[] | null;
+  cargo_names?: string[] | null;
+  peb_no?: string | null;
+  peb_date?: string | null;
+  bill_of_lading_no?: string | null;
+  bill_of_lading_date?: string | null;
   invoice_line_summaries?: { contract_no: string | null; quantity: number | null; so_no: string | null }[] | null;
+  documentation_assigned_to?: string | null;
+  documentation_assignee_name?: string | null;
+  documentation_assigned_at?: string | null;
 }
 
 export interface ExportBulkingShipmentDetail {
@@ -270,6 +280,7 @@ export interface ListExportBulkingQuery {
   statuses?: string[];
   sort_by?: string;
   sort_dir?: "asc" | "desc";
+  assignment?: ExportBulkingAssignmentFilter;
 }
 
 export interface StatusEvent {
@@ -280,4 +291,15 @@ export interface StatusEvent {
   changed_by: string | null;
   changed_at: string;
   remarks: string | null;
+}
+
+export interface ExportBulkingDocumentListItem {
+  id: string;
+  shipment_id: string;
+  document_type: string;
+  original_file_name: string;
+  mime_type: string | null;
+  size_bytes: number;
+  uploaded_by: string;
+  uploaded_at: string;
 }

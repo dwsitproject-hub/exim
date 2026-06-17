@@ -23,6 +23,9 @@ import {
   getExportBulkingFilterOptions,
   updateExportBulkingShipment,
   createExportBulkingShipment,
+  listExportBulkingDocumentationAssignees,
+  assignExportBulkingDocumentation,
+  type ExportBulkingDocumentationAssignee,
 } from "@/services/export-bulking-service";
 import {
   listShippers,
@@ -33,30 +36,44 @@ import {
 } from "@/services/shipper-service";
 import { Modal } from "@/components/overlays";
 import { ComboboxSelect } from "@/components/forms/ComboboxSelect/ComboboxSelect";
+import { ComboboxSelectById } from "@/components/forms/ComboboxSelect/ComboboxSelectById";
 import { ComboboxSelectCreatable } from "@/components/forms/ComboboxSelect/ComboboxSelectCreatable";
 import { LoadingSkeleton } from "@/components/feedback";
 import { EmptyState } from "@/components/navigation";
+import { StatusBadge, StatusFilterPill } from "@/components/badges/StatusBadge";
 import {
   TableColumnPicker,
   TableColumnFilterPicker,
+  TablePagination,
 } from "@/components/tables";
 import { useToast } from "@/components/providers/ToastProvider";
 import { ProcessChecklist } from "@/components/export-bulking/ProcessChecklist";
 import { can } from "@/lib/permissions";
 import {
   BACKLOG_FILTER_LABELS,
+  ASSIGNMENT_FILTER_LABELS,
+  getDefaultAssignmentFilter,
   getDefaultBulkingView,
   matchesBacklogFilter,
+  parseAssignmentFilter,
   parseBacklogFilter,
   parseListView,
+  type ExportBulkingAssignmentFilter,
   type ExportBulkingBacklogFilter,
   type ExportBulkingListView,
 } from "@/lib/export-bulking-backlog";
 import {
+  DOCUMENTATION_COLUMN_LABELS,
+  DOCUMENTATION_LIST_COLUMN_IDS,
   EXPORT_DOC_COLUMN_IDS,
+  buildBulkingDetailUrl,
+  canEditExportBulking,
+  canEditExportDocumentation,
+  canEditExportOperations,
   expandRowAriaLabel,
   getAvailableBulkingListViews,
   isDocumentationBacklogFilter,
+  isExportBulkingDocumentationOfficer,
   resolveBulkingListView,
 } from "@/lib/export-workspace";
 import {
@@ -73,13 +90,14 @@ import type {
   ListExportBulkingQuery,
 } from "@/types/export-bulking";
 import { formatExportBulkingStatus } from "@/types/export-bulking";
+import { getExportBulkingShortLabel } from "@/lib/entity-status";
 import styles from "./ExportBulkingList.module.css";
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 25;
 const BACKLOG_FETCH_LIMIT = 100;
 
-const TABLE_COLUMNS_KEY = "eos.export.bulkingGrid.tableColumns.v9";
+const TABLE_COLUMNS_KEY = "eos.export.bulkingGrid.tableColumns.v13";
 
 /* ────────── column metadata ────────── */
 
@@ -88,24 +106,40 @@ interface GridColumnDef extends TableColumnDef {
   editable?: boolean;
   rbacGated?: boolean;
   width?: number;
+  minWidth?: number;
   multiValue?: boolean;
 }
 
+/** Columns that show long formatted document numbers — need flexible width. */
+const DOC_NUMBER_COLUMN_IDS = new Set([
+  "si_no",
+  "invoice_no",
+  "pl_no",
+  "peb_no",
+  "bl_no",
+]);
+
 const BASE_COLUMNS: GridColumnDef[] = [
-  { id: "_expand", label: "", locked: true, width: 36 },
-  { id: "shipment_no", label: "Shipment No.", locked: true, width: 148 },
-  { id: "progress", label: "Progress", width: 88 },
-  { id: "status", label: "Status", locked: true, width: 144 },
-  { id: "vessel", label: "Vessel Name", locked: true, width: 168, editable: true, dbField: "vessel_name" },
-  { id: "voyage", label: "Voyage No.", editable: true, dbField: "voyage_number", width: 112 },
-  { id: "shipper", label: "Shipper", editable: true, dbField: "shipper", width: 152 },
-  { id: "loadport", label: "Load Port", editable: true, dbField: "loadport_name", width: 140 },
-  { id: "total_qty", label: "Total Qty", editable: true, dbField: "total_quantity", width: 112 },
-  { id: "eta", label: "ETA", width: 96 },
-  { id: "si_no", label: "SI No.", width: 120, multiValue: true, defaultVisible: false },
-  { id: "invoice_no", label: "Invoice No.", width: 128, multiValue: true, defaultVisible: false },
-  { id: "pl_no", label: "PL No.", width: 120, multiValue: true, defaultVisible: false },
-  { id: "_actions", label: "", locked: true, width: 72 },
+  { id: "_expand", label: "", locked: true, width: 36, minWidth: 36 },
+  { id: "shipment_no", label: "Shipment No.", locked: true, width: 148, minWidth: 132 },
+  { id: "progress", label: "Progress", width: 88, minWidth: 72 },
+  { id: "status", label: "Status", locked: true, width: 144, minWidth: 120 },
+  { id: "cargo_name", label: "Cargo Name", width: 148, minWidth: 120, multiValue: true, defaultVisible: false, rbacGated: true },
+  { id: "total_qty", label: "Total Qty", editable: true, dbField: "total_quantity", width: 112, minWidth: 88 },
+  { id: "vessel", label: "Vessel Name", locked: true, width: 168, minWidth: 120, editable: true, dbField: "vessel_name" },
+  { id: "voyage", label: "Voyage No.", editable: true, dbField: "voyage_number", width: 112, minWidth: 88 },
+  { id: "pic_documentation", label: "PIC documentation", width: 168, minWidth: 140, defaultVisible: false, rbacGated: true },
+  { id: "shipper", label: "Shipper", editable: true, dbField: "shipper", width: 152, minWidth: 120 },
+  { id: "loadport", label: "Load Port", editable: true, dbField: "loadport_name", width: 140, minWidth: 100 },
+  { id: "eta", label: "ETA", width: 96, minWidth: 80 },
+  { id: "si_no", label: "No SI", width: 220, minWidth: 200, multiValue: true, defaultVisible: false, rbacGated: true },
+  { id: "invoice_no", label: "No Invoice", width: 240, minWidth: 220, multiValue: true, defaultVisible: false, rbacGated: true },
+  { id: "pl_no", label: "No Packing List", width: 240, minWidth: 220, multiValue: true, defaultVisible: false, rbacGated: true },
+  { id: "peb_no", label: "No PEB", width: 160, minWidth: 120, defaultVisible: false, rbacGated: true },
+  { id: "peb_date", label: "PEB date", width: 96, minWidth: 88 },
+  { id: "bl_no", label: "No BL", width: 180, minWidth: 140, defaultVisible: false, rbacGated: true },
+  { id: "bl_date", label: "BL date", width: 96, minWidth: 88 },
+  { id: "_actions", label: "", locked: true, width: 72, minWidth: 72 },
 ];
 
 function renderMultiValueTags(values: string[] | null | undefined): ReactNode {
@@ -114,10 +148,27 @@ function renderMultiValueTags(values: string[] | null | undefined): ReactNode {
   return (
     <span className={styles.tagList}>
       {list.map((v) => (
-        <span key={v} className={styles.tag}>{v}</span>
+        <span key={v} className={styles.tag} title={v}>
+          {v}
+        </span>
       ))}
     </span>
   );
+}
+
+function columnSizeStyle(col: GridColumnDef): React.CSSProperties | undefined {
+  const min = col.minWidth ?? col.width;
+  const width = col.width ?? min;
+  if (!min && !width) return undefined;
+  return {
+    width,
+    minWidth: min,
+    boxSizing: "border-box",
+  };
+}
+
+function isDocNumberColumn(col: GridColumnDef): boolean {
+  return col.multiValue === true || DOC_NUMBER_COLUMN_IDS.has(col.id);
 }
 
 function buildBulkingUrl(params: URLSearchParams): string {
@@ -142,6 +193,10 @@ function mapSortFieldForApi(columnId: string | null): string | undefined {
     loadport: "loadport_name",
     total_qty: "total_quantity",
     eta: "eta",
+    peb_no: "peb_no",
+    peb_date: "peb_date",
+    bl_no: "bill_of_lading_no",
+    bl_date: "bill_of_lading_date",
   };
   return allowed[columnId];
 }
@@ -178,34 +233,6 @@ function formatShortDate(iso: string | null | undefined): string {
   }
 }
 
-function statusPillClass(status: string | null | undefined): string {
-  switch (status) {
-    case "SHIPMENT_PLANNING": return styles.statusPlanning;
-    case "NOMINATION": return styles.statusNomination;
-    case "SI_RECEIVE": return styles.statusSiReceive;
-    case "ARRIVAL": return styles.statusArrival;
-    case "AT_BERTH": return styles.statusAtBerth;
-    case "LOADING": return styles.statusLoading;
-    case "NPE": return styles.statusNpe;
-    case "CASE_OFF": return styles.statusCaseOff;
-    default: return styles.statusPlanning;
-  }
-}
-
-function shortStatusLabel(raw: string): string {
-  switch (raw) {
-    case "SHIPMENT_PLANNING": return "Planning";
-    case "NOMINATION": return "Nomination";
-    case "SI_RECEIVE": return "SI Recv";
-    case "ARRIVAL": return "Arrival";
-    case "AT_BERTH": return "At Berth";
-    case "LOADING": return "Loading";
-    case "NPE": return "Pre-ship";
-    case "CASE_OFF": return "Case Off";
-    default: return formatExportBulkingStatus(raw);
-  }
-}
-
 function formatThousands(value: string): string {
   const cleaned = value.replace(/[^0-9.]/g, "");
   const parts = cleaned.split(".");
@@ -230,6 +257,14 @@ function getCellValue(row: ExportBulkingListItem, colId: string): string {
     case "shipper": return row.shipper ?? "";
     case "loadport": return row.loadport_name ?? "";
     case "total_qty": return row.total_quantity != null ? String(row.total_quantity) : "";
+    case "cargo_name": return (row.cargo_names ?? []).join(" ");
+    case "si_no": return (row.si_numbers ?? []).join(" ");
+    case "invoice_no": return (row.invoice_numbers ?? []).join(" ");
+    case "pl_no": return (row.pl_numbers ?? []).join(" ");
+    case "peb_no": return row.peb_no ?? "";
+    case "peb_date": return row.peb_date ?? "";
+    case "bl_no": return row.bill_of_lading_no ?? "";
+    case "bl_date": return row.bill_of_lading_date ?? "";
     default: return "";
   }
 }
@@ -244,10 +279,16 @@ export function ExportBulkingList() {
   const searchFromUrl = searchParams.get("search") ?? "";
   const viewFromUrl = parseListView(searchParams.get("view"));
   const backlogFromUrl = parseBacklogFilter(searchParams.get("backlog"));
+  const assignmentFromUrl = parseAssignmentFilter(searchParams.get("assignment"));
   const statusesFromUrl = searchParams.getAll("statuses");
 
   const syncParamsToUrl = useCallback(
-    (patch: { search?: string; view?: ExportBulkingListView | null; backlog?: ExportBulkingBacklogFilter | null }) => {
+    (patch: {
+      search?: string;
+      view?: ExportBulkingListView | null;
+      backlog?: ExportBulkingBacklogFilter | null;
+      assignment?: ExportBulkingAssignmentFilter | null;
+    }) => {
       const p = new URLSearchParams(searchParams.toString());
       if (patch.search !== undefined) {
         if (patch.search) p.set("search", patch.search);
@@ -260,6 +301,10 @@ export function ExportBulkingList() {
       if (patch.backlog !== undefined) {
         if (patch.backlog) p.set("backlog", patch.backlog);
         else p.delete("backlog");
+      }
+      if (patch.assignment !== undefined) {
+        if (patch.assignment) p.set("assignment", patch.assignment);
+        else p.delete("assignment");
       }
       router.replace(buildBulkingUrl(p), { scroll: false });
     },
@@ -277,11 +322,16 @@ export function ExportBulkingList() {
   const defaultListView = getDefaultBulkingView(user);
   const listView = resolveBulkingListView(viewFromUrl, user, defaultListView);
   const backlogFilter = backlogFromUrl;
+  const assignmentFilter = assignmentFromUrl;
   const backlogActive = backlogFilter != null;
+  const isDocumentationOfficer = isExportBulkingDocumentationOfficer(user);
 
   const canViewDocs = can(user, "VIEW_EXPORT_DOCUMENTATION");
-  const canEditCargo = can(user, "UPDATE_EXPORT_BULKING");
+  const canEditOps = canEditExportOperations(user);
+  const canEditDocs = canEditExportDocumentation(user);
+  const canEditAny = canEditExportBulking(user);
   const canCreateShipment = can(user, "CREATE_EXPORT_BULKING");
+  const canAssignDocs = can(user, "ASSIGN_EXPORT_BULKING_DOCUMENTATION");
   const availableListViews = useMemo(() => getAvailableBulkingListViews(user), [user]);
 
   useEffect(() => {
@@ -297,17 +347,31 @@ export function ExportBulkingList() {
     }
   }, [viewFromUrl, availableListViews, listView, syncParamsToUrl, canViewDocs, backlogFromUrl]);
 
+  useEffect(() => {
+    if (assignmentFromUrl != null || !user) return;
+    const defaultAssignment = getDefaultAssignmentFilter(user);
+    if (defaultAssignment) {
+      syncParamsToUrl({ assignment: defaultAssignment });
+    }
+  }, [assignmentFromUrl, user, syncParamsToUrl]);
+
   const columnStorageKey = `${TABLE_COLUMNS_KEY}.${listView}`;
 
   const allColumns = useMemo<GridColumnDef[]>(() => {
     const docIds = new Set<string>(EXPORT_DOC_COLUMN_IDS);
     let base = [...BASE_COLUMNS];
     if (!canViewDocs) {
-      base = base.filter((c) => !docIds.has(c.id));
+      base = base.filter((c) => !docIds.has(c.id) && !c.rbacGated);
+    } else {
+      base = base.map((c) =>
+        c.id === "pic_documentation"
+          ? { ...c, defaultVisible: listView === "documentation" || canAssignDocs }
+          : c,
+      );
     }
     if (listView === "operations") {
       return base.map((c) => {
-        if (docIds.has(c.id)) return { ...c, defaultVisible: false };
+        if (docIds.has(c.id) || c.id === "pic_documentation") return { ...c, defaultVisible: false };
         if (["vessel", "voyage", "shipper", "loadport", "total_qty", "eta", "progress"].includes(c.id)) {
           return { ...c, defaultVisible: true };
         }
@@ -315,16 +379,15 @@ export function ExportBulkingList() {
       });
     }
     if (listView === "documentation") {
-      return base.map((c) => {
-        if (["si_no", "invoice_no", "pl_no", "progress"].includes(c.id)) return { ...c, defaultVisible: true };
-        if (["vessel", "voyage", "shipper", "loadport", "total_qty", "eta"].includes(c.id)) {
-          return { ...c, defaultVisible: false };
-        }
-        return c;
-      });
+      const docVisible = new Set<string>(DOCUMENTATION_LIST_COLUMN_IDS);
+      return base.map((c) => ({
+        ...c,
+        label: DOCUMENTATION_COLUMN_LABELS[c.id] ?? c.label,
+        defaultVisible: docVisible.has(c.id),
+      }));
     }
     return base;
-  }, [listView, canViewDocs]);
+  }, [listView, canViewDocs, canAssignDocs]);
 
   const {
     visibleById,
@@ -353,6 +416,17 @@ export function ExportBulkingList() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [creating, setCreating] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [docAssignees, setDocAssignees] = useState<ExportBulkingDocumentationAssignee[]>([]);
+  const [assignBusyId, setAssignBusyId] = useState<string | null>(null);
+  const docAssigneeOptions = useMemo(
+    () =>
+      docAssignees.map((u) => ({
+        id: u.id,
+        label: u.name?.trim() || u.email,
+        sublabel: u.name?.trim() ? u.email : undefined,
+      })),
+    [docAssignees],
+  );
   const closeCreateModal = useCallback(() => setShowCreateModal(false), []);
 
   /* ── shipper data for inline edit comboboxes ── */
@@ -420,6 +494,7 @@ export function ExportBulkingList() {
       page: backlogActive ? 1 : page,
       limit: backlogActive ? BACKLOG_FETCH_LIMIT : DEFAULT_LIMIT,
       search: searchParam.trim() || undefined,
+      assignment: assignmentFilter ?? undefined,
       ...fromCols,
     };
     const sortField = mapSortFieldForApi(sortBy);
@@ -438,7 +513,7 @@ export function ExportBulkingList() {
       .catch(() => setError("Failed to load export shipments"))
       .finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accessToken, page, searchParam, columnFiltersKey, statusLabelToRaw, sortBy, sortDir, backlogActive]);
+  }, [accessToken, page, searchParam, columnFiltersKey, statusLabelToRaw, sortBy, sortDir, backlogActive, assignmentFilter]);
 
   const displayItems = useMemo(() => {
     if (!backlogFilter) return items;
@@ -481,6 +556,35 @@ export function ExportBulkingList() {
   }, [accessToken]);
 
   useEffect(() => {
+    if (!accessToken || !canAssignDocs) return;
+    listExportBulkingDocumentationAssignees(accessToken).then((res) => {
+      if (isApiError(res)) return;
+      setDocAssignees(res.data ?? []);
+    });
+  }, [accessToken, canAssignDocs]);
+
+  const handleDocumentationAssign = useCallback(
+    async (shipmentId: string, assigneeUserId: string | null) => {
+      if (!accessToken) return;
+      setAssignBusyId(shipmentId);
+      const res = await assignExportBulkingDocumentation(shipmentId, assigneeUserId, accessToken);
+      if (isApiError(res)) {
+        pushToast(res.message, "error");
+      } else if (res.data) {
+        setItems((prev) =>
+          prev.map((it) => (it.id === shipmentId ? { ...it, ...res.data } : it)),
+        );
+        pushToast(
+          assigneeUserId ? "Documentation officer assigned" : "Assignment cleared",
+          "success",
+        );
+      }
+      setAssignBusyId(null);
+    },
+    [accessToken, pushToast],
+  );
+
+  useEffect(() => {
     setSearchInput(searchFromUrl);
     setSearchParam(searchFromUrl);
     setPage(1);
@@ -503,6 +607,16 @@ export function ExportBulkingList() {
 
   function clearBacklogFilter() {
     syncParamsToUrl({ backlog: null });
+    setPage(1);
+  }
+
+  function toggleAssignmentFilter(filter: ExportBulkingAssignmentFilter) {
+    syncParamsToUrl({ assignment: assignmentFilter === filter ? null : filter });
+    setPage(1);
+  }
+
+  function clearAssignmentFilter() {
+    syncParamsToUrl({ assignment: null });
     setPage(1);
   }
 
@@ -532,8 +646,12 @@ export function ExportBulkingList() {
   /* ── navigation & interaction handlers ── */
 
   function navigateToDetail(id: string, mode: "view" | "edit" = "edit") {
-    const suffix = mode === "view" ? "?mode=view" : "";
-    router.push(`/export/bulking/${id}${suffix}`);
+    router.push(
+      buildBulkingDetailUrl(id, {
+        listView,
+        mode: mode === "view" ? "view" : undefined,
+      }),
+    );
   }
 
   async function loadRowExpandedData(rowId: string) {
@@ -592,7 +710,7 @@ export function ExportBulkingList() {
   /* ── inline editing ── */
 
   function startEditing(rowIdx: number, colIdx: number) {
-    if (!canEditCargo) return;
+    if (!canEditOps) return;
     const col = visibleColumns[colIdx] as GridColumnDef;
     if (!col?.editable) return;
     const row = displayItems[rowIdx];
@@ -794,11 +912,11 @@ export function ExportBulkingList() {
     if (col?.id === "_expand" || col?.id === "_actions") return;
     if (col?.id === "shipment_no" || col?.id === "progress") {
       const row = displayItems[rowIdx];
-      if (row) navigateToDetail(row.id, canEditCargo ? "edit" : "view");
+      if (row) navigateToDetail(row.id, canEditAny ? "edit" : "view");
       return;
     }
 
-    if (col?.editable && canEditCargo) {
+    if (col?.editable && canEditOps) {
       // If already editing this exact cell, do nothing — don't steal focus from combobox
       if (editingCell?.row === rowIdx && editingCell?.col === colIdx) return;
       // Single-click starts editing immediately
@@ -898,7 +1016,8 @@ export function ExportBulkingList() {
     const parts: string[] = [];
     if (col.id === "_expand") parts.push(styles.expandCol);
     if (col.id === "_actions") parts.push(styles.actionsCol);
-    if (col.editable && canEditCargo) parts.push(styles.editableCell);
+    if (isDocNumberColumn(col)) parts.push(styles.docNumberCell);
+    if (col.editable && canEditOps) parts.push(styles.editableCell);
     if (activeCell?.row === rowIdx && activeCell?.col === colIdx && !editingCell) parts.push(styles.cellActive);
 
     const cellKey = `${row.id}:${col.id}`;
@@ -933,7 +1052,10 @@ export function ExportBulkingList() {
       case "shipment_no":
         return (
           <Link
-            href={canEditCargo ? `/export/bulking/${row.id}` : `/export/bulking/${row.id}?mode=view`}
+            href={buildBulkingDetailUrl(row.id, {
+              listView,
+              mode: canEditAny ? undefined : "view",
+            })}
             className={`${styles.shipmentNoCell} ${styles.cellLink}`}
             onClick={(e) => e.stopPropagation()}
           >
@@ -963,9 +1085,7 @@ export function ExportBulkingList() {
         );
       case "status":
         return (
-          <span className={`${styles.statusPill} ${statusPillClass(row.current_status)}`}>
-            {formatExportBulkingStatus(row.current_status)}
-          </span>
+          <StatusBadge domain="export-bulking" status={row.current_status} visual="pill" />
         );
       case "eta": {
         const displayDate = row.ata ?? row.eta;
@@ -1003,6 +1123,54 @@ export function ExportBulkingList() {
         return renderMultiValueTags(row.invoice_numbers);
       case "pl_no":
         return renderMultiValueTags(row.pl_numbers);
+      case "cargo_name":
+        return renderMultiValueTags(row.cargo_names);
+      case "peb_no":
+        return row.peb_no?.trim() ? (
+          <span className={styles.docNumberText} title={row.peb_no}>
+            {row.peb_no}
+          </span>
+        ) : (
+          <span className={styles.cellEmpty}>—</span>
+        );
+      case "peb_date":
+        return formatShortDate(row.peb_date);
+      case "bl_no":
+        return row.bill_of_lading_no?.trim() ? (
+          <span className={styles.docNumberText} title={row.bill_of_lading_no}>
+            {row.bill_of_lading_no}
+          </span>
+        ) : (
+          <span className={styles.cellEmpty}>—</span>
+        );
+      case "bl_date":
+        return formatShortDate(row.bill_of_lading_date);
+      case "doc_assignee":
+      case "pic_documentation":
+        if (canAssignDocs) {
+          return (
+            <ComboboxSelectById
+              className={styles.docAssignCombobox}
+              inputClassName={styles.docAssignComboboxInput}
+              options={docAssigneeOptions}
+              value={row.documentation_assigned_to ?? ""}
+              disabled={assignBusyId === row.id}
+              allowEmpty
+              emptyLabel="Unassigned"
+              placeholder="Search officer…"
+              aria-label={`Assign PIC documentation for ${row.shipment_no}`}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(nextId) => {
+                void handleDocumentationAssign(row.id, nextId.trim() || null);
+              }}
+            />
+          );
+        }
+        return row.documentation_assignee_name?.trim() ? (
+          row.documentation_assignee_name
+        ) : (
+          <span className={styles.cellEmpty}>Unassigned</span>
+        );
       case "_actions":
         return (
           <div className={styles.rowActions}>
@@ -1018,7 +1186,7 @@ export function ExportBulkingList() {
             >
               <Eye size={15} strokeWidth={2} aria-hidden />
             </button>
-            {canEditCargo && (
+            {canEditOps && (
               <button
                 type="button"
                 className={styles.rowActionBtn}
@@ -1049,7 +1217,8 @@ export function ExportBulkingList() {
             data={rowExpandedData[row.id] ?? null}
             loading={!!rowExpandLoading[row.id]}
             canViewDocs={canViewDocs}
-            canEditCargo={canEditCargo}
+            canEditCargo={canEditOps}
+            canEditDocs={canEditDocs}
             listView={listView}
             onRefresh={() => refreshRowExpandedData(row.id)}
           />
@@ -1091,7 +1260,11 @@ export function ExportBulkingList() {
             <Search size={14} className={styles.searchIcon} aria-hidden />
             <input
               type="search"
-              placeholder="Search shipment, vessel, shipper…"
+              placeholder={
+                listView === "documentation"
+                  ? "Search shipment, cargo, SI, invoice, PL, PEB, BL…"
+                  : "Search shipment, vessel, shipper…"
+              }
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               className={styles.searchInput}
@@ -1106,16 +1279,18 @@ export function ExportBulkingList() {
               const isActive = (columnFilters["status"] ?? []).includes(label);
               const count = filterOptions.status_counts?.[rawStatus];
               return (
-                <button
+                <StatusFilterPill
                   key={rawStatus}
-                  type="button"
-                  className={`${styles.statusPillBtn} ${statusPillClass(rawStatus)} ${isActive ? styles.statusPillBtnActive : ""}`}
+                  domain="export-bulking"
+                  status={rawStatus}
+                  active={isActive}
                   onClick={() => toggleStatusPill(rawStatus)}
                   title={label}
+                  className={`${styles.statusPillBtn} ${isActive ? styles.statusPillBtnActive : ""}`.trim()}
                 >
-                  {shortStatusLabel(rawStatus)}
+                  {getExportBulkingShortLabel(rawStatus)}
                   {count != null && <span className={styles.pillCount}>{count}</span>}
-                </button>
+                </StatusFilterPill>
               );
             })}
             {hasActiveFilters && (
@@ -1128,6 +1303,31 @@ export function ExportBulkingList() {
               </button>
             )}
           </div>
+
+          {(canAssignDocs || isDocumentationOfficer) && (
+            <div className={styles.pillGroup} role="group" aria-label="PIC assignment filters">
+              {canAssignDocs && (
+                <button
+                  type="button"
+                  className={`${styles.assignmentPillBtn} ${assignmentFilter === "unassigned" ? styles.assignmentPillBtnActive : ""}`}
+                  onClick={() => toggleAssignmentFilter("unassigned")}
+                  aria-pressed={assignmentFilter === "unassigned"}
+                >
+                  {ASSIGNMENT_FILTER_LABELS.unassigned}
+                </button>
+              )}
+              {isDocumentationOfficer && (
+                <button
+                  type="button"
+                  className={`${styles.assignmentPillBtn} ${assignmentFilter === "assigned_to_me" ? styles.assignmentPillBtnActive : ""}`}
+                  onClick={() => toggleAssignmentFilter("assigned_to_me")}
+                  aria-pressed={assignmentFilter === "assigned_to_me"}
+                >
+                  {ASSIGNMENT_FILTER_LABELS.assigned_to_me}
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         <div className={styles.toolbarRight}>
@@ -1194,7 +1394,29 @@ export function ExportBulkingList() {
             <span aria-hidden> ×</span>
           </button>
         )}
+        {assignmentFilter && (
+          <button type="button" className={styles.backlogChip} onClick={clearAssignmentFilter}>
+            Filter: {ASSIGNMENT_FILTER_LABELS[assignmentFilter]}
+            <span aria-hidden> ×</span>
+          </button>
+        )}
       </div>
+
+      {assignmentFilter && !backlogFilter && (
+        <p className={styles.backlogBanner}>
+          Showing shipments{" "}
+          {assignmentFilter === "assigned_to_me" ? (
+            <>
+              <strong>assigned to you</strong>
+            </>
+          ) : (
+            <>
+              with <strong>{ASSIGNMENT_FILTER_LABELS[assignmentFilter].toLowerCase()}</strong>
+            </>
+          )}
+          .
+        </p>
+      )}
 
       {backlogFilter && (
         <p className={styles.backlogBanner}>
@@ -1225,7 +1447,9 @@ export function ExportBulkingList() {
             description={
               backlogFilter
                 ? `No shipments match "${BACKLOG_FILTER_LABELS[backlogFilter]}". Try clearing the filter.`
-                : searchParam.trim() || Object.keys(columnFilters).some((k) => columnFilters[k]?.length)
+                : assignmentFilter
+                  ? `No shipments match "${ASSIGNMENT_FILTER_LABELS[assignmentFilter]}". Try clearing the filter.`
+                  : searchParam.trim() || Object.keys(columnFilters).some((k) => columnFilters[k]?.length)
                 ? "Try adjusting search or column filters."
                 : 'Click "New shipment" to create your first export bulking shipment.'
             }
@@ -1242,7 +1466,7 @@ export function ExportBulkingList() {
             <colgroup>
               {visibleColumns.map((c) => {
                 const col = c as GridColumnDef;
-                return <col key={col.id} style={{ width: col.width }} />;
+                return <col key={col.id} style={columnSizeStyle(col)} />;
               })}
             </colgroup>
             <thead>
@@ -1255,12 +1479,13 @@ export function ExportBulkingList() {
                   return (
                     <th
                       key={col.id}
-                      className={col.id === "_expand" ? styles.expandCol : undefined}
-                      style={
-                        col.width
-                          ? { width: col.width, minWidth: col.width, boxSizing: "border-box" }
-                          : undefined
-                      }
+                      className={[
+                        col.id === "_expand" ? styles.expandCol : "",
+                        isDocNumberColumn(col) ? styles.docNumberCell : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" ") || undefined}
+                      style={columnSizeStyle(col)}
                       aria-sort={
                         sortBy === col.id
                           ? sortDir === "asc" ? "ascending" : "descending"
@@ -1312,11 +1537,7 @@ export function ExportBulkingList() {
                           key={col.id}
                           className={cellClassName(rowIdx, colIdx, col, row)}
                           onClick={(e) => handleCellClick(rowIdx, colIdx, e)}
-                          style={
-                            col.width
-                              ? { width: col.width, minWidth: col.width, boxSizing: "border-box" }
-                              : undefined
-                          }
+                          style={columnSizeStyle(col)}
                         >
                           {renderCellContent(row, col, rowIdx, colIdx)}
                         </td>
@@ -1333,28 +1554,17 @@ export function ExportBulkingList() {
 
       {/* ── Pagination footer ── */}
       {!backlogActive && totalPages > 0 && (
-        <div className={styles.paginationBar}>
-          <button
-            type="button"
-            className={styles.pageBtn}
-            disabled={page <= 1}
-            onClick={() => setPage((p) => p - 1)}
-          >
-            ← Previous
-          </button>
-          <span className={styles.pageInfo}>
-            Page {page} of {totalPages}
-            {meta && <span className={styles.pageInfoTotal}> · {meta.total} shipments</span>}
-          </span>
-          <button
-            type="button"
-            className={styles.pageBtn}
-            disabled={page >= totalPages}
-            onClick={() => setPage((p) => p + 1)}
-          >
-            Next →
-          </button>
-        </div>
+        <TablePagination
+          page={page}
+          totalPages={totalPages}
+          totalItems={meta?.total}
+          itemNoun="shipments"
+          showWhenSinglePage
+          previousLabel="← Previous"
+          nextLabel="Next →"
+          onPageChange={setPage}
+          className={styles.paginationBar}
+        />
       )}
 
       <CreateShipmentModal

@@ -8,8 +8,9 @@ import { useTableColumnVisibility, type TableColumnDef } from "@/hooks/use-table
 import { listPo, getPoListFilterOptions } from "@/services/po-service";
 import { Card } from "@/components/cards";
 import { LoadingSkeleton } from "@/components/feedback";
-import { Badge } from "@/components/badges";
+import { StatusBadge } from "@/components/badges/StatusBadge";
 import { PageHeader, ActionBar, EmptyState } from "@/components/navigation";
+import { SearchBar, ButtonLink } from "@/components/forms";
 import {
   Table,
   TableHead,
@@ -19,8 +20,9 @@ import {
   TableHeaderCell,
   TableColumnPicker,
   TableColumnFilterPicker,
+  TablePagination,
 } from "@/components/tables";
-import { intakeStatusToBadgeVariant, formatStatusLabel } from "@/lib/status-badge";
+import { formatStatusLabel } from "@/lib/status-badge";
 import { formatPoStatusLabel } from "@/lib/po-status-label";
 import { isApiError } from "@/types/api";
 import { can } from "@/lib/permissions";
@@ -269,8 +271,7 @@ export function PoList() {
     router.push(`/import/po/${id}`);
   }
 
-  function handleSearchSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  function handleSearchSubmit() {
     setSearchParam(searchInput);
     setPage(1);
   }
@@ -327,7 +328,7 @@ export function PoList() {
       case "intake_status":
         return (
           <TableCell key={column.id}>
-            <Badge variant={intakeStatusToBadgeVariant(row.intake_status)}>{formatPoStatusLabel(row.intake_status)}</Badge>
+            <StatusBadge domain="po-intake" status={row.intake_status} visual="badge" />
           </TableCell>
         );
       case "actions":
@@ -360,25 +361,20 @@ export function PoList() {
 
       <ActionBar
         search={
-          <form onSubmit={handleSearchSubmit} className={styles.searchForm}>
-            <input
-              type="search"
-              placeholder="Search Purchase Order number, supplier…"
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              className={styles.searchInput}
-              aria-label="Search Purchase Order"
-            />
-            <button type="submit" className={styles.searchSubmit}>
-              Search
-            </button>
-          </form>
+          <SearchBar
+            value={searchInput}
+            onChange={setSearchInput}
+            onSubmit={handleSearchSubmit}
+            placeholder="Search PO number, supplier…"
+            ariaLabel="Search Purchase Order"
+            fluid
+          />
         }
         primaryAction={
           <div className={styles.primaryActions}>
-            <Link href="/import/po/new" className={styles.createBtn}>
+            <ButtonLink href="/import/po/new" size="sm">
               Create Purchase Order
-            </Link>
+            </ButtonLink>
             <button
               type="button"
               className={`${styles.createBtn} ${styles.refreshBtn}`}
@@ -516,30 +512,12 @@ export function PoList() {
                 </TableBody>
               </Table>
 
-              {totalPages > 1 && (
-                <nav className={styles.pagination} aria-label="Pagination">
-                  <button
-                    type="button"
-                    className={styles.pageBtn}
-                    disabled={page <= 1}
-                    onClick={() => setPage((p) => p - 1)}
-                  >
-                    Previous
-                  </button>
-                  <span className={styles.pageInfo}>
-                    Page {page} of {totalPages}
-                    {meta && ` (${meta.total} total)`}
-                  </span>
-                  <button
-                    type="button"
-                    className={styles.pageBtn}
-                    disabled={page >= totalPages}
-                    onClick={() => setPage((p) => p + 1)}
-                  >
-                    Next
-                  </button>
-                </nav>
-              )}
+              <TablePagination
+                page={page}
+                totalPages={totalPages}
+                totalItems={meta?.total}
+                onPageChange={setPage}
+              />
             </>
           )}
         </Card>

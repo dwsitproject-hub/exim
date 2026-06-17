@@ -6,7 +6,7 @@ import { Users, Anchor, Briefcase, ScanLine } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { can, isAdminRole } from "@/lib/permissions";
 import { LoadingSkeleton } from "@/components/feedback";
-import { PageHeader } from "@/components/navigation";
+import { PageHeader, AccessDenied } from "@/components/navigation";
 import styles from "./AdminDashboardContent.module.css";
 
 const MANAGE_USERS = "MANAGE_USERS";
@@ -62,10 +62,12 @@ export function AdminDashboardContent() {
 
   if (!isAdminRole(user)) {
     return (
-      <section>
-        <PageHeader title="Administration" backHref="/" backLabel="Home" />
-        <p className={styles.denied}>This section is available to administrators only.</p>
-      </section>
+      <AccessDenied
+        title="Administration"
+        backHref="/"
+        backLabel="Home"
+        message="This section is available to administrators only."
+      />
     );
   }
 

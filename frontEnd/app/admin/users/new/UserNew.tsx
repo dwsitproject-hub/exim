@@ -2,12 +2,12 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useAuth } from "@/hooks/use-auth";
-import { can } from "@/lib/permissions";
-import { PERMISSION_CATALOG, USER_ROLE_OPTIONS, getRoleDefaultPermissionSet } from "@/lib/rbac-matrix";
+import { usePermissionGate } from "@/hooks/use-permission-gate";
+import { LoadingSkeleton } from "@/components/feedback";
+import { PERMISSION_CATALOG, USER_ROLE_OPTIONS, formatRoleLabel, getRoleDefaultPermissionSet } from "@/lib/rbac-matrix";
 import { createUser } from "@/services/users-service";
 import { isApiError } from "@/types/api";
-import { PageHeader } from "@/components/navigation";
+import { PageHeader, AccessDenied } from "@/components/navigation";
 import { useToast } from "@/components/providers/ToastProvider";
 import { Input, Button } from "@/components/forms";
 import { Badge } from "@/components/badges";
@@ -17,7 +17,7 @@ const MANAGE_USERS = "MANAGE_USERS";
 
 export function UserNew() {
   const router = useRouter();
-  const { accessToken, user } = useAuth();
+  const { accessToken, pending, denied } = usePermissionGate(MANAGE_USERS);
   const { pushToast } = useToast();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -26,8 +26,6 @@ export function UserNew() {
   const [overrides, setOverrides] = useState<Set<string>>(() => new Set());
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-
-  const allowed = can(user, MANAGE_USERS);
   const roleDefaults = getRoleDefaultPermissionSet(role);
   const effectivePermissions = new Set<string>([...roleDefaults, ...overrides]);
 
@@ -67,12 +65,23 @@ export function UserNew() {
     router.push(`/admin/users/${res.data.id}`);
   }
 
-  if (!allowed) {
+  if (pending) {
     return (
       <section>
         <PageHeader title="New user" backHref="/admin/users" backLabel="Users" />
-        <p className={styles.denied}>You do not have permission to manage users.</p>
+        <LoadingSkeleton lines={8} />
       </section>
+    );
+  }
+
+  if (denied) {
+    return (
+      <AccessDenied
+        title="New user"
+        backHref="/admin/users"
+        backLabel="Users"
+        message="You do not have permission to manage users."
+      />
     );
   }
 
@@ -117,7 +126,7 @@ export function UserNew() {
           >
             {USER_ROLE_OPTIONS.map((r) => (
               <option key={r} value={r}>
-                {r}
+                {formatRoleLabel(r)}
               </option>
             ))}
           </select>

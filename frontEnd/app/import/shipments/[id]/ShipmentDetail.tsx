@@ -107,7 +107,8 @@ import {
   normalizeProductClassificationForEdit,
 } from "@/lib/product-classification";
 import styles from "./ShipmentDetail.module.css";
-import { formatDayMonthYear } from "@/lib/format-date";
+import { formatDayMonthYear, formatDateTime } from "@/lib/format-date";
+import { formatDocumentBytes } from "@/lib/format-files";
 import { displayPibTypeLabel, normalizePibTypeForEdit, isPibTypeBc23 } from "@/lib/pib-type-label";
 
 /** Destination port country is fixed for this product. */
@@ -167,12 +168,6 @@ const SHIPMENT_STATUSES = [
 ];
 
 const DUTY_FORMULA_PDRI = "PDRI = BM + PPN + PPH.";
-
-function formatDocumentBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 type ShipmentDocIntakeFilter =
   | { kind: "shipment_level" }

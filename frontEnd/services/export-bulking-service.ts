@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPatch, apiPut, apiDelete } from "./api-client";
+import { apiGet, apiPost, apiPatch, apiPut, apiDelete, apiRequest } from "./api-client";
 import type { ApiResponse } from "@/types/api";
 import type {
   ExportBulkingListItem,
@@ -11,6 +11,7 @@ import type {
   Invoice,
   PackingList,
   StatusEvent,
+  ExportBulkingDocumentListItem,
 } from "@/types/export-bulking";
 import { COOKIE_AUTH_SENTINEL } from "@/lib/constants";
 
@@ -28,6 +29,7 @@ function buildQueryString(q: ListExportBulkingQuery): string {
   q.statuses?.forEach((s) => params.append("statuses", s));
   if (q.sort_by) params.set("sort_by", q.sort_by);
   if (q.sort_dir) params.set("sort_dir", q.sort_dir);
+  if (q.assignment) params.set("assignment", q.assignment);
   const str = params.toString();
   return str ? `?${str}` : "";
 }
@@ -221,4 +223,64 @@ export function deletePackingList(
   accessToken: string,
 ): Promise<ApiResponse<unknown>> {
   return apiDelete<unknown>(`${BASE}/${shipmentId}/packing-lists/${plId}`, tok(accessToken));
+}
+
+/* ───── uploaded documents ───── */
+
+export function listExportBulkingDocuments(
+  shipmentId: string,
+  accessToken: string,
+): Promise<ApiResponse<ExportBulkingDocumentListItem[]>> {
+  return apiGet<ExportBulkingDocumentListItem[]>(`${BASE}/${shipmentId}/documents`, tok(accessToken));
+}
+
+export function uploadExportBulkingDocument(
+  shipmentId: string,
+  file: File,
+  documentType: string,
+  accessToken: string,
+): Promise<ApiResponse<ExportBulkingDocumentListItem>> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("document_type", documentType);
+  return apiRequest<ExportBulkingDocumentListItem>(`${BASE}/${shipmentId}/documents`, {
+    method: "POST",
+    body: form,
+    accessToken: tok(accessToken),
+  });
+}
+
+export function deleteExportBulkingDocument(
+  shipmentId: string,
+  documentId: string,
+  accessToken: string,
+): Promise<ApiResponse<{ id: string }>> {
+  return apiDelete<{ id: string }>(`${BASE}/${shipmentId}/documents/${documentId}`, tok(accessToken));
+}
+
+export interface ExportBulkingDocumentationAssignee {
+  id: string;
+  name: string;
+  email: string;
+}
+
+export function listExportBulkingDocumentationAssignees(
+  accessToken: string,
+): Promise<ApiResponse<ExportBulkingDocumentationAssignee[]>> {
+  return apiGet<ExportBulkingDocumentationAssignee[]>(
+    `${BASE}/documentation-assignees`,
+    tok(accessToken),
+  );
+}
+
+export function assignExportBulkingDocumentation(
+  shipmentId: string,
+  assigneeUserId: string | null,
+  accessToken: string,
+): Promise<ApiResponse<ExportBulkingListItem>> {
+  return apiPatch<ExportBulkingListItem>(
+    `${BASE}/${shipmentId}/documentation-assignment`,
+    { assignee_user_id: assigneeUserId },
+    tok(accessToken),
+  );
 }

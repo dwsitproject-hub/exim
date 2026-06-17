@@ -8,6 +8,9 @@ import { buildExportCompletionSummary, type ExportCompletionListInput } from "@/
 
 export type ExportBulkingListView = "all" | "operations" | "documentation";
 
+/** Server-side PIC assignment filters (URL param `assignment`). */
+export type ExportBulkingAssignmentFilter = "unassigned" | "assigned_to_me";
+
 export type ExportBulkingBacklogFilter =
   | "missing_si"
   | "missing_invoice"
@@ -113,6 +116,28 @@ export const BACKLOG_FILTER_LABELS: Record<ExportBulkingBacklogFilter, string> =
   eta_overdue: "ETA overdue",
 };
 
+export const ASSIGNMENT_FILTER_LABELS: Record<ExportBulkingAssignmentFilter, string> = {
+  unassigned: "Unassigned PIC",
+  assigned_to_me: "Assigned to me",
+};
+
+export function parseAssignmentFilter(
+  raw: string | null | undefined,
+): ExportBulkingAssignmentFilter | null {
+  if (raw === "unassigned" || raw === "assigned_to_me") return raw;
+  return null;
+}
+
+/** Default PIC assignment filter for documentation officers on first visit. */
+export function getDefaultAssignmentFilter(
+  user: AuthUser | null | undefined,
+): ExportBulkingAssignmentFilter | null {
+  if (user?.role?.trim().toUpperCase() === "EXPORT_BULKING_DOCUMENTATION") {
+    return "assigned_to_me";
+  }
+  return null;
+}
+
 export function parseListView(raw: string | null | undefined): ExportBulkingListView | null {
   if (raw === "all" || raw === "operations" || raw === "documentation") return raw;
   return null;
@@ -127,12 +152,23 @@ export function parseBacklogFilter(raw: string | null | undefined): ExportBulkin
 export function getDefaultBulkingView(user: AuthUser | null | undefined): ExportBulkingListView {
   if (!user) return "all";
   const role = user.role.trim().toUpperCase();
-  if (role === "DOCS") return "documentation";
+  if (
+    role === "DOCS" ||
+    role === "EXPORT_BULKING_DOCUMENTATION"
+  ) {
+    return "documentation";
+  }
+  if (role === "EXPORT_BULKING_OPERATION") return "operations";
+  if (role === "EXPORT_BULKING_LEAD_DOCUMENTATION") return "all";
   const perms = user.effective_permissions ?? [];
-  const canUpdate = perms.includes("UPDATE_EXPORT_BULKING");
+  const canUpdateOps =
+    perms.includes("UPDATE_EXPORT_OPERATIONS") || perms.includes("UPDATE_EXPORT_BULKING");
+  const canUpdateDocs =
+    perms.includes("UPDATE_EXPORT_DOCUMENTATION") || perms.includes("UPDATE_EXPORT_BULKING");
   const canViewDocs = perms.includes("VIEW_EXPORT_DOCUMENTATION");
-  if (!canUpdate && canViewDocs) return "documentation";
-  if (canUpdate) return "operations";
+  if (!canUpdateOps && canViewDocs) return "documentation";
+  if (canUpdateOps && canViewDocs) return "all";
+  if (canUpdateOps) return "operations";
   return "all";
 }
 

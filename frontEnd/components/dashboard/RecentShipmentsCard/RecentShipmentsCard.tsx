@@ -79,7 +79,7 @@ export function RecentShipmentsCard({ rows, loading, viewAllHref }: RecentShipme
         <div className={styles.emptyStateWrap}>
           <EmptyState
             title="No recent shipments"
-            description="Nothing in this date range yet. Purchase Orders can be grouped into shipments from the Purchase Order screen."
+            description="No shipments yet. Purchase Orders can be grouped into shipments from the Purchase Order screen."
             action={
               <Link href="/import/po" className={styles.btnPrimary}>
                 View PO

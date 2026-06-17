@@ -1122,6 +1122,17 @@ select.fieldInput {
   margin-top: 4px;
 }
 
+.fieldError {
+  display: block;
+  font-size: 11px;
+  color: var(--color-primitive-danger, #b42318);
+  margin-top: 4px;
+}
+
+.fieldInputInvalid {
+  border-color: var(--color-primitive-danger, #b42318);
+}
+
 .siLineToolbar {
   display: flex;
   flex-wrap: wrap;
@@ -2123,7 +2134,10 @@ textarea.fieldInputReadonly:focus {
 
 .readOnlyPage input,
 .readOnlyPage select,
-.readOnlyPage textarea {
+.readOnlyPage textarea,
+.readOnlyRegion input,
+.readOnlyRegion select,
+.readOnlyRegion textarea {
   pointer-events: none;
   cursor: default;
   background: var(--color-primitive-background-subtle, #f4f4f4) !important;
@@ -2307,6 +2321,16 @@ textarea.fieldInputReadonly:focus {
 .readOnlyPage .milestoneToggleBtn,
 .readOnlyPage .siLineToolbar,
 .readOnlyPage .loadportConfirm,
-.readOnlyPage .siDocumentPreviewActions {
+.readOnlyPage .siDocumentPreviewActions,
+.readOnlyRegion .actions,
+.readOnlyRegion .stageCardAdvanceRow,
+.readOnlyRegion .cargoTableFooter,
+.readOnlyRegion .cargoRowRemove,
+.readOnlyRegion .btnDanger,
+.readOnlyRegion .btnDangerSm,
+.readOnlyRegion .milestoneToggleBtn,
+.readOnlyRegion .siLineToolbar,
+.readOnlyRegion .loadportConfirm,
+.readOnlyRegion .siDocumentPreviewActions {
   display: none;
 }

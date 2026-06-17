@@ -20,6 +20,43 @@
   margin-bottom: 8px;
 }
 
+.headerButton {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+
+.headerButton:hover .title {
+  color: var(--color-semantic-primary-default, #c43a31);
+}
+
+.titleRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.chevron {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+}
+
+.wrapCollapsed .bar {
+  margin-bottom: 0;
+}
+
 .title {
   font-size: 13px;
   font-weight: 700;

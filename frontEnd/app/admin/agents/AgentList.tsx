@@ -14,7 +14,9 @@ import { isApiError } from "@/types/api";
 import type { ApiSuccess } from "@/types/api";
 import { Card } from "@/components/cards";
 import { useToast } from "@/components/providers/ToastProvider";
-import { PageHeader, ActionBar, EmptyState } from "@/components/navigation";
+import { PageHeader, ActionBar, EmptyState, AccessDenied } from "@/components/navigation";
+import { SearchBar } from "@/components/forms";
+import { Alert } from "@/components/feedback";
 import {
   Table,
   TableHead,
@@ -67,8 +69,7 @@ export function AgentList() {
     fetchList();
   }, [fetchList]);
 
-  function handleSearchSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  function handleSearchSubmit() {
     setSearchParam(searchInput);
   }
 
@@ -113,10 +114,12 @@ export function AgentList() {
 
   if (!allowed) {
     return (
-      <section>
-        <PageHeader title="Master Agent" backHref="/admin/dashboard" backLabel="Dashboard" />
-        <p className={styles.denied}>You do not have permission to manage agents.</p>
-      </section>
+      <AccessDenied
+        title="Master Agent"
+        backHref="/admin/dashboard"
+        backLabel="Dashboard"
+        message="You do not have permission to manage agents."
+      />
     );
   }
 
@@ -131,19 +134,13 @@ export function AgentList() {
 
       <ActionBar
         search={
-          <form onSubmit={handleSearchSubmit} className={styles.searchForm}>
-            <input
-              type="search"
-              placeholder="Search agents…"
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              className={styles.searchInput}
-              aria-label="Search agents"
-            />
-            <button type="submit" className={styles.searchSubmit}>
-              Search
-            </button>
-          </form>
+          <SearchBar
+            value={searchInput}
+            onChange={setSearchInput}
+            onSubmit={handleSearchSubmit}
+            placeholder="Search agents…"
+            ariaLabel="Search agents"
+          />
         }
         primaryAction={
           <button type="button" className={styles.createBtn} onClick={openCreate}>
@@ -153,7 +150,7 @@ export function AgentList() {
       />
 
       <Card>
-        {error && <p role="alert">{error}</p>}
+        {error && <Alert>{error}</Alert>}
         {loading ? (
           <p className="utilLoadingFallback">Loading…</p>
         ) : items.length === 0 ? (

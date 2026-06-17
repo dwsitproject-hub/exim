@@ -9,7 +9,9 @@ import { useTableColumnVisibility, type TableColumnDef } from "@/hooks/use-table
 import { listShipments, getShipmentListFilterOptions } from "@/services/shipments-service";
 import { Card } from "@/components/cards";
 import { LoadingSkeleton } from "@/components/feedback";
+import { StatusBadge } from "@/components/badges/StatusBadge";
 import { PageHeader, ActionBar, EmptyState } from "@/components/navigation";
+import { SearchBar } from "@/components/forms";
 import {
   Table,
   TableHead,
@@ -19,12 +21,12 @@ import {
   TableHeaderCell,
   TableColumnPicker,
   TableColumnFilterPicker,
+  TablePagination,
 } from "@/components/tables";
 import { isApiError } from "@/types/api";
 import { displayPibTypeLabel } from "@/lib/pib-type-label";
 import { displayProductClassification } from "@/lib/product-classification";
 import { formatStatusLabel } from "@/lib/status-badge";
-import { shipmentTimelineStatusTone } from "@/lib/shipment-timeline-status";
 import { MANAGERIAL_LIST_FILTERS } from "@/lib/managerial-deep-link";
 import {
   PERFORMANCE_ETA_LATE_QUERY_PARAM,
@@ -364,14 +366,14 @@ export function ShipmentList() {
     router.push(`/import/shipments/${shipmentId}`);
   }
 
-  function handleSearchSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  function handleSearchSubmit() {
     setSearchParam(searchInput);
     setPage(1);
     syncSearchToUrl(searchInput);
   }
 
   function handleColumnSort(columnId: string) {
+    if (columnId === "actions") return;
     setPage(1);
     if (sortBy === columnId) {
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -421,13 +423,6 @@ export function ShipmentList() {
     }
   }
 
-  function statusBadgeClass(status: string | null | undefined): string {
-    const tone = shipmentTimelineStatusTone(status);
-    if (tone === "delivered") return styles.statusDelivered;
-    if (tone === "green") return styles.statusGreen;
-    return styles.statusEarly;
-  }
-
   function renderShipmentRowCell(column: (typeof SHIPMENT_TABLE_COLUMNS)[number], row: ShipmentListItem) {
     const linked = row.linked_pos ?? [];
     const n = row.linked_po_count ?? linked.length;
@@ -462,9 +457,7 @@ export function ShipmentList() {
       case "status":
         return (
           <TableCell key={column.id}>
-            <span className={`${styles.statusBadge} ${statusBadgeClass(row.current_status)}`}>
-              {formatStatusLabel(row.current_status ?? "")}
-            </span>
+            <StatusBadge domain="shipment" status={row.current_status} visual="text" />
           </TableCell>
         );
       case "po_number":
@@ -626,19 +619,14 @@ export function ShipmentList() {
 
       <ActionBar
         search={
-          <form onSubmit={handleSearchSubmit} className={styles.searchForm}>
-            <input
-              type="search"
-              placeholder="Search shipment, supplier, or PO…"
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              className={styles.searchInput}
-              aria-label="Search shipments"
-            />
-            <button type="submit" className={styles.searchSubmit}>
-              Search
-            </button>
-          </form>
+          <SearchBar
+            value={searchInput}
+            onChange={setSearchInput}
+            onSubmit={handleSearchSubmit}
+            placeholder="Search shipment or supplier…"
+            ariaLabel="Search shipments"
+            fluid
+          />
         }
         filters={
           <div className={styles.filterBar} data-tour="shipment-po-date-filter">
@@ -869,30 +857,12 @@ export function ShipmentList() {
                 </TableBody>
               </Table>
 
-              {totalPages > 1 && (
-                <nav className={styles.pagination} aria-label="Pagination">
-                  <button
-                    type="button"
-                    className={styles.pageBtn}
-                    disabled={page <= 1}
-                    onClick={() => setPage((p) => p - 1)}
-                  >
-                    Previous
-                  </button>
-                  <span className={styles.pageInfo}>
-                    Page {page} of {totalPages}
-                    {meta && ` (${meta.total} total)`}
-                  </span>
-                  <button
-                    type="button"
-                    className={styles.pageBtn}
-                    disabled={page >= totalPages}
-                    onClick={() => setPage((p) => p + 1)}
-                  >
-                    Next
-                  </button>
-                </nav>
-              )}
+              <TablePagination
+                page={page}
+                totalPages={totalPages}
+                totalItems={meta?.total}
+                onPageChange={setPage}
+              />
             </>
           )}
         </Card>

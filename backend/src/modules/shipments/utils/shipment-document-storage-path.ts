@@ -1,6 +1,6 @@
 /**
  * Filing plan on shared storage:
- * PT / Year (shipment) / Plant__{BC 2.0|BC 2.3|…} / Supplier__{PO…} / file
+ * Import / PT / Year (shipment) / Plant__{BC 2.0|BC 2.3|…} / Supplier__{PO…} / file
  *
  * Same plant + different PIB → different Plant__BC segment (PIB from shipment).
  * Multiple POs from one supplier → one folder; PO numbers concatenated (sorted).
@@ -10,6 +10,7 @@ import type { PoIntakeRow } from "../../po-intake/dto/index.js";
 import type { LinkedPoWithIntake } from "../repositories/shipment-po-mapping.repository.js";
 import type { ShipmentRow } from "../dto/index.js";
 import { pibTypeStorageFolderName } from "../../../shared/pib-type.js";
+import { IMPORT_STORAGE_ROOT } from "../../../shared/storage/trade-flow-folders.js";
 
 const MAX_SEGMENT = 120;
 
@@ -114,5 +115,5 @@ export function buildShipmentDocumentDirectoryPrefix(
     : segment(shipment.shipment_no, "NO_SHIPMENT_NO");
   const supplierPo = `${supplierPart}__${poPart}`.slice(0, MAX_SEGMENT * 3);
 
-  return [pt, year, plantBc, supplierPo].join("/");
+  return [IMPORT_STORAGE_ROOT, pt, year, plantBc, supplierPo].join("/");
 }

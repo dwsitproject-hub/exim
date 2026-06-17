@@ -2,14 +2,14 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useAuth } from "@/hooks/use-auth";
-import { can } from "@/lib/permissions";
-import { PERMISSION_CATALOG, USER_ROLE_OPTIONS, getRoleDefaultPermissionSet } from "@/lib/rbac-matrix";
+import { usePermissionGate } from "@/hooks/use-permission-gate";
+import { LoadingSkeleton } from "@/components/feedback";
+import { PERMISSION_CATALOG, USER_ROLE_OPTIONS, formatRoleLabel, getRoleDefaultPermissionSet } from "@/lib/rbac-matrix";
 import { getUser, patchUser } from "@/services/users-service";
 import { isApiError } from "@/types/api";
 import type { ApiSuccess } from "@/types/api";
 import type { UserAdmin } from "@/types/users";
-import { PageHeader } from "@/components/navigation";
+import { PageHeader, AccessDenied } from "@/components/navigation";
 import { useToast } from "@/components/providers/ToastProvider";
 import { Input, Button } from "@/components/forms";
 import { Badge } from "@/components/badges";
@@ -19,7 +19,7 @@ const MANAGE_USERS = "MANAGE_USERS";
 
 export function UserEdit({ userId }: { userId: string }) {
   const router = useRouter();
-  const { accessToken, user: authUser } = useAuth();
+  const { accessToken, pending, denied } = usePermissionGate(MANAGE_USERS);
   const { pushToast } = useToast();
   const [row, setRow] = useState<UserAdmin | null>(null);
   const [name, setName] = useState("");
@@ -31,13 +31,9 @@ export function UserEdit({ userId }: { userId: string }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const allowed = can(authUser, MANAGE_USERS);
-  const roleDefaults = getRoleDefaultPermissionSet(role);
-  const effectivePermissions = new Set<string>([...roleDefaults, ...overrides]);
-
   const load = useCallback(() => {
-    if (!accessToken || !allowed) {
-      setLoading(false);
+    if (pending || denied || !accessToken) {
+      if (!pending) setLoading(false);
       return;
     }
     setLoading(true);
@@ -57,7 +53,10 @@ export function UserEdit({ userId }: { userId: string }) {
       })
       .catch(() => setError("Failed to load user"))
       .finally(() => setLoading(false));
-  }, [accessToken, allowed, userId]);
+  }, [accessToken, pending, denied, userId]);
+
+  const roleDefaults = getRoleDefaultPermissionSet(role);
+  const effectivePermissions = new Set<string>([...roleDefaults, ...overrides]);
 
   useEffect(() => {
     load();
@@ -102,12 +101,23 @@ export function UserEdit({ userId }: { userId: string }) {
     router.refresh();
   }
 
-  if (!allowed) {
+  if (pending) {
     return (
       <section>
         <PageHeader title="Edit user" backHref="/admin/users" backLabel="Users" />
-        <p className={styles.denied}>You do not have permission to manage users.</p>
+        <LoadingSkeleton lines={8} />
       </section>
+    );
+  }
+
+  if (denied) {
+    return (
+      <AccessDenied
+        title="Edit user"
+        backHref="/admin/users"
+        backLabel="Users"
+        message="You do not have permission to manage users."
+      />
     );
   }
 
@@ -170,7 +180,7 @@ export function UserEdit({ userId }: { userId: string }) {
           >
             {USER_ROLE_OPTIONS.map((r) => (
               <option key={r} value={r}>
-                {r}
+                {formatRoleLabel(r)}
               </option>
             ))}
           </select>

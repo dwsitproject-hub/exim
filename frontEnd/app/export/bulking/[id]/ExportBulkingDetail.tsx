@@ -33,13 +33,19 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { can } from "@/lib/permissions";
 import {
+  buildBulkingListReturnUrl,
+  canEditExportDocumentation,
+  canEditExportOperations,
   friendlyExportDetailError,
   isExportDocumentationOnly,
+  isExportOperationsOnly,
 } from "@/lib/export-workspace";
+import { duplicateDocNumberMessage } from "@/lib/export-document-numbers";
 import { PageHeader } from "@/components/navigation";
 import { Card } from "@/components/cards";
 import { ComboboxSelect } from "@/components/forms/ComboboxSelect/ComboboxSelect";
 import { LoadingSkeleton } from "@/components/feedback";
+import { StatusBadge } from "@/components/badges/StatusBadge";
 import { useToast } from "@/components/providers/ToastProvider";
 import { isApiError } from "@/types/api";
 import {
@@ -93,6 +99,7 @@ import {
 } from "@/components/export-bulking/PackingListDocument";
 import { ShippingInstructionDocument } from "@/components/export-bulking/ShippingInstructionDocument";
 import { ProcessChecklist } from "@/components/export-bulking/ProcessChecklist";
+import { ExportBulkingDocumentsSection } from "./ExportBulkingDocumentsSection";
 import {
   EXPORT_SENT_DOCUMENT_KEYS,
   EXPORT_SENT_DOCUMENT_LABELS,
@@ -286,20 +293,6 @@ function nextStatus(current: string): string | null {
   const idx = EXPORT_BULKING_STATUSES.indexOf(current as never);
   if (idx < 0 || idx >= EXPORT_BULKING_STATUSES.length - 1) return null;
   return EXPORT_BULKING_STATUSES[idx + 1];
-}
-
-function statusBadgeClass(s: string): string {
-  switch (s) {
-    case "SHIPMENT_PLANNING": return styles.statusPlanning;
-    case "NOMINATION": return styles.statusNomination;
-    case "SI_RECEIVE": return styles.statusSiReceive;
-    case "ARRIVAL": return styles.statusArrival;
-    case "AT_BERTH": return styles.statusAtBerth;
-    case "LOADING": return styles.statusLoading;
-    case "NPE": return styles.statusNpe;
-    case "CASE_OFF": return styles.statusCaseOff;
-    default: return styles.statusPlanning;
-  }
 }
 
 function ChevronIcon({ open }: { open: boolean }) {
@@ -1935,6 +1928,7 @@ function SICard({
   );
 
   const [form, setForm] = useState({
+    si_number: si.si_number ?? "",
     messrs: si.messrs ?? "",
     bill_of_lading_option: si.bill_of_lading_option ?? "",
     consignee: si.consignee ?? "",
@@ -1948,6 +1942,7 @@ function SICard({
 
   const siDirty = useMemo(() => {
     const origForm = {
+      si_number: si.si_number ?? "",
       messrs: si.messrs ?? "",
       bill_of_lading_option: si.bill_of_lading_option ?? "",
       consignee: si.consignee ?? "",
@@ -1981,6 +1976,7 @@ function SICard({
 
   useEffect(() => {
     setForm({
+      si_number: si.si_number ?? "",
       messrs: si.messrs ?? "",
       bill_of_lading_option: si.bill_of_lading_option ?? "",
       consignee: si.consignee ?? "",
@@ -1991,6 +1987,11 @@ function SICard({
     });
     setLineRows(buildSiLineRows(si, shipment.cargo_lines));
   }, [si, shipment.cargo_lines]);
+
+  const siNumberError = useMemo(
+    () => duplicateDocNumberMessage("si", form.si_number, shipment, si.id),
+    [form.si_number, shipment, si.id],
+  );
 
   const setFormField = (key: keyof typeof form) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
@@ -2115,6 +2116,10 @@ function SICard({
   const siQtyMatched = siAllocationSummaries.every((s) => s.matched);
 
   const handleSave = async () => {
+    if (siNumberError) {
+      toast.pushToast(siNumberError, "error");
+      return;
+    }
     if (!siQtyMatched) {
       toast.pushToast(
         siAllocationSummaries
@@ -2158,7 +2163,7 @@ function SICard({
       shipmentId,
       si.id,
       {
-        si_number: si.si_number ?? null,
+        si_number: form.si_number.trim() || null,
         messrs: form.messrs.trim() || null,
         bill_of_lading_option: form.bill_of_lading_option || null,
         consignee: form.consignee || null,
@@ -2222,11 +2227,19 @@ function SICard({
               <div className={styles.field}>
                 <label className={styles.fieldLabel}>SI Number</label>
                 <input
-                  className={`${styles.fieldInput} ${styles.fieldInputReadonly}`}
-                  readOnly
-                  value={si.si_number ?? ""}
-                  title="System-assigned; edit via support if a correction is required."
+                  className={`${styles.fieldInput} ${siNumberError ? styles.fieldInputInvalid : ""}`}
+                  value={form.si_number}
+                  onChange={setFormField("si_number")}
+                  aria-invalid={Boolean(siNumberError)}
+                  aria-describedby={siNumberError ? `si-number-error-${si.id}` : undefined}
                 />
+                {siNumberError ? (
+                  <span id={`si-number-error-${si.id}`} className={styles.fieldError} role="alert">
+                    {siNumberError}
+                  </span>
+                ) : (
+                  <span className={styles.fieldMuted}>Must be unique across all shipments.</span>
+                )}
               </div>
               <div className={`${styles.field} ${styles.fieldFullRow}`}>
                 <label className={styles.fieldLabel}>Messrs (forwarding agency)</label>
@@ -2476,7 +2489,7 @@ function SICard({
             </div>
 
             <div className={styles.actions}>
-              <button type="button" className={styles.btnPrimary} onClick={handleSave} disabled={saving}>
+              <button type="button" className={styles.btnPrimary} onClick={handleSave} disabled={saving || Boolean(siNumberError)}>
                 {saving ? "Saving…" : "Save SI"}
               </button>
               {confirmDelete ? (
@@ -3017,12 +3030,40 @@ const DOCS_OPEN_SECTIONS: OpenSectionsState = {
   billingLevy: true,
 };
 
-function ExportWorkspaceBanner({ variant }: { variant: "documentation" | "operations-readonly" }) {
+function ExportWorkspaceBanner({
+  variant,
+}: {
+  variant: "documentation" | "operations-readonly" | "documentation-readonly" | "view-only";
+}) {
   if (variant === "documentation") {
     return (
       <div className={styles.workspaceBanner} role="status">
         <strong>Documentation workspace</strong>
         <span>Operational fields are read-only — use the Documentation tab for SI, invoices, packing lists, B/L, and export documents.</span>
+      </div>
+    );
+  }
+  if (variant === "operations-readonly") {
+    return (
+      <div className={styles.workspaceBanner} role="status">
+        <strong>Operations (view only)</strong>
+        <span>Voyage planning, nomination, and loading data are read-only in your role.</span>
+      </div>
+    );
+  }
+  if (variant === "documentation-readonly") {
+    return (
+      <div className={styles.workspaceBanner} role="status">
+        <strong>Documentation (view only)</strong>
+        <span>Shipping instructions, invoices, packing lists, and uploads are read-only in your role.</span>
+      </div>
+    );
+  }
+  if (variant === "view-only") {
+    return (
+      <div className={styles.workspaceBanner} role="status">
+        <strong>View only</strong>
+        <span>You can browse shipment data but cannot make changes.</span>
       </div>
     );
   }
@@ -3310,6 +3351,7 @@ function InvoiceCard({
   const [showDocumentPreview, setShowDocumentPreview] = useState(false);
 
   const [form, setForm] = useState({
+    invoice_no: invoice.invoice_no ?? "",
     shipping_instruction_id: invoice.shipping_instruction_id ?? "",
     invoice_date: toLocalDate(invoice.invoice_date),
     messrs: invoice.messrs ?? "",
@@ -3340,6 +3382,7 @@ function InvoiceCard({
 
   useEffect(() => {
     setForm({
+      invoice_no: invoice.invoice_no ?? "",
       shipping_instruction_id: invoice.shipping_instruction_id ?? "",
       invoice_date: toLocalDate(invoice.invoice_date),
       messrs: invoice.messrs ?? "",
@@ -3347,6 +3390,11 @@ function InvoiceCard({
     });
     setLineDrafts(invoiceLineDraftsFromInvoiceOrSi(invoice, shippingInstructions, shipment));
   }, [invoice, shippingInstructions, shipment]);
+
+  const invoiceNumberError = useMemo(
+    () => duplicateDocNumberMessage("invoice", form.invoice_no, shipment, invoice.id),
+    [form.invoice_no, shipment, invoice.id],
+  );
 
   useEffect(() => {
     if (invoice.lines.length > 0) return;
@@ -3366,6 +3414,7 @@ function InvoiceCard({
   const headerDirty = useMemo(() => {
     const si = invoice.shipping_instruction_id ?? "";
     return (
+      form.invoice_no !== (invoice.invoice_no ?? "") ||
       form.shipping_instruction_id !== si ||
       toLocalDate(invoice.invoice_date) !== form.invoice_date ||
       form.messrs !== (invoice.messrs ?? "") ||
@@ -3457,6 +3506,10 @@ function InvoiceCard({
   }
 
   const handleSave = async () => {
+    if (invoiceNumberError) {
+      toast.pushToast(invoiceNumberError, "error");
+      return;
+    }
     if (selectedShippingInstruction && invoiceQtySummary && !invoiceQtySummary.matched) {
       toast.pushToast(
         `Invoice total ${formatNumericDisplay(invoiceQtySummary.invoiced)} MT must match SI total ${formatNumericDisplay(invoiceQtySummary.siTotal)} MT`,
@@ -3470,6 +3523,7 @@ function InvoiceCard({
     const dest = destinationSummaryFromCargo(shipment.cargo_lines).trim() || null;
     const body: Record<string, unknown> = {
       ...form,
+      invoice_no: form.invoice_no.trim() || null,
       invoice_date: form.invoice_date || null,
       shipping_instruction_id: form.shipping_instruction_id.trim() === "" ? null : form.shipping_instruction_id,
       vessel_voyage_snapshot: vv,
@@ -3519,11 +3573,19 @@ function InvoiceCard({
             <div className={styles.field}>
               <label className={styles.fieldLabel}>Invoice No</label>
               <input
-                className={`${styles.fieldInput} ${styles.fieldInputReadonly}`}
-                readOnly
-                value={invoice.invoice_no ?? ""}
-                title="System-assigned; edit via support if a correction is required."
+                className={`${styles.fieldInput} ${invoiceNumberError ? styles.fieldInputInvalid : ""}`}
+                value={form.invoice_no}
+                onChange={set("invoice_no")}
+                aria-invalid={Boolean(invoiceNumberError)}
+                aria-describedby={invoiceNumberError ? `invoice-no-error-${invoice.id}` : undefined}
               />
+              {invoiceNumberError ? (
+                <span id={`invoice-no-error-${invoice.id}`} className={styles.fieldError} role="alert">
+                  {invoiceNumberError}
+                </span>
+              ) : (
+                <span className={styles.fieldMuted}>Must be unique across all shipments.</span>
+              )}
             </div>
             <div className={styles.field}><label className={styles.fieldLabel}>Shipping instruction</label>
               <select className={styles.fieldInput} value={form.shipping_instruction_id} onChange={set("shipping_instruction_id")} aria-label="Shipping instruction">
@@ -3760,7 +3822,7 @@ function InvoiceCard({
           </div>
 
           <div className={styles.actions}>
-            <button className={styles.btnPrimary} onClick={handleSave} disabled={saving || !invoiceDirty}>
+            <button className={styles.btnPrimary} onClick={handleSave} disabled={saving || !invoiceDirty || Boolean(invoiceNumberError)}>
               {saving ? "Saving…" : "Save Invoice"}
             </button>
             {confirmDelete ? (
@@ -3930,6 +3992,7 @@ function PackingListCard({
   const [showDocumentPreview, setShowDocumentPreview] = useState(false);
 
   const [siId, setSiId] = useState(packingList.shipping_instruction_id ?? "");
+  const [plNumber, setPlNumber] = useState(packingList.packing_list_number ?? "");
 
   const otherUsedSiIds = useMemo(
     () => siIdsUsedInOtherPackingLists(allPackingLists, packingList.id),
@@ -3947,8 +4010,14 @@ function PackingListCard({
 
   useEffect(() => {
     setSiId(packingList.shipping_instruction_id ?? "");
+    setPlNumber(packingList.packing_list_number ?? "");
     setLineDrafts(packingListLineDraftsFromPl(packingList, shippingInstructions));
   }, [packingList, shippingInstructions]);
+
+  const plNumberError = useMemo(
+    () => duplicateDocNumberMessage("packing_list", plNumber, shipment, packingList.id),
+    [plNumber, shipment, packingList.id],
+  );
 
   useEffect(() => {
     if (!linkedSi?.lines?.length) return;
@@ -3964,7 +4033,9 @@ function PackingListCard({
   const loadPortDisplay = shipment.loadport_name?.trim() || "—";
   const siHeaderLabel = linkedSi?.si_number?.trim() || null;
 
-  const headerDirty = (packingList.shipping_instruction_id ?? "") !== siId.trim();
+  const headerDirty =
+    (packingList.shipping_instruction_id ?? "") !== siId.trim() ||
+    (packingList.packing_list_number ?? "") !== plNumber;
 
   const linesDirty = useMemo(() => {
     const base = packingListLineDraftsFromPl(packingList, shippingInstructions);
@@ -3993,6 +4064,10 @@ function PackingListCard({
   }
 
   const handleSave = async () => {
+    if (plNumberError) {
+      toast.pushToast(plNumberError, "error");
+      return;
+    }
     if (!siId.trim()) {
       toast.pushToast("Select a shipping instruction", "error");
       return;
@@ -4000,7 +4075,7 @@ function PackingListCard({
     setSaving(true);
     const body: Record<string, unknown> = {
       loadport_snapshot: shipment.loadport_name?.trim() ?? null,
-      packing_list_number: packingList.packing_list_number,
+      packing_list_number: plNumber.trim() || null,
       shipping_instruction_id: siId.trim(),
       lines: buildPackingListLinesPayload(lineDrafts),
     };
@@ -4050,11 +4125,19 @@ function PackingListCard({
             <div className={styles.field}>
               <label className={styles.fieldLabel}>Packing List Number</label>
               <input
-                className={`${styles.fieldInput} ${styles.fieldInputReadonly}`}
-                readOnly
-                value={packingList.packing_list_number ?? ""}
-                title="System-assigned; edit via support if a correction is required."
+                className={`${styles.fieldInput} ${plNumberError ? styles.fieldInputInvalid : ""}`}
+                value={plNumber}
+                onChange={(e) => setPlNumber(e.target.value)}
+                aria-invalid={Boolean(plNumberError)}
+                aria-describedby={plNumberError ? `pl-number-error-${packingList.id}` : undefined}
               />
+              {plNumberError ? (
+                <span id={`pl-number-error-${packingList.id}`} className={styles.fieldError} role="alert">
+                  {plNumberError}
+                </span>
+              ) : (
+                <span className={styles.fieldMuted}>Must be unique across all shipments.</span>
+              )}
             </div>
             <div className={styles.field}>
               <label className={styles.fieldLabel}>Shipping instruction</label>
@@ -4177,7 +4260,7 @@ function PackingListCard({
           </div>
 
           <div className={styles.actions}>
-            <button className={styles.btnPrimary} onClick={handleSave} disabled={saving || !plDirty}>
+            <button className={styles.btnPrimary} onClick={handleSave} disabled={saving || !plDirty || Boolean(plNumberError)}>
               {saving ? "Saving…" : "Save Packing List"}
             </button>
             {confirmDelete ? (
@@ -5618,9 +5701,15 @@ export function ExportBulkingDetail() {
   const toast = useToast();
 
   const canViewDocs = can(user, "VIEW_EXPORT_DOCUMENTATION");
-  const canEditCargo = can(user, "UPDATE_EXPORT_BULKING");
+  const canEditOps = canEditExportOperations(user);
+  const canEditDocs = canEditExportDocumentation(user);
+  const canUploadExportDocs = canEditDocs || can(user, "UPLOAD_DOCUMENT");
   const isDocumentationOnly = isExportDocumentationOnly(user);
-  const isViewMode = searchParams.get("mode") === "view" || !canEditCargo;
+  const isOperationsOnly = isExportOperationsOnly(user);
+  const isFullyReadOnly = !canEditOps && !canEditDocs;
+  const opsReadOnly = !canEditOps;
+  const docsReadOnly = !canEditDocs;
+  const forceViewMode = searchParams.get("mode") === "view";
   const showDocumentationTab = canViewDocs;
 
   const wantsDocumentationFocus =
@@ -5628,6 +5717,11 @@ export function ExportBulkingDetail() {
 
   const defaultDetailTab = parseDetailTab(tabFromUrl, wantsDocumentationFocus);
   const [detailTab, setDetailTab] = useState<ExportDetailTab>(defaultDetailTab);
+
+  const listReturnUrl = useMemo(
+    () => buildBulkingListReturnUrl(detailTab === "documentation" ? "documentation" : "operations"),
+    [detailTab],
+  );
 
   const [data, setData] = useState<ExportBulkingShipmentDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -5672,7 +5766,7 @@ export function ExportBulkingDetail() {
     if (sectionDefaultsApplied || wantsDocumentationFocus) return;
     if (isDocumentationOnly) {
       setOpenSections({ ...DOCS_OPEN_SECTIONS });
-    } else if (canEditCargo && !canViewDocs) {
+    } else if (canEditOps && !canViewDocs) {
       setOpenSections({ ...OPS_OPEN_SECTIONS });
     }
     setSectionDefaultsApplied(true);
@@ -5683,7 +5777,7 @@ export function ExportBulkingDetail() {
     wantsDocumentationFocus,
     sectionDefaultsApplied,
     isDocumentationOnly,
-    canEditCargo,
+    canEditOps,
     canViewDocs,
   ]);
   const toggleSection = (key: keyof OpenSectionsState) =>
@@ -5829,7 +5923,7 @@ export function ExportBulkingDetail() {
 
   // Advance status
   const handleAdvanceStatus = async () => {
-    if (isViewMode) return;
+    if (opsReadOnly || forceViewMode) return;
     if (!data || !accessToken) return;
     if (isAnyDirty) {
       toast.pushToast("Save your changes before advancing status.", "error");
@@ -5857,7 +5951,7 @@ export function ExportBulkingDetail() {
   if (loading) {
     return (
       <>
-        <PageHeader title="Loading…" backHref="/export/bulking" backLabel="Bulking" />
+        <PageHeader title="Loading…" backHref={listReturnUrl} backLabel="Bulking" />
         <LoadingSkeleton lines={8} />
       </>
     );
@@ -5866,7 +5960,7 @@ export function ExportBulkingDetail() {
   if (error || !data) {
     return (
       <>
-        <PageHeader title="Error" backHref="/export/bulking" backLabel="Bulking" />
+        <PageHeader title="Error" backHref={listReturnUrl} backLabel="Bulking" />
         <Card><p className={styles.errorMsg}>{friendlyExportDetailError(error)}</p></Card>
       </>
     );
@@ -5882,47 +5976,50 @@ export function ExportBulkingDetail() {
   };
 
   return (
-    <div className={`${styles.page} ${isViewMode ? styles.readOnlyPage : ""}`}>
+    <div className={`${styles.page} ${isFullyReadOnly || forceViewMode ? styles.readOnlyPage : ""}`}>
       <PageHeader
         title={data.shipment_no}
-        backHref="/export/bulking"
+        backHref={listReturnUrl}
         backLabel="Bulking"
         onBackClick={
-          !isViewMode && isAnyDirty
+          !isFullyReadOnly && !forceViewMode && isAnyDirty
             ? () => {
                 if (window.confirm("You have unsaved changes. Leave without saving?")) {
-                  router.push("/export/bulking");
+                  router.push(listReturnUrl);
                 }
               }
             : undefined
         }
         subtitle={
-          isDocumentationOnly
-            ? "Documentation workspace — operational fields are read-only."
-            : isViewMode
-              ? "View only — use Edit from the list to change shipment data."
-              : showDocumentationTab
-                ? "Use Operations and Documentation tabs below — voyage data and document preparation are separated."
-                : "Summary and quick navigation below — expand sections as you need them."
+          isFullyReadOnly || forceViewMode
+            ? "View only — you cannot change shipment data."
+            : isDocumentationOnly && canEditDocs
+              ? "Documentation workspace — operational fields are read-only."
+              : isDocumentationOnly
+                ? "Documentation workspace — read-only access."
+                : isOperationsOnly && canViewDocs
+                  ? "Operations workspace — documentation tab is read-only."
+                  : "Summary and quick navigation below — expand sections as you need them."
         }
         titleAddon={
-          <span className={`${styles.statusBadge} ${statusBadgeClass(data.current_status)}`}>
-            {formatExportBulkingStatus(data.current_status)}
-          </span>
+          <StatusBadge domain="export-bulking" status={data.current_status} visual="pillDetail" />
         }
       />
 
-      {isDocumentationOnly && <ExportWorkspaceBanner variant="documentation" />}
+      {isDocumentationOnly && canEditDocs && (
+        <ExportWorkspaceBanner variant="documentation" />
+      )}
+      {isFullyReadOnly && !forceViewMode && <ExportWorkspaceBanner variant="view-only" />}
 
       {/* Status workflow stepper */}
-      <StatusStepper data={data} onAdvance={handleAdvanceStatus} readOnly={isViewMode} />
+      <StatusStepper data={data} onAdvance={handleAdvanceStatus} readOnly={opsReadOnly || forceViewMode} />
 
       <div className={styles.checklistWrap}>
-        <ProcessChecklist input={detailToCompletionInput(data)} />
+        <ProcessChecklist input={detailToCompletionInput(data)} collapsible defaultExpanded={false} />
       </div>
 
       {/* Unsaved changes banner */}
-      {!isViewMode && (
+      {!isFullyReadOnly && !forceViewMode && (
         <UnsavedBanner dirtySections={dirtySections} onSaveAll={handleSaveAll} saving={savingAll} />
       )}
 
@@ -5936,7 +6033,10 @@ export function ExportBulkingDetail() {
           )}
 
           {(!showDocumentationTab || detailTab === "operations") && (
-          <div className={styles.stageTimeline}>
+          <div className={`${styles.stageTimeline} ${opsReadOnly || forceViewMode ? styles.readOnlyRegion : ""}`}>
+            {opsReadOnly && canViewDocs && detailTab === "operations" && (
+              <ExportWorkspaceBanner variant="operations-readonly" />
+            )}
 
             {/* Shipment Planning */}
             <StageCard
@@ -5945,7 +6045,7 @@ export function ExportBulkingDetail() {
               shipmentData={data}
               title="Shipment Planning"
               icon={<ClipboardList size={16} />}
-              readOnly={isViewMode}
+              readOnly={opsReadOnly || forceViewMode}
               completedSummary={[data.vessel_name, data.loadport_name, data.total_quantity ? `${formatNumericDisplay(data.total_quantity)} MT` : null].filter(Boolean).join(" · ")}
               upcomingFields={["Vessel", "Voyage no.", "Shipper", "Load port", "Total quantity", "Cargo lines"]}
               onAdvance={handleAdvanceStatus}
@@ -5961,7 +6061,7 @@ export function ExportBulkingDetail() {
               shipmentData={data}
               title="Nomination"
               icon={<CalendarClock size={16} />}
-              readOnly={isViewMode}
+              readOnly={opsReadOnly || forceViewMode}
               completedSummary={[
                 data.laycan_from && data.laycan_to ? `Laycan ${formatDate(data.laycan_from)} – ${formatDate(data.laycan_to)}` : null,
                 data.eta ? `ETA ${formatDate(data.eta)}` : null,
@@ -5980,7 +6080,7 @@ export function ExportBulkingDetail() {
               shipmentData={data}
               title="Arrival"
               icon={<Anchor size={16} />}
-              readOnly={isViewMode}
+              readOnly={opsReadOnly || forceViewMode}
               completedSummary={[
                 data.ata ? `ATA ${formatDatetime(data.ata)}` : null,
                 data.nor ? `NOR ${formatDatetime(data.nor)}` : null,
@@ -6007,7 +6107,7 @@ export function ExportBulkingDetail() {
               shipmentData={data}
               title="At Berth"
               icon={<Ship size={16} />}
-              readOnly={isViewMode}
+              readOnly={opsReadOnly || forceViewMode}
               completedSummary={data.atb ? `ATB ${formatDatetime(data.atb)}` : undefined}
               upcomingFields={["ATB (Actual Time of Berth)"]}
               onAdvance={handleAdvanceStatus}
@@ -6030,7 +6130,7 @@ export function ExportBulkingDetail() {
               shipmentData={data}
               title="Loading"
               icon={<Package size={16} />}
-              readOnly={isViewMode}
+              readOnly={opsReadOnly || forceViewMode}
               completedSummary={[
                 data.commence_loading ? `Started ${formatDatetime(data.commence_loading)}` : null,
                 data.atc ? `ATC ${formatDatetime(data.atc)}` : null,
@@ -6056,7 +6156,7 @@ export function ExportBulkingDetail() {
               shipmentData={data}
               title="Case Off"
               icon={<Navigation size={16} />}
-              readOnly={isViewMode}
+              readOnly={opsReadOnly || forceViewMode}
               completedSummary={[
                 data.td ? `Departed ${formatDatetime(data.td)}` : null,
                 (() => {
@@ -6080,7 +6180,13 @@ export function ExportBulkingDetail() {
           )}
 
           {showDocumentationTab && detailTab === "documentation" && (
-            <div className={styles.stageTimeline}>
+            <div className={`${styles.stageTimeline} ${docsReadOnly || forceViewMode ? styles.readOnlyRegion : ""}`}>
+              {docsReadOnly && canEditOps && (
+                <ExportWorkspaceBanner variant="documentation-readonly" />
+              )}
+              {isDocumentationOnly && !canEditDocs && (
+                <ExportWorkspaceBanner variant="view-only" />
+              )}
               <SiReceiveDateSection {...sectionProps} open={openSections.si} onToggle={() => toggleSection("si")} />
               <SISection {...sectionProps} open={openSections.si} onToggle={() => toggleSection("si")} />
               <InvoiceSection {...sectionProps} open={openSections.invoices} onToggle={() => toggleSection("invoices")} />
@@ -6096,7 +6202,17 @@ export function ExportBulkingDetail() {
 
         <div className={styles.sidebarContent}>
           <SummarySidebar data={data} showDocDetails={canViewDocs} />
-          <DemurrageSimulationSidebar data={data} />
+          {showDocumentationTab && detailTab === "documentation" ? (
+            accessToken ? (
+              <ExportBulkingDocumentsSection
+                shipmentId={id!}
+                accessToken={accessToken}
+                canUpload={canUploadExportDocs && !docsReadOnly && !forceViewMode}
+              />
+            ) : null
+          ) : (
+            <DemurrageSimulationSidebar data={data} />
+          )}
           <StatusHistorySidebar events={statusEvents} currentStatus={data.current_status} />
         </div>
       </div>

@@ -208,6 +208,8 @@
   border: 1px solid var(--color-primitive-border-medium, #c4c4c4);
   border-radius: var(--borderRadius-sm, 6px);
   cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
   transition: color var(--animation-duration-fast, 150ms) var(--animation-easing-default, ease-out),
     background-color var(--animation-duration-fast, 150ms) var(--animation-easing-default, ease-out),
     border-color var(--animation-duration-fast, 150ms) var(--animation-easing-default, ease-out);

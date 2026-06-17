@@ -9,7 +9,6 @@ import { StatsCard } from "@/components/cards";
 import { LoadingSkeleton } from "@/components/feedback";
 import { PageHeader } from "@/components/navigation";
 import { IconBox, IconClock, IconShip, IconDocument, IconCheck } from "@/components/icons/KpiIcons";
-import { getRecentDateRange } from "@/lib/recent-date-range";
 import { can } from "@/lib/permissions";
 import { isApiError } from "@/types/api";
 import type { ShipmentListItem } from "@/types/shipments";
@@ -21,7 +20,6 @@ import { RecentShipmentsCard } from "@/components/dashboard/RecentShipmentsCard"
 import styles from "./DashboardContent.module.css";
 
 const RECENT_LIMIT = 5;
-const RECENT_PO_DATE_DAYS = 7;
 const VIEW_SHIPMENTS = "VIEW_SHIPMENTS";
 
 export function DashboardContent() {
@@ -43,7 +41,6 @@ export function DashboardContent() {
       setRecentListLoading(false);
       return;
     }
-    const { from, to } = getRecentDateRange(RECENT_PO_DATE_DAYS);
     setCountsLoading(true);
     setRecentListLoading(true);
     setError(null);
@@ -67,10 +64,7 @@ export function DashboardContent() {
         if (!cancelled) setCountsLoading(false);
       });
 
-    listShipments(
-      { page: 1, limit: RECENT_LIMIT, po_from_date: from, po_to_date: to },
-      accessToken
-    )
+    listShipments({ page: 1, limit: RECENT_LIMIT }, accessToken)
       .then((listRes) => {
         if (cancelled) return;
         if (!isApiError(listRes)) {
@@ -93,8 +87,7 @@ export function DashboardContent() {
   if (authLoading) return <LoadingSkeleton lines={5} className={styles.loading} />;
   if (error) return <p className={styles.error}>{error}</p>;
 
-  const { from: viewAllPoFrom, to: viewAllPoTo } = getRecentDateRange(RECENT_PO_DATE_DAYS);
-  const viewAllShipmentsHref = `/import/shipments?po_from_date=${encodeURIComponent(viewAllPoFrom)}&po_to_date=${encodeURIComponent(viewAllPoTo)}`;
+  const viewAllShipmentsHref = "/import/shipments";
 
   return (
     <DashboardCurrencyProvider>

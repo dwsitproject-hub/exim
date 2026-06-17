@@ -11,7 +11,6 @@ function userIdFromRequest(req: Request): string | undefined {
   return req.user?.id ?? req.user?.email ?? undefined;
 }
 
-/** Prefer UUID for document-number holder / regenerate checks. */
 function userUuidFromRequest(req: Request): string | undefined {
   const id = req.user?.id;
   if (typeof id === "string" && id.trim().length > 0) {
@@ -39,7 +38,18 @@ function parseListQuery(req: Request): ListExportBulkingQuery {
     statuses,
     sort_by: typeof q.sort_by === "string" && q.sort_by.trim() ? q.sort_by.trim() : undefined,
     sort_dir: q.sort_dir === "asc" || q.sort_dir === "desc" ? q.sort_dir : undefined,
+    assignment_filter:
+      q.assignment === "unassigned" || q.assignment === "assigned_to_me"
+        ? q.assignment
+        : undefined,
   };
+}
+
+function applyAssignmentScope(query: ListExportBulkingQuery, req: Request): ListExportBulkingQuery {
+  if (query.assignment_filter === "assigned_to_me" && req.user?.id) {
+    return { ...query, documentation_assignee_id: req.user.id };
+  }
+  return query;
 }
 
 /* ───────── shipment CRUD ───────── */
@@ -55,11 +65,51 @@ export async function create(req: Request, res: Response, next: NextFunction): P
 
 export async function list(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const query = parseListQuery(req);
+    const query = applyAssignmentScope(parseListQuery(req), req);
     const { items, total } = await service.list(query);
     const page = query.page ?? 1;
     const limit = query.limit ?? 10;
     sendSuccess(res, items, { meta: { page, limit, total } });
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function listDocumentationAssignees(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const items = await service.listDocumentationAssignees();
+    sendSuccess(res, items);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function assignDocumentation(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const assignedBy = userUuidFromRequest(req);
+    if (!assignedBy) {
+      sendError(res, "Unauthorized", { statusCode: 401 });
+      return;
+    }
+    const body = req.body as { assignee_user_id?: string | null };
+    const assignee =
+      body.assignee_user_id === null || body.assignee_user_id === undefined || body.assignee_user_id === ""
+        ? null
+        : String(body.assignee_user_id).trim();
+    const data = await service.assignDocumentation(req.params.id, assignee, assignedBy);
+    if (!data) {
+      sendError(res, "Shipment not found", { statusCode: 404 });
+      return;
+    }
+    sendSuccess(res, data, { message: assignee ? "Documentation officer assigned" : "Assignment cleared" });
   } catch (e) {
     next(e);
   }

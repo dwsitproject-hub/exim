@@ -120,3 +120,7 @@
 .rowInactive {
   opacity: 0.65;
 }
+
+.tableScroll {
+  overflow-x: auto;
+}

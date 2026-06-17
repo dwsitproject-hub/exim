@@ -98,6 +98,10 @@ export interface ListExportBulkingQuery {
   statuses?: string[];
   sort_by?: string;
   sort_dir?: "asc" | "desc";
+  /** Filter by documentation PIC assignment. */
+  assignment_filter?: "unassigned" | "assigned_to_me";
+  /** Used with assignment_filter=assigned_to_me (set by controller from auth). */
+  documentation_assignee_id?: string;
 }
 
 export interface ExportBulkingShipmentRow {
@@ -166,6 +170,10 @@ export interface ExportBulkingShipmentRow {
   total_quantity: number | null;
   remarks: string | null;
   created_by: string | null;
+  documentation_assigned_to: string | null;
+  documentation_assigned_at: string | null;
+  documentation_assigned_by: string | null;
+  documentation_assignee_name?: string | null;
   created_at: string;
   updated_at: string;
   cargo_count?: number;
@@ -173,6 +181,7 @@ export interface ExportBulkingShipmentRow {
   si_numbers?: string[] | null;
   invoice_numbers?: string[] | null;
   pl_numbers?: string[] | null;
+  cargo_names?: string[] | null;
   invoice_line_summaries?: { contract_no: string | null; quantity: number | null; so_no: string | null }[] | null;
 }
 

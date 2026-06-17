@@ -44,6 +44,7 @@
   font-size: var(--typography-fontSize-small, 14px);
   font-weight: var(--typography-fontWeight-medium, 500);
   color: var(--color-primitive-text-steel, #6b6b6b);
+  padding-right: 2.75rem;
 }
 
 .value {

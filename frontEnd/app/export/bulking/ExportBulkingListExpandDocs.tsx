@@ -14,6 +14,7 @@ import type {
   ShippingInstruction,
 } from "@/types/export-bulking";
 import type { ExportBulkingListView } from "@/lib/export-bulking-backlog";
+import { buildBulkingDetailUrl } from "@/lib/export-workspace";
 import {
   createInvoice,
   createShippingInstruction,
@@ -376,6 +377,7 @@ export function BulkingExpandDocsPanel({
   loading,
   canViewDocs,
   canEditCargo,
+  canEditDocs = false,
   listView = "all",
   onRefresh,
 }: {
@@ -385,6 +387,7 @@ export function BulkingExpandDocsPanel({
   loading: boolean;
   canViewDocs: boolean;
   canEditCargo: boolean;
+  canEditDocs?: boolean;
   listView?: ExportBulkingListView;
   onRefresh: () => Promise<void>;
 }) {
@@ -432,6 +435,7 @@ export function BulkingExpandDocsPanel({
           <>
             <DocNumberRow
               label="SI No"
+              canEdit={canEditDocs}
               records={sis.map((s) => ({
                 id: s.id,
                 value: s.si_number ?? "",
@@ -453,6 +457,7 @@ export function BulkingExpandDocsPanel({
               sis={sis}
               invoices={invoices}
               cargoLines={cargoLines}
+              canEdit={canEditDocs}
               onRefresh={onRefresh}
             />
           </>
@@ -472,7 +477,7 @@ export function BulkingExpandDocsPanel({
       )}
       <div className={styles.expandActions}>
         <Link
-          href={listView === "documentation" ? `/export/bulking/${row.id}?tab=documentation` : `/export/bulking/${row.id}`}
+          href={buildBulkingDetailUrl(row.id, { listView })}
           className={styles.expandDetailLink}
         >
           Open full detail →
@@ -514,6 +519,7 @@ function SiInvoiceHierarchyPanel({
   sis,
   invoices,
   cargoLines,
+  canEdit = false,
   onRefresh,
 }: {
   shipmentId: string;
@@ -521,6 +527,7 @@ function SiInvoiceHierarchyPanel({
   sis: ShippingInstruction[];
   invoices: Invoice[];
   cargoLines: CargoLine[];
+  canEdit?: boolean;
   onRefresh: () => Promise<void>;
 }) {
   const unassigned = invoices.filter((inv) => !inv.shipping_instruction_id);
@@ -546,6 +553,7 @@ function SiInvoiceHierarchyPanel({
             shippingInstructionId={si.id}
             invoices={under}
             cargoLines={cargoLines}
+            canEdit={canEdit}
             onRefresh={onRefresh}
           />
         );
@@ -563,6 +571,7 @@ function SiInvoiceHierarchyPanel({
           shippingInstructionId={null}
           invoices={unassigned}
           cargoLines={cargoLines}
+          canEdit={canEdit}
           onRefresh={onRefresh}
         />
       )}
@@ -577,6 +586,7 @@ function InvoiceGroupUnderSiBlock({
   shippingInstructionId,
   invoices,
   cargoLines,
+  canEdit = false,
   onRefresh,
 }: {
   shipmentId: string;
@@ -585,6 +595,7 @@ function InvoiceGroupUnderSiBlock({
   shippingInstructionId: string | null;
   invoices: Invoice[];
   cargoLines: CargoLine[];
+  canEdit?: boolean;
   onRefresh: () => Promise<void>;
 }) {
   const { pushToast } = useToast();
@@ -617,6 +628,7 @@ function InvoiceGroupUnderSiBlock({
             inv={inv}
             cargoLines={cargoLines}
             accessToken={accessToken}
+            canEdit={canEdit}
             onRefresh={onRefresh}
           />
         ))}
@@ -656,11 +668,11 @@ function InvoiceGroupUnderSiBlock({
               </button>
             </div>
           </div>
-        ) : (
+        ) : canEdit ? (
           <button type="button" className={styles.docAddBtn} onClick={() => setAdding(true)}>
             + Add invoice
           </button>
-        )}
+        ) : null}
       </div>
     </div>
   );
@@ -671,12 +683,14 @@ function InvoiceExpandBlock({
   inv,
   cargoLines,
   accessToken,
+  canEdit = false,
   onRefresh,
 }: {
   shipmentId: string;
   inv: Invoice;
   cargoLines: CargoLine[];
   accessToken: string;
+  canEdit?: boolean;
   onRefresh: () => Promise<void>;
 }) {
   const { pushToast } = useToast();
@@ -766,15 +780,17 @@ function InvoiceExpandBlock({
             <span className={styles.docChipLabel} title="System-assigned invoice number">
               {inv.invoice_no?.trim() || <em className={styles.cellEmpty}>unnamed</em>}
             </span>
-            <button
-              type="button"
-              className={styles.docChipDelete}
-              onClick={() => setConfirmDel(true)}
-              aria-label="Delete invoice"
-              disabled={busy}
-            >
-              <X size={10} strokeWidth={2.5} />
-            </button>
+            {canEdit && (
+              <button
+                type="button"
+                className={styles.docChipDelete}
+                onClick={() => setConfirmDel(true)}
+                aria-label="Delete invoice"
+                disabled={busy}
+              >
+                <X size={10} strokeWidth={2.5} />
+              </button>
+            )}
           </span>
         )}
       </div>
@@ -785,18 +801,20 @@ function InvoiceExpandBlock({
             {sos.map((so) => (
               <span key={so} className={styles.docSoChip}>
                 <span>{so}</span>
-                <button
-                  type="button"
-                  className={styles.docSoChipRemove}
-                  onClick={() => handleStripSo(so)}
-                  disabled={busy}
-                  aria-label={`Remove SO ${so}`}
-                >
-                  ×
-                </button>
+                {canEdit && (
+                  <button
+                    type="button"
+                    className={styles.docSoChipRemove}
+                    onClick={() => handleStripSo(so)}
+                    disabled={busy}
+                    aria-label={`Remove SO ${so}`}
+                  >
+                    ×
+                  </button>
+                )}
               </span>
             ))}
-            {addingSo ? (
+            {canEdit && (addingSo ? (
               <span className={styles.docSoAddWrap}>
                 <input
                   ref={newSoRef}
@@ -835,7 +853,7 @@ function InvoiceExpandBlock({
               <button type="button" className={styles.docAddSoBtn} onClick={() => setAddingSo(true)} disabled={busy}>
                 + SO
               </button>
-            )}
+            ))}
           </div>
         </div>
       )}
@@ -847,12 +865,14 @@ function DocNumberRow({
   label,
   records,
   cargoLines,
+  canEdit = false,
   onCreate,
   onDelete,
 }: {
   label: string;
   records: { id: string; value: string; cargoLineId: string | null }[];
   cargoLines: CargoLine[];
+  canEdit?: boolean;
   onCreate: (cargoLineId: string | null) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
 }) {
@@ -907,18 +927,20 @@ function DocNumberRow({
             <span key={rec.id} className={styles.docChip} title={rec.cargoLineId ? `Linked to: ${cargoLabel(rec.cargoLineId)}` : undefined}>
               {rec.cargoLineId && <span className={styles.docChipCargo}>↗{cargoLabel(rec.cargoLineId)}</span>}
               <span className={styles.docChipLabel}>{rec.value || <em className={styles.cellEmpty}>unnamed</em>}</span>
-              <button
-                type="button"
-                className={styles.docChipDelete}
-                onClick={() => setConfirmDeleteId(rec.id)}
-                aria-label={`Delete ${label} ${rec.value}`}
-              >
-                <X size={10} strokeWidth={2.5} />
-              </button>
+              {canEdit && (
+                <button
+                  type="button"
+                  className={styles.docChipDelete}
+                  onClick={() => setConfirmDeleteId(rec.id)}
+                  aria-label={`Delete ${label} ${rec.value}`}
+                >
+                  <X size={10} strokeWidth={2.5} />
+                </button>
+              )}
             </span>
           ),
         )}
-        {adding ? (
+        {canEdit && (adding ? (
           <div className={styles.docChipAdding}>
             <div className={styles.docChipAddingRow}>
               {cargoLines.length > 0 && (
@@ -958,7 +980,7 @@ function DocNumberRow({
           <button type="button" className={styles.docAddBtn} onClick={() => setAdding(true)}>
             + Add SI
           </button>
-        )}
+        ))}
       </div>
     </div>
   );

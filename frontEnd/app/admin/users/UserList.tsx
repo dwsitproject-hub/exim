@@ -1,10 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useAuth } from "@/hooks/use-auth";
-import { can } from "@/lib/permissions";
+import { usePermissionGate } from "@/hooks/use-permission-gate";
+import { LoadingSkeleton } from "@/components/feedback";
 import { listUsers, importUsersCsv } from "@/services/users-service";
 import { isApiError } from "@/types/api";
 import type { ApiSuccess } from "@/types/api";
@@ -12,7 +11,9 @@ import type { UserAdmin } from "@/types/users";
 import { Card } from "@/components/cards";
 import { useToast } from "@/components/providers/ToastProvider";
 import { Badge } from "@/components/badges";
-import { PageHeader, ActionBar, EmptyState } from "@/components/navigation";
+import { PageHeader, ActionBar, EmptyState, AccessDenied } from "@/components/navigation";
+import { SearchBar, ButtonLink } from "@/components/forms";
+import { Alert } from "@/components/feedback";
 import {
   Table,
   TableHead,
@@ -20,6 +21,7 @@ import {
   TableRow,
   TableCell,
   TableHeaderCell,
+  TablePagination,
 } from "@/components/tables";
 import styles from "./UserList.module.css";
 
@@ -33,7 +35,7 @@ John Smith,john@example.com,ChangeMe12!,IMPORT_OFFICER,CREATE_SHIPMENT|VIEW_SHIP
 
 export function UserList() {
   const router = useRouter();
-  const { user, accessToken } = useAuth();
+  const { accessToken, allowed, pending, denied } = usePermissionGate(MANAGE_USERS);
   const [items, setItems] = useState<UserAdmin[]>([]);
   const [meta, setMeta] = useState<{ page: number; limit: number; total: number } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -45,11 +47,9 @@ export function UserList() {
   const [importMessage, setImportMessage] = useState<string | null>(null);
   const { pushToast } = useToast();
 
-  const allowed = can(user, MANAGE_USERS);
-
   const fetchList = useCallback(() => {
-    if (!accessToken || !allowed) {
-      setLoading(false);
+    if (!accessToken || !allowed || pending) {
+      if (!pending) setLoading(false);
       return;
     }
     setLoading(true);
@@ -66,7 +66,7 @@ export function UserList() {
       })
       .catch(() => setError("Failed to load users"))
       .finally(() => setLoading(false));
-  }, [accessToken, allowed, page, searchParam]);
+  }, [accessToken, allowed, pending, page, searchParam]);
 
   useEffect(() => {
     fetchList();
@@ -74,8 +74,7 @@ export function UserList() {
 
   const totalPages = meta ? Math.ceil(meta.total / meta.limit) : 0;
 
-  function handleSearchSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  function handleSearchSubmit() {
     setSearchParam(searchInput);
     setPage(1);
   }
@@ -106,12 +105,23 @@ export function UserList() {
     fetchList();
   }
 
-  if (!allowed) {
+  if (pending) {
     return (
       <section>
         <PageHeader title="User management" backHref="/admin/dashboard" backLabel="Dashboard" />
-        <p className={styles.denied}>You do not have permission to manage users.</p>
+        <LoadingSkeleton lines={6} />
       </section>
+    );
+  }
+
+  if (denied) {
+    return (
+      <AccessDenied
+        title="User management"
+        backHref="/admin/dashboard"
+        backLabel="Dashboard"
+        message="You do not have permission to manage users."
+      />
     );
   }
 
@@ -126,31 +136,26 @@ export function UserList() {
 
       <ActionBar
         search={
-          <form onSubmit={handleSearchSubmit} className={styles.searchForm}>
-            <input
-              type="search"
-              placeholder="Search name or email…"
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              className={styles.searchInput}
-              aria-label="Search users"
-            />
-            <button type="submit" className={styles.searchSubmit}>
-              Search
-            </button>
-          </form>
+          <SearchBar
+            value={searchInput}
+            onChange={setSearchInput}
+            onSubmit={handleSearchSubmit}
+            placeholder="Search name or email…"
+            ariaLabel="Search users"
+            fluid
+          />
         }
         primaryAction={
           <div className={styles.primaryActions}>
-            <Link href="/admin/users/new" className={styles.createBtn}>
+            <ButtonLink href="/admin/users/new" size="sm">
               New user
-            </Link>
+            </ButtonLink>
           </div>
         }
       />
 
-      <Card>
-        {error && <p role="alert">{error}</p>}
+      <Card className={styles.tableScroll}>
+        {error && <Alert>{error}</Alert>}
         {loading ? (
           <p className="utilLoadingFallback">Loading…</p>
         ) : items.length === 0 ? (
@@ -190,29 +195,14 @@ export function UserList() {
           </Table>
         )}
 
-        {meta && totalPages > 1 && (
-          <div className={styles.primaryActions} style={{ marginTop: 16 }}>
-            <button
-              type="button"
-              className={styles.searchSubmit}
-              disabled={page <= 1}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-            >
-              Previous
-            </button>
-            <span style={{ alignSelf: "center", fontSize: 14 }}>
-              Page {meta.page} of {totalPages}
-            </span>
-            <button
-              type="button"
-              className={styles.searchSubmit}
-              disabled={page >= totalPages}
-              onClick={() => setPage((p) => p + 1)}
-            >
-              Next
-            </button>
-          </div>
-        )}
+        <TablePagination
+          page={page}
+          totalPages={totalPages}
+          onPageChange={setPage}
+          totalItems={meta?.total}
+          itemNoun="users"
+          showWhenSinglePage
+        />
       </Card>
 
       <div className={styles.importPanel}>

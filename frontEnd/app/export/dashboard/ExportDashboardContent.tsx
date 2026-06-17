@@ -9,7 +9,6 @@ import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
 import { can } from "@/lib/permissions";
 import {
-  canEditExportBulking,
   canViewExportDocumentation,
 } from "@/lib/export-workspace";
 
@@ -53,19 +52,20 @@ import {
 
 } from "@/lib/export-bulking-backlog";
 
+import { getExportBulkingAccent } from "@/lib/entity-status";
 import styles from "./ExportDashboardContent.module.css";
 
 
 
 const STATUS_PILL_CLASS: Record<string, string> = {
-  SHIPMENT_PLANNING: "#52525b",
-  NOMINATION: "#1d4ed8",
-  SI_RECEIVE: "#92400e",
-  ARRIVAL: "#283593",
-  AT_BERTH: "#00695c",
-  LOADING: "#e65100",
-  NPE: "#ad1457",
-  CASE_OFF: "#1b5e20",
+  SHIPMENT_PLANNING: getExportBulkingAccent("SHIPMENT_PLANNING"),
+  NOMINATION: getExportBulkingAccent("NOMINATION"),
+  SI_RECEIVE: getExportBulkingAccent("SI_RECEIVE"),
+  ARRIVAL: getExportBulkingAccent("ARRIVAL"),
+  AT_BERTH: getExportBulkingAccent("AT_BERTH"),
+  LOADING: getExportBulkingAccent("LOADING"),
+  NPE: getExportBulkingAccent("NPE"),
+  CASE_OFF: getExportBulkingAccent("CASE_OFF"),
 };
 
 
@@ -73,7 +73,7 @@ const STATUS_PILL_CLASS: Record<string, string> = {
 export function ExportDashboardContent() {
 
   const { user, accessToken, loading: authLoading } = useAuth();
-  const showOpsBand = canEditExportBulking(user) || !canViewExportDocumentation(user);
+  const showOpsBand = Boolean(user?.effective_permissions?.includes("VIEW_EXPORT_BULKING"));
   const showDocsBand = canViewExportDocumentation(user);
   const dashboardSubtitle = user
     ? showOpsBand && showDocsBand

@@ -23,6 +23,14 @@ import type {
   PackingListLineDto,
 } from "../dto/index.js";
 import { AppError } from "../../../middlewares/errorHandler.js";
+import {
+  assertUniqueExportDocumentNumber,
+  INVOICE_NUMBER_SPEC,
+  PACKING_LIST_NUMBER_SPEC,
+  rethrowDocumentNumberConflict,
+  SI_NUMBER_SPEC,
+  trimDocNumber,
+} from "../utils/document-number-uniqueness.js";
 
 async function assertShippingInstructionMatchesShipment(
   client: PoolClient,
@@ -49,7 +57,8 @@ const SHIPMENT_COLUMNS = `id, shipment_no, current_status, vessel_name, voyage_n
   hs_code, currency_tax, biaya_keluar_price_usd_mt, biaya_keluar_amount_idr, biaya_keluar_billing_no,
   levy_price_usd_mt, levy_amount_idr, levy_billing_no, billing_to_gl, td,
   surveyor, surveyor_reason, agent, laytime_rate_mtph, demurrage_rate_pdpr, total_quantity,
-  remarks, created_by, created_at, updated_at`;
+  remarks, created_by, documentation_assigned_to, documentation_assigned_at, documentation_assigned_by,
+  created_at, updated_at`;
 
 export class ExportBulkingRepository {
   private get pool(): Pool {
@@ -73,22 +82,21 @@ export class ExportBulkingRepository {
     return `${prefix}${String(nextNum).padStart(4, "0")}`;
   }
 
-  /** Monotonic per (series, year, month); must run inside an open transaction. */
+  /** Monotonic per (series, year); must run inside an open transaction. */
   private async allocateNextSerial(
     client: PoolClient,
     seriesCode: string,
     year: number,
-    month: number,
   ): Promise<number> {
     const r = await client.query<{ last_serial: number }>(
-      `INSERT INTO export_bulking_doc_number_counters (series_code, year, month, last_serial)
-       VALUES ($1, $2, $3, 1)
-       ON CONFLICT (series_code, year, month)
+      `INSERT INTO export_bulking_doc_number_counters (series_code, year, last_serial)
+       VALUES ($1, $2, 1)
+       ON CONFLICT (series_code, year)
        DO UPDATE SET
          last_serial = export_bulking_doc_number_counters.last_serial + 1,
          updated_at = NOW()
        RETURNING last_serial`,
-      [seriesCode, year, month],
+      [seriesCode, year],
     );
     return Number(r.rows[0]?.last_serial ?? 0);
   }
@@ -137,11 +145,51 @@ export class ExportBulkingRepository {
       }
     }
 
+    if (query.assignment_filter === "unassigned") {
+      conditions.push("s.documentation_assigned_to IS NULL");
+    } else if (
+      query.assignment_filter === "assigned_to_me" &&
+      query.documentation_assignee_id
+    ) {
+      conditions.push(`s.documentation_assigned_to = $${idx++}`);
+      params.push(query.documentation_assignee_id);
+    }
+
     if (query.search) {
       const term = `%${query.search}%`;
-      conditions.push(
-        `(s.shipment_no ILIKE $${idx} OR s.vessel_name ILIKE $${idx} OR s.shipper ILIKE $${idx})`,
-      );
+      conditions.push(`(
+        s.shipment_no ILIKE $${idx}
+        OR s.vessel_name ILIKE $${idx}
+        OR s.shipper ILIKE $${idx}
+        OR s.peb_no ILIKE $${idx}
+        OR s.bill_of_lading_no ILIKE $${idx}
+        OR s.current_status ILIKE $${idx}
+        OR CAST(s.total_quantity AS TEXT) ILIKE $${idx}
+        OR to_char(s.peb_date, 'YYYY-MM-DD') ILIKE $${idx}
+        OR to_char(s.bill_of_lading_date, 'YYYY-MM-DD') ILIKE $${idx}
+        OR EXISTS (
+          SELECT 1 FROM export_bulking_cargo_lines cl
+          WHERE cl.shipment_id = s.id
+            AND (cl.cargo_name ILIKE $${idx} OR cl.item_description ILIKE $${idx})
+        )
+        OR EXISTS (
+          SELECT 1 FROM export_bulking_shipping_instructions si
+          WHERE si.shipment_id = s.id AND si.si_number ILIKE $${idx}
+        )
+        OR EXISTS (
+          SELECT 1 FROM export_bulking_invoices inv
+          WHERE inv.shipment_id = s.id AND inv.invoice_no ILIKE $${idx}
+        )
+        OR EXISTS (
+          SELECT 1 FROM export_bulking_packing_lists pl
+          WHERE pl.shipment_id = s.id AND pl.packing_list_number ILIKE $${idx}
+        )
+        OR EXISTS (
+          SELECT 1 FROM users doc_search
+          WHERE doc_search.id = s.documentation_assigned_to
+            AND doc_search.name ILIKE $${idx}
+        )
+      )`);
       params.push(term);
       idx++;
     }
@@ -165,6 +213,10 @@ export class ExportBulkingRepository {
       total_quantity: "s.total_quantity",
       created_at: "s.created_at",
       eta: "s.eta",
+      peb_no: "s.peb_no",
+      peb_date: "s.peb_date",
+      bill_of_lading_no: "s.bill_of_lading_no",
+      bill_of_lading_date: "s.bill_of_lading_date",
     };
     const sortExpr = (query.sort_by && allowedSorts[query.sort_by]) ?? "s.created_at";
     const orderBy = `ORDER BY ${sortExpr} ${dir} NULLS LAST, s.id DESC`;
@@ -172,6 +224,7 @@ export class ExportBulkingRepository {
     params.push(limit, offset);
     const result = await this.pool.query<ExportBulkingShipmentRow>(
       `SELECT ${SHIPMENT_COLUMNS},
+        (SELECT u.name FROM users u WHERE u.id = s.documentation_assigned_to) AS documentation_assignee_name,
         (SELECT COUNT(*)::int FROM export_bulking_cargo_lines cl WHERE cl.shipment_id = s.id) AS cargo_count,
         (SELECT json_agg(json_build_object(
             'item_description', cl2.item_description,
@@ -179,6 +232,10 @@ export class ExportBulkingRepository {
          ) ORDER BY cl2.line_order)
          FROM export_bulking_cargo_lines cl2 WHERE cl2.shipment_id = s.id
         ) AS cargo_summaries,
+        (SELECT array_agg(DISTINCT cl4.cargo_name ORDER BY cl4.cargo_name)
+         FROM export_bulking_cargo_lines cl4
+         WHERE cl4.shipment_id = s.id AND btrim(cl4.cargo_name) <> ''
+        ) AS cargo_names,
         (SELECT array_agg(DISTINCT si.si_number)
          FROM export_bulking_shipping_instructions si
          WHERE si.shipment_id = s.id AND si.si_number IS NOT NULL
@@ -208,10 +265,63 @@ export class ExportBulkingRepository {
 
   async getById(id: string): Promise<ExportBulkingShipmentRow | null> {
     const result = await this.pool.query<ExportBulkingShipmentRow>(
-      `SELECT ${SHIPMENT_COLUMNS} FROM export_bulking_shipments s WHERE s.id = $1 AND s.deleted_at IS NULL`,
+      `SELECT ${SHIPMENT_COLUMNS},
+        (SELECT u.name FROM users u WHERE u.id = s.documentation_assigned_to) AS documentation_assignee_name
+       FROM export_bulking_shipments s WHERE s.id = $1 AND s.deleted_at IS NULL`,
       [id],
     );
     return result.rows[0] ?? null;
+  }
+
+  async listDocumentationAssignees(): Promise<{ id: string; name: string; email: string }[]> {
+    const result = await this.pool.query<{ id: string; name: string; email: string }>(
+      `SELECT id, name, email
+       FROM users
+       WHERE is_active = true
+         AND UPPER(TRIM(role)) = 'EXPORT_BULKING_DOCUMENTATION'
+       ORDER BY name ASC, email ASC`,
+    );
+    return result.rows;
+  }
+
+  async assignDocumentation(
+    shipmentId: string,
+    assigneeUserId: string | null,
+    assignedByUserId: string,
+  ): Promise<ExportBulkingShipmentRow | null> {
+    if (assigneeUserId) {
+      const userCheck = await this.pool.query<{ id: string }>(
+        `SELECT id FROM users
+         WHERE id = $1 AND is_active = true
+           AND UPPER(TRIM(role)) = 'EXPORT_BULKING_DOCUMENTATION'`,
+        [assigneeUserId],
+      );
+      if (!userCheck.rows[0]) {
+        throw new AppError("Assignee must be an active export bulking documentation officer", 400);
+      }
+    }
+
+    const result = await this.pool.query<ExportBulkingShipmentRow>(
+      `UPDATE export_bulking_shipments
+       SET documentation_assigned_to = $1,
+           documentation_assigned_at = CASE WHEN $1 IS NULL THEN NULL ELSE NOW() END,
+           documentation_assigned_by = CASE WHEN $1 IS NULL THEN NULL ELSE $2 END,
+           updated_at = NOW()
+       WHERE id = $3 AND deleted_at IS NULL
+       RETURNING ${SHIPMENT_COLUMNS}`,
+      [assigneeUserId, assignedByUserId, shipmentId],
+    );
+    const row = result.rows[0] ?? null;
+    if (!row) return null;
+
+    const nameResult = await this.pool.query<{ name: string | null }>(
+      `SELECT name FROM users WHERE id = $1`,
+      [assigneeUserId],
+    );
+    return {
+      ...row,
+      documentation_assignee_name: assigneeUserId ? nameResult.rows[0]?.name ?? null : null,
+    };
   }
 
   async update(id: string, dto: UpdateExportBulkingShipmentDto): Promise<ExportBulkingShipmentRow | null> {
@@ -462,8 +572,10 @@ export class ExportBulkingRepository {
       let siNumber = dto.si_number?.trim() ?? "";
       const holder = userId ?? null;
       if (!siNumber) {
-        const serial = await this.allocateNextSerial(client, SERIES_SI_EUP, year, month);
+        const serial = await this.allocateNextSerial(client, SERIES_SI_EUP, year);
         siNumber = formatSiDocumentNumber(year, month, serial);
+      } else {
+        await assertUniqueExportDocumentNumber(client, SI_NUMBER_SPEC, siNumber);
       }
 
       const siRes = await client.query(
@@ -510,7 +622,7 @@ export class ExportBulkingRepository {
       return si;
     } catch (e) {
       await client.query("ROLLBACK");
-      throw e;
+      rethrowDocumentNumberConflict(e, "SI number");
     } finally {
       client.release();
     }
@@ -543,6 +655,10 @@ export class ExportBulkingRepository {
         if (a !== b) nextHolder = actingUserId;
       }
 
+      if (dto.si_number !== undefined) {
+        await assertUniqueExportDocumentNumber(client, SI_NUMBER_SPEC, dto.si_number, id);
+      }
+
       const siRes = await client.query(
         `UPDATE export_bulking_shipping_instructions SET
           si_number=$1, messrs=$2, bill_of_lading_option=$3, consignee=$4, notify_party=$5,
@@ -551,7 +667,7 @@ export class ExportBulkingRepository {
           updated_at=NOW()
          WHERE id=$11 RETURNING *`,
         [
-          dto.si_number !== undefined ? (dto.si_number?.trim() || null) : prev.si_number,
+          dto.si_number !== undefined ? trimDocNumber(dto.si_number) : prev.si_number,
           dto.messrs ?? null,
           dto.bill_of_lading_option ?? null,
           dto.consignee ?? null,
@@ -601,7 +717,7 @@ export class ExportBulkingRepository {
       return si;
     } catch (e) {
       await client.query("ROLLBACK");
-      throw e;
+      rethrowDocumentNumberConflict(e, "SI number");
     } finally {
       client.release();
     }
@@ -628,7 +744,7 @@ export class ExportBulkingRepository {
       const { year, month } = utcYearMonthNow();
       let lastErr: unknown;
       for (let attempt = 0; attempt < 25; attempt++) {
-        const serial = await this.allocateNextSerial(client, SERIES_SI_EUP, year, month);
+        const serial = await this.allocateNextSerial(client, SERIES_SI_EUP, year);
         const siNumber = formatSiDocumentNumber(year, month, serial);
         try {
           const siRes = await client.query(
@@ -688,7 +804,7 @@ export class ExportBulkingRepository {
       const { year, month } = utcYearMonthNow();
       let lastErr: unknown;
       for (let attempt = 0; attempt < 25; attempt++) {
-        const serial = await this.allocateNextSerial(client, SERIES_CI_EU, year, month);
+        const serial = await this.allocateNextSerial(client, SERIES_CI_EU, year);
         const invoiceNo = formatInvoiceDocumentNumber(year, month, serial);
         try {
           const invRes = await client.query(
@@ -748,7 +864,7 @@ export class ExportBulkingRepository {
       const { year, month } = utcYearMonthNow();
       let lastErr: unknown;
       for (let attempt = 0; attempt < 25; attempt++) {
-        const serial = await this.allocateNextSerial(client, SERIES_PL_EUP, year, month);
+        const serial = await this.allocateNextSerial(client, SERIES_PL_EUP, year);
         const plNo = formatPlDocumentNumber(year, month, serial);
         try {
           const plRes = await client.query(
@@ -842,8 +958,10 @@ export class ExportBulkingRepository {
       let invoiceNo = dto.invoice_no?.trim() ?? "";
       const holder = userId ?? null;
       if (!invoiceNo) {
-        const serial = await this.allocateNextSerial(client, SERIES_CI_EU, year, month);
+        const serial = await this.allocateNextSerial(client, SERIES_CI_EU, year);
         invoiceNo = formatInvoiceDocumentNumber(year, month, serial);
+      } else {
+        await assertUniqueExportDocumentNumber(client, INVOICE_NUMBER_SPEC, invoiceNo);
       }
 
       const invRes = await client.query(
@@ -893,7 +1011,7 @@ export class ExportBulkingRepository {
       return inv;
     } catch (e) {
       await client.query("ROLLBACK");
-      throw e;
+      rethrowDocumentNumberConflict(e, "Invoice number");
     } finally {
       client.release();
     }
@@ -959,13 +1077,17 @@ export class ExportBulkingRepository {
         if (prevInvNo !== nextInvNo) nextDocHolder = actingUserId;
       }
 
+      if (dto.invoice_no !== undefined) {
+        await assertUniqueExportDocumentNumber(client, INVOICE_NUMBER_SPEC, dto.invoice_no, id);
+      }
+
       const invRes = await client.query(
         `UPDATE export_bulking_invoices SET
           invoice_no=$1, invoice_date=$2, messrs=$3, vessel_voyage_snapshot=$4,
           loadport_snapshot=$5, destination_snapshot=$6, marks=$7,
           shipping_instruction_id=$8, doc_number_held_by_user_id=$9, updated_at=NOW()
          WHERE id=$10 RETURNING *`,
-        [invoice_no, invoice_date, messrs, vessel_voyage_snapshot,
+        [dto.invoice_no !== undefined ? trimDocNumber(dto.invoice_no) : invoice_no, invoice_date, messrs, vessel_voyage_snapshot,
          loadport_snapshot, destination_snapshot, marks,
          nextShippingInstructionId, nextDocHolder, id],
       );
@@ -1005,7 +1127,7 @@ export class ExportBulkingRepository {
       return inv;
     } catch (e) {
       await client.query("ROLLBACK");
-      throw e;
+      rethrowDocumentNumberConflict(e, "Invoice number");
     } finally {
       client.release();
     }
@@ -1056,8 +1178,10 @@ export class ExportBulkingRepository {
       let plNumber = dto.packing_list_number?.trim() ?? "";
       const holder = userId ?? null;
       if (!plNumber) {
-        const serial = await this.allocateNextSerial(client, SERIES_PL_EUP, year, month);
+        const serial = await this.allocateNextSerial(client, SERIES_PL_EUP, year);
         plNumber = formatPlDocumentNumber(year, month, serial);
+      } else {
+        await assertUniqueExportDocumentNumber(client, PACKING_LIST_NUMBER_SPEC, plNumber);
       }
 
       const siId = dto.shipping_instruction_id ?? null;
@@ -1095,7 +1219,7 @@ export class ExportBulkingRepository {
       return pl;
     } catch (e) {
       await client.query("ROLLBACK");
-      throw e;
+      rethrowDocumentNumberConflict(e, "Packing list number");
     } finally {
       client.release();
     }
@@ -1145,13 +1269,17 @@ export class ExportBulkingRepository {
         await assertShippingInstructionMatchesShipment(client, prev.shipment_id, nextSiId);
       }
 
+      if (dto.packing_list_number !== undefined) {
+        await assertUniqueExportDocumentNumber(client, PACKING_LIST_NUMBER_SPEC, dto.packing_list_number, id);
+      }
+
       const plRes = await client.query(
         `UPDATE export_bulking_packing_lists SET
           packing_list_number=$1, loadport_snapshot=$2, destination_snapshot=$3,
           shipping_instruction_id=$4, doc_number_held_by_user_id=$5, updated_at=NOW()
          WHERE id=$6 RETURNING *`,
         [
-          dto.packing_list_number !== undefined ? (dto.packing_list_number?.trim() || null) : prev.packing_list_number,
+          dto.packing_list_number !== undefined ? trimDocNumber(dto.packing_list_number) : prev.packing_list_number,
           loadport,
           dest,
           nextSiId,
@@ -1194,7 +1322,7 @@ export class ExportBulkingRepository {
       return pl;
     } catch (e) {
       await client.query("ROLLBACK");
-      throw e;
+      rethrowDocumentNumberConflict(e, "Packing list number");
     } finally {
       client.release();
     }

@@ -21,18 +21,18 @@ export function formatPaddedSerial(serial: number, width = 4): string {
   return String(serial).padStart(width, "0");
 }
 
-/** SI/EUP/YYYY/<Roman month>/serial */
+/** SI/EUP/YYYY/<Roman month>/serial — serial runs continuously within the calendar year. */
 export function formatSiDocumentNumber(year: number, month: number, serial: number): string {
   return `SI/EUP/${year}/${monthToRoman(month)}/${formatPaddedSerial(serial)}`;
 }
 
-/** CI/EU/YYYY/MM/serial (MM = 01–12) */
+/** CI/EU/YYYY/MM/serial (MM = 01–12) — serial runs continuously within the calendar year. */
 export function formatInvoiceDocumentNumber(year: number, month: number, serial: number): string {
   const mm = String(month).padStart(2, "0");
   return `CI/EU/${year}/${mm}/${formatPaddedSerial(serial)}`;
 }
 
-/** PL/EUP/YYYY/<Roman month>/serial */
+/** PL/EUP/YYYY/<Roman month>/serial — serial runs continuously within the calendar year. */
 export function formatPlDocumentNumber(year: number, month: number, serial: number): string {
   return `PL/EUP/${year}/${monthToRoman(month)}/${formatPaddedSerial(serial)}`;
 }

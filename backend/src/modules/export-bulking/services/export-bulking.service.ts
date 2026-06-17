@@ -140,6 +140,20 @@ export class ExportBulkingService {
     return { shipment, cargo_lines, shipping_instructions, invoices, packing_lists };
   }
 
+  async listDocumentationAssignees(): Promise<{ id: string; name: string; email: string }[]> {
+    return this.repo.listDocumentationAssignees();
+  }
+
+  async assignDocumentation(
+    shipmentId: string,
+    assigneeUserId: string | null,
+    assignedByUserId: string,
+  ): Promise<ExportBulkingShipmentRow | null> {
+    const existing = await this.repo.getById(shipmentId);
+    if (!existing) return null;
+    return this.repo.assignDocumentation(shipmentId, assigneeUserId, assignedByUserId);
+  }
+
   async listFilterOptions(): Promise<Record<string, unknown>> {
     return this.repo.listFilterOptions();
   }
