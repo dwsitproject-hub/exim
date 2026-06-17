@@ -1,8 +1,11 @@
 /**
- * Export bulking document filing: Export / Year / ShipmentNo / document_type
+ * Export bulking document filing: Export / bulking / Year / ShipmentNo / document_type
  */
 
-import { EXPORT_STORAGE_ROOT } from "../../../shared/storage/trade-flow-folders.js";
+import {
+  EXPORT_BULKING_STORAGE_ROOT,
+  EXPORT_STORAGE_ROOT,
+} from "../../../shared/storage/trade-flow-folders.js";
 
 const MAX_SEGMENT = 120;
 
@@ -35,5 +38,5 @@ export function buildExportBulkingDocumentDirectoryPrefix(input: {
   const year = shipmentYearUtc(input.created_at, input.eta ?? null);
   const shipmentSeg = segment(input.shipment_no, "NO_SHIPMENT");
   const typeSeg = segment(input.document_type, "OTHER");
-  return [EXPORT_STORAGE_ROOT, year, shipmentSeg, typeSeg].join("/");
+  return [EXPORT_STORAGE_ROOT, EXPORT_BULKING_STORAGE_ROOT, year, shipmentSeg, typeSeg].join("/");
 }

@@ -1,4 +1,4 @@
--- Export bulking uploaded documents (files on shared storage under Export/).
+-- Export bulking uploaded documents (files on shared storage under Export/bulking/).
 
 CREATE TABLE IF NOT EXISTS export_bulking_documents (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

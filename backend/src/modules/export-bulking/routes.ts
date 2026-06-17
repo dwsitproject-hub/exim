@@ -74,7 +74,7 @@ exportBulkingRoutes.post(
 );
 exportBulkingRoutes.delete("/shipments/:id/packing-lists/:plId", authMiddleware, requirePermission(P.UPDATE_EXPORT_DOCUMENTATION, P.UPDATE_EXPORT_BULKING), ctrl.deletePL);
 
-/* ───── uploaded documents (Export/ storage) ───── */
+/* ───── uploaded documents (Export/bulking/ storage) ───── */
 exportBulkingRoutes.get(
   "/shipments/:id/documents",
   authMiddleware,
