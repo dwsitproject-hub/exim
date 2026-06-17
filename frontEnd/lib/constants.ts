@@ -5,8 +5,8 @@
 /** Login path — used for redirects and route protection. */
 export const LOGIN_PATH = "/login";
 
-/** Default dashboard path after login. */
-export const DEFAULT_AFTER_LOGIN_PATH = "/dashboard";
+/** Default landing path after login (hub page). */
+export const DEFAULT_AFTER_LOGIN_PATH = "/";
 
 /**
  * useAuth `accessToken` state when tokens are HttpOnly cookies (JS cannot read JWT).

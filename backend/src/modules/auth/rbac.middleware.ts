@@ -15,7 +15,7 @@ function ensureUser(req: Request, res: Response): boolean {
   return true;
 }
 
-/** Require one of the given roles (e.g. ROLES.ADMIN, 'EXIM_OFFICER'). */
+/** Require one of the given roles (e.g. ROLES.ADMIN, 'IMPORT_OFFICER'). */
 export function requireRole(...allowedRoles: string[]) {
   const set = new Set(allowedRoles.map((r) => r.toUpperCase()));
   return function middleware(req: Request, res: Response, next: NextFunction): void {

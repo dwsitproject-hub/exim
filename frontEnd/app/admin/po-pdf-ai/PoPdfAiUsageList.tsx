@@ -9,7 +9,8 @@ import type { ApiSuccess } from "@/types/api";
 import type { PoPdfAiRequestItem } from "@/types/po";
 import { Card } from "@/components/cards";
 import { LoadingSkeleton } from "@/components/feedback";
-import { PageHeader, EmptyState } from "@/components/navigation";
+import { PageHeader, EmptyState, AccessDenied } from "@/components/navigation";
+import { Alert } from "@/components/feedback";
 import {
   Table,
   TableHead,
@@ -17,6 +18,7 @@ import {
   TableRow,
   TableCell,
   TableHeaderCell,
+  TablePagination,
 } from "@/components/tables";
 import styles from "./PoPdfAiUsageList.module.css";
 
@@ -90,10 +92,12 @@ export function PoPdfAiUsageList() {
 
   if (!allowed) {
     return (
-      <section>
-        <PageHeader title="PO PDF AI usage" backHref="/dashboard" backLabel="Admin" />
-        <p className={styles.denied}>You do not have permission to view this page.</p>
-      </section>
+      <AccessDenied
+        title="PO PDF AI usage"
+        backHref="/admin/dashboard"
+        backLabel="Admin"
+        message="You do not have permission to view this page."
+      />
     );
   }
 
@@ -104,14 +108,14 @@ export function PoPdfAiUsageList() {
       <PageHeader
         title="PO PDF AI usage"
         subtitle="Users who requested Rescan with AI on PO PDF uploads, with confidence before and after."
-        backHref="/dashboard"
+        backHref="/admin/dashboard"
         backLabel="Admin"
       />
 
       {loading ? (
         <LoadingSkeleton lines={6} className={styles.loading} />
       ) : error ? (
-        <p className={styles.error}>{error}</p>
+        <Alert>{error}</Alert>
       ) : items.length === 0 ? (
         <EmptyState title="No AI rescans yet" description="Rescan with AI events will appear here." />
       ) : (
@@ -170,29 +174,7 @@ export function PoPdfAiUsageList() {
               ))}
             </TableBody>
           </Table>
-          {totalPages > 1 && (
-            <div className={styles.pagination}>
-              <button
-                type="button"
-                className={styles.pageBtn}
-                disabled={page <= 1}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-              >
-                Previous
-              </button>
-              <span className={styles.pageInfo}>
-                Page {page} of {totalPages}
-              </span>
-              <button
-                type="button"
-                className={styles.pageBtn}
-                disabled={page >= totalPages}
-                onClick={() => setPage((p) => p + 1)}
-              >
-                Next
-              </button>
-            </div>
-          )}
+          <TablePagination page={page} totalPages={totalPages} onPageChange={setPage} />
         </Card>
       )}
     </section>

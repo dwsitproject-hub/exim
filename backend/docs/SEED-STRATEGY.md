@@ -7,7 +7,7 @@ EOS auth requires at least one user to log in. This document suggests how to see
 ## Assumptions
 
 - Table `users` exists (see `src/db/migrations/001_auth_tables.sql`).
-- Role names align with API Spec / RBAC (e.g. `ADMIN`, `EXIM_OFFICER`, `VIEWER`).
+- Role names align with API Spec / RBAC (e.g. `ADMIN`, `IMPORT_OFFICER`, `VIEWER`).
 - Seed is run once (e.g. after first migration) or via a dedicated script; not on every app start in production.
 
 ## Recommended approach
@@ -37,7 +37,7 @@ EOS auth requires at least one user to log in. This document suggests how to see
 Align with API Spec access matrix when RBAC is fully defined. Example roles:
 
 - `ADMIN` – full access, user management.
-- `EXIM_OFFICER` – transactions, documents, status, no user management.
+- `IMPORT_OFFICER` – transactions, documents, status, no user management.
 - `VIEWER` – read-only.
 
 Seed only the admin user; other roles can be assigned when the users module is implemented.

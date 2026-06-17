@@ -1,0 +1,39 @@
+/* Design tokens only — design-tokens.json */
+
+.alert {
+  margin: 0 0 var(--spacing-3, 16px);
+  padding: var(--spacing-2, 8px) var(--spacing-3, 16px);
+  font-size: var(--typography-fontSize-small, 14px);
+  border-radius: var(--borderRadius-sm, 6px);
+  line-height: 1.45;
+}
+
+.error {
+  color: var(--color-semantic-destructive-default, #c43a31);
+  background-color: #fef2f2;
+  border: 1px solid #fecaca;
+}
+
+.warning {
+  color: #9a3412;
+  background-color: #fff7ed;
+  border: 1px solid #fdba74;
+}
+
+.info {
+  color: #1e40af;
+  background-color: #eff6ff;
+  border: 1px solid #93c5fd;
+}
+
+.success {
+  color: #14532d;
+  background-color: #ecfdf3;
+  border: 1px solid #86efac;
+}
+
+.title {
+  display: block;
+  font-weight: var(--typography-fontWeight-semibold, 600);
+  margin-bottom: var(--spacing-1, 4px);
+}

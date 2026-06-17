@@ -204,6 +204,23 @@
   }
 }
 
+.hubLink {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-1, 4px);
+  padding: var(--spacing-1, 4px) var(--spacing-3, 16px);
+  margin-bottom: var(--spacing-2, 8px);
+  font-size: var(--typography-fontSize-xs, 12px);
+  font-weight: var(--typography-fontWeight-medium, 500);
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  text-decoration: none;
+  transition: color var(--animation-duration-fast, 150ms) var(--animation-easing-default, ease-out);
+}
+
+.hubLink:hover {
+  color: var(--color-semantic-primary-default, #c43a31);
+}
+
 /* Mobile drawer: full nav list only (collapse is desktop-only) */
 @media (max-width: 1023px) {
   .sidebarHeader {

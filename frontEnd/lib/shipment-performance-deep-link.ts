@@ -60,7 +60,7 @@ export const PERFORMANCE_ETA_LATE_QUERY_PARAM = "performance_eta_late";
 export function buildShipmentListPerformanceStatusLink(status: ShipmentStatus): string {
   const p = new URLSearchParams();
   p.set(PERFORMANCE_STATUS_QUERY_PARAM, status);
-  return `/dashboard/shipments?${p.toString()}`;
+  return `/import/shipments?${p.toString()}`;
 }
 
 /** Completion rate KPI → delivered shipments only. */
@@ -72,7 +72,7 @@ export function buildShipmentListCompletionRateLink(): string {
 export function buildShipmentListLateDelayedRateLink(): string {
   const p = new URLSearchParams();
   p.set(PERFORMANCE_ETA_LATE_QUERY_PARAM, "true");
-  return `/dashboard/shipments?${p.toString()}`;
+  return `/import/shipments?${p.toString()}`;
 }
 
 export function performanceStatusFilterTooltip(count: number, statusLabel: string): string {

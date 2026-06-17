@@ -3,7 +3,7 @@
  * Shipment lifecycle uses distinct text/background tones (see Badge variants).
  */
 
-import type { BadgeVariant } from "@/components/badges";
+import type { BadgeVariant } from "@/components/badges/Badge";
 
 const SHIPMENT_SUCCESS = "DELIVERED";
 const INTAKE_FULFILLED = "FULFILLED";

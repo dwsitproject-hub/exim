@@ -7,10 +7,20 @@ import styles from "./DashboardUsdRateBar.module.css";
 export function DashboardUsdRateBar({ embedded }: { embedded?: boolean }) {
   const { idrPerUsd, applyIdrPerUsd } = useDashboardCurrency();
   const [draft, setDraft] = useState(String(idrPerUsd));
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setDraft(String(Math.round(idrPerUsd)));
   }, [idrPerUsd]);
+
+  function handleApply() {
+    if (applyIdrPerUsd(draft)) {
+      setError(null);
+      return;
+    }
+    setError("Enter a positive number (e.g. 16000).");
+    setDraft(String(Math.round(idrPerUsd)));
+  }
 
   return (
     <div
@@ -23,22 +33,27 @@ export function DashboardUsdRateBar({ embedded }: { embedded?: boolean }) {
         </label>
         <input
           id="dashboard-idr-per-usd"
-          className={styles.input}
+          className={`${styles.input} ${error ? styles.inputError : ""}`.trim()}
           type="number"
           min={1}
           step={1}
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            if (error) setError(null);
+          }}
           aria-describedby="dashboard-usd-rate-hint"
+          aria-invalid={error ? true : undefined}
         />
-        <button
-          type="button"
-          className={styles.apply}
-          onClick={() => applyIdrPerUsd(draft)}
-        >
+        <button type="button" className={styles.apply} onClick={handleApply}>
           Apply
         </button>
       </div>
+      {error && (
+        <p className={styles.error} role="alert">
+          {error}
+        </p>
+      )}
       <p id="dashboard-usd-rate-hint" className={styles.hint}>
         All dashboard money values use USD. Amounts stored in IDR (shipments, IDR POs) convert using this
         rate.
