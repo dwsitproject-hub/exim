@@ -7,6 +7,11 @@
  */
 
 import type { ExportBulkingShipmentDetail } from "@/types/export-bulking";
+import {
+  getSentDateForKey,
+  isBillOfLadingSaved,
+  parseRequiredSentDocuments,
+} from "@/lib/export-sent-documents";
 
 export type DocStepKey = "preShipment" | "customs" | "billing" | "finalDocs";
 
@@ -35,12 +40,10 @@ export interface DocProgressSummary {
 }
 
 function sentDocsDone(d: ExportBulkingShipmentDetail): boolean {
-  const required = d.required_sent_documents ?? [];
-  if (required.length === 0) return Boolean(d.bill_of_lading_no);
-  return required.every((key) => {
-    const field = `sent_${key}` as keyof ExportBulkingShipmentDetail;
-    return Boolean(d[field]);
-  });
+  if (!isBillOfLadingSaved(d)) return false;
+  const required = parseRequiredSentDocuments(d.required_sent_documents);
+  if (required.length === 0) return true;
+  return required.every((key) => Boolean(getSentDateForKey(d, key)));
 }
 
 const STEP_LABELS: Record<DocStepKey, string> = {

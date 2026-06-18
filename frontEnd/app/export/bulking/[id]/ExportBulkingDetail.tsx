@@ -5032,8 +5032,10 @@ function PebSection(props: SectionProps & { open: boolean; onToggle: () => void 
   );
 }
 
-function BillingLevySection(props: SectionProps & { open: boolean; onToggle: () => void }) {
-  const { data, accessToken } = props;
+function BillingLevySection(
+  props: SectionProps & { open: boolean; onToggle: () => void; ocrDisabled?: boolean },
+) {
+  const { data, accessToken, ocrDisabled = false } = props;
   const getOrigForm = useCallback(
     (d: ExportBulkingShipmentDetail): ShipmentPatchForm => ({
       hs_code: d.hs_code ?? "",
@@ -5124,6 +5126,7 @@ function BillingLevySection(props: SectionProps & { open: boolean; onToggle: () 
               docType="biaya_keluar"
               accessToken={accessToken}
               onApply={handleApplyBiayaOcr}
+              disabled={ocrDisabled}
             />
           </div>
           <div className={styles.billingOcrCol}>
@@ -5132,6 +5135,7 @@ function BillingLevySection(props: SectionProps & { open: boolean; onToggle: () 
               docType="levy"
               accessToken={accessToken}
               onApply={handleApplyLevyOcr}
+              disabled={ocrDisabled}
             />
           </div>
         </div>
@@ -5299,10 +5303,12 @@ function DocumentationDetailSections({
   sectionProps,
   openSections,
   toggleSection,
+  billingOcrDisabled = false,
 }: {
   sectionProps: SectionCoreProps;
   openSections: OpenSectionsState;
   toggleSection: (key: keyof OpenSectionsState) => void;
+  billingOcrDisabled?: boolean;
 }) {
   const progress = buildDocumentationProgress(sectionProps.data);
   const stepMap = Object.fromEntries(progress.steps.map((s) => [s.key, s]));
@@ -5328,7 +5334,12 @@ function DocumentationDetailSections({
         doneCount={stepMap.billing?.doneCount ?? 0}
         totalCount={stepMap.billing?.totalCount ?? 3}
       >
-        <BillingLevySection {...sectionProps} open={openSections.billingLevy} onToggle={() => toggleSection("billingLevy")} />
+        <BillingLevySection
+          {...sectionProps}
+          open={openSections.billingLevy}
+          onToggle={() => toggleSection("billingLevy")}
+          ocrDisabled={billingOcrDisabled}
+        />
       </DocStepCard>
 
       {/* Step 4 — Final Shipping Documents */}
@@ -6458,6 +6469,7 @@ export function ExportBulkingDetail() {
                 sectionProps={sectionProps}
                 openSections={openSections}
                 toggleSection={toggleSection}
+                billingOcrDisabled={docsReadOnly || forceViewMode}
               />
             </div>
           )}

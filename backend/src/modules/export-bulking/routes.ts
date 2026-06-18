@@ -2,6 +2,7 @@ import { Router } from "express";
 import { authMiddleware } from "../auth/auth.middleware.js";
 import { requirePermission } from "../auth/rbac.middleware.js";
 import { uploadSingle } from "../../middlewares/upload.middleware.js";
+import { parsePdfLimiter } from "../../middlewares/po-pdf-rate-limit.js";
 import { PERMISSIONS } from "../../shared/rbac.js";
 import * as ctrl from "./controllers/export-bulking.controller.js";
 import * as docCtrl from "./controllers/export-bulking-document.controller.js";
@@ -80,6 +81,7 @@ exportBulkingRoutes.post(
   "/billing-parse",
   authMiddleware,
   requirePermission(P.UPDATE_EXPORT_DOCUMENTATION, P.UPDATE_EXPORT_BULKING),
+  parsePdfLimiter,
   uploadSingle,
   billingParseCtrl.parseBillingDocument,
 );
