@@ -85,26 +85,32 @@ export class ExportBulkingDocumentService {
     const id = uuidv4();
     const fileName = safeFileName(originalName || "file");
     const st = await stat(tempFilePath);
-    const { storageKey } = await this.storage.uploadFromPath(tempFilePath, {
-      documentId: shipmentId,
-      versionId: id,
-      fileName,
-      mimeType,
-      directoryPrefix,
-    });
+    let storageKey: string | undefined;
+    try {
+      ({ storageKey } = await this.storage.uploadFromPath(tempFilePath, {
+        documentId: shipmentId,
+        versionId: id,
+        fileName,
+        mimeType,
+        directoryPrefix,
+      }));
 
-    const row = await this.docRepo.insert({
-      id,
-      shipmentId,
-      documentType,
-      originalFileName: originalName || fileName,
-      storageKey,
-      mimeType: mimeType ?? null,
-      sizeBytes: st.size,
-      uploadedBy,
-    });
+      const row = await this.docRepo.insert({
+        id,
+        shipmentId,
+        documentType,
+        originalFileName: originalName || fileName,
+        storageKey,
+        mimeType: mimeType ?? null,
+        sizeBytes: st.size,
+        uploadedBy,
+      });
 
-    return toListItem(row);
+      return toListItem(row);
+    } catch (e) {
+      if (storageKey) await this.storage.delete(storageKey).catch(() => {});
+      throw e;
+    }
   }
 
   async getFileStream(shipmentId: string, documentId: string) {
@@ -126,7 +132,8 @@ export class ExportBulkingDocumentService {
     if (!shipment) throw new AppError("Shipment not found", 404);
     const row = await this.docRepo.findByIdAndShipment(documentId, shipmentId);
     if (!row) throw new AppError("Document not found", 404);
-    await this.storage.delete(row.storage_key);
-    await this.docRepo.deleteById(documentId);
+    const deleted = await this.docRepo.deleteById(documentId);
+    if (!deleted) throw new AppError("Document not found", 404);
+    await this.storage.delete(row.storage_key).catch(() => {});
   }
 }

@@ -116,6 +116,8 @@ import {
   getNextExportBulkingStatus,
 } from "@/lib/export-status-requirements";
 import { detailToCompletionInput } from "@/lib/export-bulking-completion";
+import { buildDocumentationProgress } from "@/lib/export-documentation-progress";
+import { BillingOcrUpload, type ApplyBillingOcrData } from "@/components/export-bulking/BillingOcrUpload";
 import {
   cargoAllocationSummaries,
   siInvoiceSummary,
@@ -3109,11 +3111,6 @@ function DetailWorkspaceTabs({
           Documentation
         </button>
       </div>
-      <p className={styles.detailTabsHint}>
-        {active === "operations"
-          ? "Voyage planning, nomination, port operations, and case off."
-          : "Shipping instructions, invoices, packing lists, B/L, sent documents, and billing."}
-      </p>
     </div>
   );
 }
@@ -3350,6 +3347,13 @@ function InvoiceCard({
   const [deleting, setDeleting] = useState(false);
   const [showDocumentPreview, setShowDocumentPreview] = useState(false);
 
+  // Qty change audit trail — prompt user for reason when a saved line quantity changes.
+  const [qtyChangeReason, setQtyChangeReason] = useState("");
+  const [pendingQtyChanges, setPendingQtyChanges] = useState<
+    Array<{ lineIdx: number; cargo: string; oldQty: string; newQty: string }>
+  >([]);
+  const [showQtyReasonPrompt, setShowQtyReasonPrompt] = useState(false);
+
   const [form, setForm] = useState({
     invoice_no: invoice.invoice_no ?? "",
     shipping_instruction_id: invoice.shipping_instruction_id ?? "",
@@ -3505,18 +3509,7 @@ function InvoiceCard({
     return formatNumericDisplay(q * p);
   }
 
-  const handleSave = async () => {
-    if (invoiceNumberError) {
-      toast.pushToast(invoiceNumberError, "error");
-      return;
-    }
-    if (selectedShippingInstruction && invoiceQtySummary && !invoiceQtySummary.matched) {
-      toast.pushToast(
-        `Invoice total ${formatNumericDisplay(invoiceQtySummary.invoiced)} MT must match SI total ${formatNumericDisplay(invoiceQtySummary.siTotal)} MT`,
-        "error",
-      );
-      return;
-    }
+  const doSave = async (changeNote?: string) => {
     setSaving(true);
     const vv = vesselVoyageFromGeneral(shipment).trim() || null;
     const lp = shipment.loadport_name?.trim() || null;
@@ -3533,10 +3526,57 @@ function InvoiceCard({
     if (lineDrafts.length > 0) {
       body.lines = buildInvoiceLinesPayload(lineDrafts, selectedShippingInstruction, shipment);
     }
+    if (changeNote) body.qty_change_reason = changeNote;
     const res = await updateInvoice(shipmentId, invoice.id, body, accessToken);
     if (isApiError(res)) toast.pushToast(res.message, "error");
     else { toast.pushToast("Invoice saved", "success"); onSaved(); }
     setSaving(false);
+  };
+
+  const handleSave = async () => {
+    if (invoiceNumberError) {
+      toast.pushToast(invoiceNumberError, "error");
+      return;
+    }
+    if (selectedShippingInstruction && invoiceQtySummary && !invoiceQtySummary.matched) {
+      toast.pushToast(
+        `Invoice total ${formatNumericDisplay(invoiceQtySummary.invoiced)} MT must match SI total ${formatNumericDisplay(invoiceQtySummary.siTotal)} MT`,
+        "error",
+      );
+      return;
+    }
+
+    // Detect qty changes on saved lines and prompt for a reason before persisting.
+    if (invoice.lines.length > 0) {
+      const changes: typeof pendingQtyChanges = [];
+      lineDrafts.forEach((draft, idx) => {
+        const saved = invoice.lines[idx];
+        if (!saved) return;
+        const newQtyNum = resolveInvoiceLineQuantity(draft, selectedShippingInstruction);
+        const oldQty = saved.quantity;
+        if (
+          oldQty != null &&
+          newQtyNum != null &&
+          Math.abs(newQtyNum - oldQty) > 0.0001
+        ) {
+          const cargo = shipment.cargo_lines.find((c) => c.id === (draft.cargo_line_id ?? ""));
+          changes.push({
+            lineIdx: idx + 1,
+            cargo: cargo?.cargo_name ?? `Line ${idx + 1}`,
+            oldQty: formatNumericDisplay(oldQty),
+            newQty: formatNumericDisplay(newQtyNum),
+          });
+        }
+      });
+      if (changes.length > 0) {
+        setPendingQtyChanges(changes);
+        setQtyChangeReason("");
+        setShowQtyReasonPrompt(true);
+        return;
+      }
+    }
+
+    await doSave();
   };
 
   const handleSaveRef = useRef(handleSave);
@@ -3853,6 +3893,71 @@ function InvoiceCard({
       >
         <InvoiceDocument shipment={shipment} invoice={previewInvoice} />
       </Modal>
+
+      {/* Qty change audit trail — reason prompt before saving */}
+      {showQtyReasonPrompt && (
+        <div className={styles.qtyAuditOverlay} role="dialog" aria-modal="true" aria-label="Quantity change reason">
+          <div className={styles.qtyAuditPanel}>
+            <h4 className={styles.qtyAuditTitle}>Quantity changed — reason required</h4>
+            <p className={styles.qtyAuditHint}>
+              The following invoice line quantities were modified from their saved values. Please
+              select a reason so the change is recorded in the audit trail.
+            </p>
+            <ul className={styles.qtyAuditList}>
+              {pendingQtyChanges.map((c) => (
+                <li key={c.lineIdx} className={styles.qtyAuditItem}>
+                  <span className={styles.qtyAuditCargo}>{c.cargo}</span>
+                  <span className={styles.qtyAuditChange}>
+                    {c.oldQty} MT → <strong>{c.newQty} MT</strong>
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <div className={styles.field}>
+              <label className={styles.fieldLabel} htmlFor={`qty-reason-${invoice.id}`}>
+                Reason for change <span aria-hidden className={styles.required}>*</span>
+              </label>
+              <select
+                id={`qty-reason-${invoice.id}`}
+                className={styles.fieldInput}
+                value={qtyChangeReason}
+                onChange={(e) => setQtyChangeReason(e.target.value)}
+              >
+                <option value="">— Select reason —</option>
+                <option value="Loading variance">Loading variance</option>
+                <option value="Surveyor adjustment">Surveyor adjustment</option>
+                <option value="BL split">BL split adjustment</option>
+                <option value="Correction">Correction (data entry error)</option>
+                <option value="Final reconciliation">Final reconciliation</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+            <div className={styles.qtyAuditActions}>
+              <button
+                className={styles.btnSecondary}
+                onClick={() => {
+                  setShowQtyReasonPrompt(false);
+                  setPendingQtyChanges([]);
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                className={styles.btnPrimary}
+                disabled={!qtyChangeReason || saving}
+                onClick={async () => {
+                  setShowQtyReasonPrompt(false);
+                  await doSave(qtyChangeReason);
+                  setPendingQtyChanges([]);
+                  setQtyChangeReason("");
+                }}
+              >
+                {saving ? "Saving…" : "Confirm & save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -4512,7 +4617,7 @@ function useShipmentPatchSection(
   const set = (key: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm((prev) => ({ ...prev, [key]: e.target.value }));
 
-  return { form, set, saving, isDirty, handleSave };
+  return { form, set, setForm, saving, isDirty, handleSave };
 }
 
 function NpeSpbSection(props: SectionProps & { open: boolean; onToggle: () => void }) {
@@ -4928,33 +5033,36 @@ function PebSection(props: SectionProps & { open: boolean; onToggle: () => void 
 }
 
 function BillingLevySection(props: SectionProps & { open: boolean; onToggle: () => void }) {
-  const { data } = props;
+  const { data, accessToken } = props;
   const getOrigForm = useCallback(
     (d: ExportBulkingShipmentDetail): ShipmentPatchForm => ({
       hs_code: d.hs_code ?? "",
       currency_tax: formatNumericFieldValue(d.currency_tax, 6),
       biaya_keluar_price_usd_mt: formatNumericFieldValue(d.biaya_keluar_price_usd_mt, 4),
       biaya_keluar_billing_no: d.biaya_keluar_billing_no ?? "",
+      // Direct IDR amount — set by OCR or manually; no formula
+      biaya_keluar_amount_idr_ocr: d.biaya_keluar_amount_idr != null
+        ? String(d.biaya_keluar_amount_idr)
+        : "",
       levy_price_usd_mt: formatNumericFieldValue(d.levy_price_usd_mt, 4),
       levy_billing_no: d.levy_billing_no ?? "",
+      levy_amount_idr_ocr: d.levy_amount_idr != null ? String(d.levy_amount_idr) : "",
       billing_to_gl: toLocalDate(d.billing_to_gl),
     }),
     [],
   );
   const toPatchBody = useCallback(
     (form: ShipmentPatchForm) => {
-      const totalQtyDelivered = sumQtyDelivered(data.cargo_lines);
       const tax = parseQuantityInput(form.currency_tax);
       const biayaPrice = parseQuantityInput(form.biaya_keluar_price_usd_mt);
       const levyPrice = parseQuantityInput(form.levy_price_usd_mt);
-      const biayaKeluarAmount =
-        tax != null && biayaPrice != null
-          ? calcIdrBillingAmount(totalQtyDelivered, tax, biayaPrice)
-          : null;
-      const levyAmount =
-        tax != null && levyPrice != null
-          ? calcIdrBillingAmount(totalQtyDelivered, tax, levyPrice)
-          : null;
+      // Amount IDR is stored directly — no formula
+      const biayaKeluarAmount = form.biaya_keluar_amount_idr_ocr
+        ? parseInt(form.biaya_keluar_amount_idr_ocr, 10) || null
+        : null;
+      const levyAmount = form.levy_amount_idr_ocr
+        ? parseInt(form.levy_amount_idr_ocr, 10) || null
+        : null;
       return {
         hs_code: form.hs_code.trim() || null,
         currency_tax: tax,
@@ -4967,10 +5075,10 @@ function BillingLevySection(props: SectionProps & { open: boolean; onToggle: () 
         billing_to_gl: form.billing_to_gl ? new Date(form.billing_to_gl).toISOString() : null,
       };
     },
-    [data.cargo_lines],
+    [],
   );
   const totalQtyDelivered = useMemo(() => sumQtyDelivered(data.cargo_lines), [data.cargo_lines]);
-  const { form, set, saving, isDirty, handleSave } = useShipmentPatchSection(
+  const { form, set, setForm: setBillingForm, saving, isDirty, handleSave } = useShipmentPatchSection(
     "billingLevy",
     props,
     getOrigForm,
@@ -4978,19 +5086,25 @@ function BillingLevySection(props: SectionProps & { open: boolean; onToggle: () 
     "Billing & Levy saved",
   );
 
-  const biayaKeluarAmount = useMemo(() => {
-    const tax = parseQuantityInput(form.currency_tax);
-    const price = parseQuantityInput(form.biaya_keluar_price_usd_mt);
-    if (tax == null || price == null) return null;
-    return calcIdrBillingAmount(totalQtyDelivered, tax, price);
-  }, [totalQtyDelivered, form.currency_tax, form.biaya_keluar_price_usd_mt]);
+  const handleApplyBiayaOcr = useCallback((d: ApplyBillingOcrData) => {
+    setBillingForm((prev) => ({
+      ...prev,
+      biaya_keluar_billing_no: d.billing_no ?? prev.biaya_keluar_billing_no,
+      biaya_keluar_amount_idr_ocr: d.amount_idr != null
+        ? String(d.amount_idr)
+        : prev.biaya_keluar_amount_idr_ocr,
+    }));
+  }, [setBillingForm]);
 
-  const levyAmount = useMemo(() => {
-    const tax = parseQuantityInput(form.currency_tax);
-    const price = parseQuantityInput(form.levy_price_usd_mt);
-    if (tax == null || price == null) return null;
-    return calcIdrBillingAmount(totalQtyDelivered, tax, price);
-  }, [totalQtyDelivered, form.currency_tax, form.levy_price_usd_mt]);
+  const handleApplyLevyOcr = useCallback((d: ApplyBillingOcrData) => {
+    setBillingForm((prev) => ({
+      ...prev,
+      levy_billing_no: d.billing_no ?? prev.levy_billing_no,
+      levy_amount_idr_ocr: d.amount_idr != null
+        ? String(d.amount_idr)
+        : prev.levy_amount_idr_ocr,
+    }));
+  }, [setBillingForm]);
 
   return (
     <SectionShell
@@ -5002,6 +5116,26 @@ function BillingLevySection(props: SectionProps & { open: boolean; onToggle: () 
       anchorId="export-section-billing-levy"
     >
       <Card>
+        {/* OCR upload panels — pre-fill fields from BK/Levy PDF scans */}
+        <div className={styles.billingOcrRow}>
+          <div className={styles.billingOcrCol}>
+            <p className={styles.billingOcrLabel}>Biaya Keluar — upload PDF to auto-fill</p>
+            <BillingOcrUpload
+              docType="biaya_keluar"
+              accessToken={accessToken}
+              onApply={handleApplyBiayaOcr}
+            />
+          </div>
+          <div className={styles.billingOcrCol}>
+            <p className={styles.billingOcrLabel}>Levy — upload PDF to auto-fill</p>
+            <BillingOcrUpload
+              docType="levy"
+              accessToken={accessToken}
+              onApply={handleApplyLevyOcr}
+            />
+          </div>
+        </div>
+
         <div className={styles.fieldGrid}>
           <div className={styles.field}>
             <label className={styles.fieldLabel}>Total Qty Delivered (MT)</label>
@@ -5027,18 +5161,21 @@ function BillingLevySection(props: SectionProps & { open: boolean; onToggle: () 
             <input className={styles.fieldInput} type="text" inputMode="decimal" value={form.biaya_keluar_price_usd_mt} onChange={set("biaya_keluar_price_usd_mt")} />
           </div>
           <div className={styles.field}>
-            <label
-              className={styles.fieldLabel}
-              title="Total Qty Delivered × Currency Tax × Biaya Keluar Price (rounded up)"
-            >
-              Biaya Keluar Amount (IDR)
-            </label>
+            <label className={styles.fieldLabel}>Biaya Keluar Amount (IDR)</label>
             <input
               className={styles.fieldInput}
               type="text"
-              readOnly
-              value={biayaKeluarAmount != null ? formatIdrAmount(biayaKeluarAmount) : "—"}
-              style={{ background: "var(--surface-2, #f3f4f6)", color: "var(--text-secondary, #6b7280)", cursor: "default" }}
+              inputMode="numeric"
+
+              value={
+                form.biaya_keluar_amount_idr_ocr
+                  ? Number(form.biaya_keluar_amount_idr_ocr).toLocaleString("en-US", { maximumFractionDigits: 0 })
+                  : ""
+              }
+              onChange={(e) => {
+                const raw = e.target.value.replace(/,/g, "");
+                setBillingForm((p) => ({ ...p, biaya_keluar_amount_idr_ocr: raw }));
+              }}
             />
           </div>
           <div className={styles.field}>
@@ -5050,18 +5187,21 @@ function BillingLevySection(props: SectionProps & { open: boolean; onToggle: () 
             <input className={styles.fieldInput} type="text" inputMode="decimal" value={form.levy_price_usd_mt} onChange={set("levy_price_usd_mt")} />
           </div>
           <div className={styles.field}>
-            <label
-              className={styles.fieldLabel}
-              title="Total Qty Delivered × Currency Tax × Levy Price (rounded up)"
-            >
-              Levy Amount (IDR)
-            </label>
+            <label className={styles.fieldLabel}>Levy Amount (IDR)</label>
             <input
               className={styles.fieldInput}
               type="text"
-              readOnly
-              value={levyAmount != null ? formatIdrAmount(levyAmount) : "—"}
-              style={{ background: "var(--surface-2, #f3f4f6)", color: "var(--text-secondary, #6b7280)", cursor: "default" }}
+              inputMode="numeric"
+
+              value={
+                form.levy_amount_idr_ocr
+                  ? Number(form.levy_amount_idr_ocr).toLocaleString("en-US", { maximumFractionDigits: 0 })
+                  : ""
+              }
+              onChange={(e) => {
+                const raw = e.target.value.replace(/,/g, "");
+                setBillingForm((p) => ({ ...p, levy_amount_idr_ocr: raw }));
+              }}
             />
           </div>
           <div className={styles.field}>
@@ -5083,6 +5223,78 @@ function BillingLevySection(props: SectionProps & { open: boolean; onToggle: () 
   );
 }
 
+// ─── Documentation progress bar ──────────────────────────────────────────────
+
+function DocProgressBar({ data }: { data: ExportBulkingShipmentDetail }) {
+  const summary = buildDocumentationProgress(data);
+  const barTone =
+    summary.percent >= 70
+      ? styles.docBarHigh
+      : summary.percent >= 30
+        ? styles.docBarMid
+        : styles.docBarLow;
+
+  return (
+    <div className={styles.docProgressWrap} aria-label={`Documentation progress ${summary.percent}%`}>
+      <div className={styles.docProgressHeader}>
+        <span className={styles.docProgressTitle}>Documentation Progress</span>
+        <span className={styles.docProgressMeta}>
+          {summary.doneCount}/{summary.totalCount} tasks
+          {summary.percent === 100 && (
+            <span className={styles.docProgressComplete}> ✓ Complete</span>
+          )}
+        </span>
+      </div>
+      <div className={styles.docProgressBar} role="progressbar" aria-valuenow={summary.percent} aria-valuemin={0} aria-valuemax={100}>
+        <div className={`${styles.docProgressFill} ${barTone}`} style={{ width: `${summary.percent}%` }} />
+      </div>
+      <div className={styles.docProgressSteps}>
+        {summary.steps.map((step, idx) => (
+          <div key={step.key} className={`${styles.docProgressStep} ${step.complete ? styles.docProgressStepDone : ""}`}>
+            <span className={styles.docProgressStepNum}>{idx + 1}</span>
+            <span className={styles.docProgressStepLabel}>{step.label}</span>
+            <span className={styles.docProgressStepCount}>{step.doneCount}/{step.totalCount}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Documentation step wrapper ───────────────────────────────────────────────
+
+function DocStepCard({
+  stepNumber,
+  title,
+  doneCount,
+  totalCount,
+  children,
+}: {
+  stepNumber: number;
+  title: string;
+  doneCount: number;
+  totalCount: number;
+  children: React.ReactNode;
+}) {
+  const complete = doneCount === totalCount;
+  return (
+    <div className={`${styles.docStepCard} ${complete ? styles.docStepCardDone : ""}`}>
+      <div className={styles.docStepCardHeader}>
+        <span className={`${styles.docStepNum} ${complete ? styles.docStepNumDone : ""}`}>
+          {complete ? "✓" : stepNumber}
+        </span>
+        <span className={styles.docStepTitle}>{title}</span>
+        <span className={`${styles.docStepBadge} ${complete ? styles.docStepBadgeDone : ""}`}>
+          {doneCount}/{totalCount}
+        </span>
+      </div>
+      <div className={styles.docStepBody}>{children}</div>
+    </div>
+  );
+}
+
+// ─── Structured Documentation tab sections ────────────────────────────────────
+
 function DocumentationDetailSections({
   sectionProps,
   openSections,
@@ -5092,14 +5304,43 @@ function DocumentationDetailSections({
   openSections: OpenSectionsState;
   toggleSection: (key: keyof OpenSectionsState) => void;
 }) {
+  const progress = buildDocumentationProgress(sectionProps.data);
+  const stepMap = Object.fromEntries(progress.steps.map((s) => [s.key, s]));
+
   return (
     <>
-      <PeSection {...sectionProps} open={openSections.pe} onToggle={() => toggleSection("pe")} />
-      <PebSection {...sectionProps} open={openSections.peb} onToggle={() => toggleSection("peb")} />
-      <NpeSpbSection {...sectionProps} open={openSections.npeSpb} onToggle={() => toggleSection("npeSpb")} />
-      <BillOfLadingSection {...sectionProps} open={openSections.billOfLading} onToggle={() => toggleSection("billOfLading")} />
-      <SentDocumentsSection {...sectionProps} open={openSections.sentDocuments} onToggle={() => toggleSection("sentDocuments")} />
-      <BillingLevySection {...sectionProps} open={openSections.billingLevy} onToggle={() => toggleSection("billingLevy")} />
+      {/* Step 2 — Customs Compliance (PE + PEB + NPE/SPB) */}
+      <DocStepCard
+        stepNumber={2}
+        title="Customs Compliance"
+        doneCount={stepMap.customs?.doneCount ?? 0}
+        totalCount={stepMap.customs?.totalCount ?? 3}
+      >
+        <PeSection {...sectionProps} open={openSections.pe} onToggle={() => toggleSection("pe")} />
+        <PebSection {...sectionProps} open={openSections.peb} onToggle={() => toggleSection("peb")} />
+        <NpeSpbSection {...sectionProps} open={openSections.npeSpb} onToggle={() => toggleSection("npeSpb")} />
+      </DocStepCard>
+
+      {/* Step 3 — Billing & Levy */}
+      <DocStepCard
+        stepNumber={3}
+        title="Billing & Levy"
+        doneCount={stepMap.billing?.doneCount ?? 0}
+        totalCount={stepMap.billing?.totalCount ?? 3}
+      >
+        <BillingLevySection {...sectionProps} open={openSections.billingLevy} onToggle={() => toggleSection("billingLevy")} />
+      </DocStepCard>
+
+      {/* Step 4 — Final Shipping Documents */}
+      <DocStepCard
+        stepNumber={4}
+        title="Final Shipping Documents"
+        doneCount={stepMap.finalDocs?.doneCount ?? 0}
+        totalCount={stepMap.finalDocs?.totalCount ?? 2}
+      >
+        <BillOfLadingSection {...sectionProps} open={openSections.billOfLading} onToggle={() => toggleSection("billOfLading")} />
+        <SentDocumentsSection {...sectionProps} open={openSections.sentDocuments} onToggle={() => toggleSection("sentDocuments")} />
+      </DocStepCard>
     </>
   );
 }
@@ -6014,9 +6255,11 @@ export function ExportBulkingDetail() {
       {/* Status workflow stepper */}
       <StatusStepper data={data} onAdvance={handleAdvanceStatus} readOnly={opsReadOnly || forceViewMode} />
 
-      <div className={styles.checklistWrap}>
-        <ProcessChecklist input={detailToCompletionInput(data)} collapsible defaultExpanded={false} />
-      </div>
+      {detailTab === "operations" && (
+        <div className={styles.checklistWrap}>
+          <ProcessChecklist input={detailToCompletionInput(data)} collapsible defaultExpanded={false} />
+        </div>
+      )}
 
       {/* Unsaved changes banner */}
       {!isFullyReadOnly && !forceViewMode && (
@@ -6187,10 +6430,30 @@ export function ExportBulkingDetail() {
               {isDocumentationOnly && !canEditDocs && (
                 <ExportWorkspaceBanner variant="view-only" />
               )}
-              <SiReceiveDateSection {...sectionProps} open={openSections.si} onToggle={() => toggleSection("si")} />
-              <SISection {...sectionProps} open={openSections.si} onToggle={() => toggleSection("si")} />
-              <InvoiceSection {...sectionProps} open={openSections.invoices} onToggle={() => toggleSection("invoices")} />
-              <PackingListSection {...sectionProps} open={openSections.packing} onToggle={() => toggleSection("packing")} />
+
+              {/* Overall documentation progress across all 4 steps */}
+              <DocProgressBar data={data} />
+
+              {/* Step 1 — Pre-shipment Documents */}
+              {(() => {
+                const progress = buildDocumentationProgress(data);
+                const step1 = progress.steps.find((s) => s.key === "preShipment");
+                return (
+                  <DocStepCard
+                    stepNumber={1}
+                    title="Pre-shipment Documents"
+                    doneCount={step1?.doneCount ?? 0}
+                    totalCount={step1?.totalCount ?? 3}
+                  >
+                    <SiReceiveDateSection {...sectionProps} open={openSections.si} onToggle={() => toggleSection("si")} />
+                    <SISection {...sectionProps} open={openSections.si} onToggle={() => toggleSection("si")} />
+                    <InvoiceSection {...sectionProps} open={openSections.invoices} onToggle={() => toggleSection("invoices")} />
+                    <PackingListSection {...sectionProps} open={openSections.packing} onToggle={() => toggleSection("packing")} />
+                  </DocStepCard>
+                );
+              })()}
+
+              {/* Steps 2, 3, 4 */}
               <DocumentationDetailSections
                 sectionProps={sectionProps}
                 openSections={openSections}

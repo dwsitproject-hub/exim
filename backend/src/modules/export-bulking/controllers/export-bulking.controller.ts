@@ -235,7 +235,7 @@ export async function upsertCargos(req: Request, res: Response, next: NextFuncti
 
 export async function deleteCargo(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    await service.deleteCargoLine(req.params.cargoId);
+    await service.deleteCargoLine(req.params.id, req.params.cargoId);
     sendSuccess(res, {}, { message: "Cargo line deleted" });
   } catch (e) {
     next(e);
@@ -264,7 +264,12 @@ export async function createSI(req: Request, res: Response, next: NextFunction):
 
 export async function updateSI(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const data = await service.updateShippingInstruction(req.params.siId, req.body, userUuidFromRequest(req));
+    const data = await service.updateShippingInstruction(
+      req.params.id,
+      req.params.siId,
+      req.body,
+      userUuidFromRequest(req),
+    );
     if (!data) {
       sendError(res, "Shipping instruction not found", { statusCode: 404 });
       return;
@@ -277,7 +282,7 @@ export async function updateSI(req: Request, res: Response, next: NextFunction):
 
 export async function deleteSI(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    await service.deleteShippingInstruction(req.params.siId);
+    await service.deleteShippingInstruction(req.params.id, req.params.siId);
     sendSuccess(res, {}, { message: "Shipping instruction deleted" });
   } catch (e) {
     next(e);
@@ -306,7 +311,12 @@ export async function createInvoice(req: Request, res: Response, next: NextFunct
 
 export async function updateInvoice(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const data = await service.updateInvoice(req.params.invId, req.body, userUuidFromRequest(req));
+    const data = await service.updateInvoice(
+      req.params.id,
+      req.params.invId,
+      req.body,
+      userUuidFromRequest(req),
+    );
     if (!data) {
       sendError(res, "Invoice not found", { statusCode: 404 });
       return;
@@ -319,7 +329,7 @@ export async function updateInvoice(req: Request, res: Response, next: NextFunct
 
 export async function deleteInvoice(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    await service.deleteInvoice(req.params.invId);
+    await service.deleteInvoice(req.params.id, req.params.invId);
     sendSuccess(res, {}, { message: "Invoice deleted" });
   } catch (e) {
     next(e);
@@ -349,10 +359,10 @@ export async function createPL(req: Request, res: Response, next: NextFunction):
 export async function updatePL(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const data = await service.updatePackingList(
+      req.params.id,
       req.params.plId,
       req.body,
       userUuidFromRequest(req),
-      req.params.id,
     );
     if (!data) {
       sendError(res, "Packing list not found", { statusCode: 404 });
@@ -366,7 +376,7 @@ export async function updatePL(req: Request, res: Response, next: NextFunction):
 
 export async function deletePL(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    await service.deletePackingList(req.params.plId);
+    await service.deletePackingList(req.params.id, req.params.plId);
     sendSuccess(res, {}, { message: "Packing list deleted" });
   } catch (e) {
     next(e);

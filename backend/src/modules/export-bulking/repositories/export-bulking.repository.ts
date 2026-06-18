@@ -303,11 +303,11 @@ export class ExportBulkingRepository {
 
     const result = await this.pool.query<ExportBulkingShipmentRow>(
       `UPDATE export_bulking_shipments
-       SET documentation_assigned_to = $1,
+       SET documentation_assigned_to = $1::uuid,
            documentation_assigned_at = CASE WHEN $1 IS NULL THEN NULL ELSE NOW() END,
-           documentation_assigned_by = CASE WHEN $1 IS NULL THEN NULL ELSE $2 END,
+           documentation_assigned_by = CASE WHEN $1 IS NULL THEN NULL ELSE $2::uuid END,
            updated_at = NOW()
-       WHERE id = $3 AND deleted_at IS NULL
+       WHERE id = $3::uuid AND deleted_at IS NULL
        RETURNING ${SHIPMENT_COLUMNS}`,
       [assigneeUserId, assignedByUserId, shipmentId],
     );
@@ -537,8 +537,14 @@ export class ExportBulkingRepository {
     }
   }
 
-  async deleteCargoLine(id: string): Promise<void> {
-    await this.pool.query(`DELETE FROM export_bulking_cargo_lines WHERE id = $1`, [id]);
+  async deleteCargoLine(shipmentId: string, cargoId: string): Promise<void> {
+    const r = await this.pool.query(
+      `DELETE FROM export_bulking_cargo_lines WHERE id = $1 AND shipment_id = $2`,
+      [cargoId, shipmentId],
+    );
+    if ((r.rowCount ?? 0) === 0) {
+      throw new AppError("Cargo line not found", 404);
+    }
   }
 
   /* ───────── shipping instructions ───────── */
@@ -629,6 +635,7 @@ export class ExportBulkingRepository {
   }
 
   async updateShippingInstruction(
+    shipmentId: string,
     id: string,
     dto: ShippingInstructionDto,
     actingUserId?: string | null,
@@ -637,13 +644,13 @@ export class ExportBulkingRepository {
     try {
       await client.query("BEGIN");
       const prevRes = await client.query(
-        `SELECT si_number, doc_number_held_by_user_id FROM export_bulking_shipping_instructions WHERE id = $1 FOR UPDATE`,
+        `SELECT si_number, doc_number_held_by_user_id, shipment_id FROM export_bulking_shipping_instructions WHERE id = $1 FOR UPDATE`,
         [id],
       );
       const prev = prevRes.rows[0] as
-        | { si_number: string | null; doc_number_held_by_user_id: string | null }
+        | { si_number: string | null; doc_number_held_by_user_id: string | null; shipment_id: string }
         | undefined;
-      if (!prev) {
+      if (!prev || prev.shipment_id !== shipmentId) {
         await client.query("ROLLBACK");
         return null;
       }
@@ -903,9 +910,14 @@ export class ExportBulkingRepository {
     }
   }
 
-  async deleteShippingInstruction(id: string): Promise<void> {
-    await this.pool.query(`DELETE FROM export_bulking_si_lines WHERE si_id = $1`, [id]);
-    await this.pool.query(`DELETE FROM export_bulking_shipping_instructions WHERE id = $1`, [id]);
+  async deleteShippingInstruction(shipmentId: string, id: string): Promise<void> {
+    const r = await this.pool.query(
+      `DELETE FROM export_bulking_shipping_instructions WHERE id = $1 AND shipment_id = $2`,
+      [id, shipmentId],
+    );
+    if ((r.rowCount ?? 0) === 0) {
+      throw new AppError("Shipping instruction not found", 404);
+    }
   }
 
   async getShippingInstructionShipmentId(siId: string): Promise<string | null> {
@@ -1017,7 +1029,12 @@ export class ExportBulkingRepository {
     }
   }
 
-  async updateInvoice(id: string, dto: InvoiceDto, actingUserId?: string | null): Promise<unknown> {
+  async updateInvoice(
+    shipmentId: string,
+    id: string,
+    dto: InvoiceDto,
+    actingUserId?: string | null,
+  ): Promise<unknown> {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
@@ -1040,12 +1057,10 @@ export class ExportBulkingRepository {
           }
         | undefined;
 
-      if (!current) {
+      if (!current || current.shipment_id !== shipmentId) {
         await client.query("ROLLBACK");
         return null;
       }
-
-      const shipmentId = current.shipment_id;
 
       let nextShippingInstructionId: string | null;
       if (dto.shipping_instruction_id !== undefined) {
@@ -1133,9 +1148,14 @@ export class ExportBulkingRepository {
     }
   }
 
-  async deleteInvoice(id: string): Promise<void> {
-    await this.pool.query(`DELETE FROM export_bulking_invoice_lines WHERE invoice_id = $1`, [id]);
-    await this.pool.query(`DELETE FROM export_bulking_invoices WHERE id = $1`, [id]);
+  async deleteInvoice(shipmentId: string, id: string): Promise<void> {
+    const r = await this.pool.query(
+      `DELETE FROM export_bulking_invoices WHERE id = $1 AND shipment_id = $2`,
+      [id, shipmentId],
+    );
+    if ((r.rowCount ?? 0) === 0) {
+      throw new AppError("Invoice not found", 404);
+    }
   }
 
   async getInvoiceHeader(id: string): Promise<{ shipment_id: string; shipping_instruction_id: string | null } | null> {
@@ -1225,7 +1245,12 @@ export class ExportBulkingRepository {
     }
   }
 
-  async updatePackingList(id: string, dto: PackingListDto, actingUserId?: string | null): Promise<unknown> {
+  async updatePackingList(
+    shipmentId: string,
+    id: string,
+    dto: PackingListDto,
+    actingUserId?: string | null,
+  ): Promise<unknown> {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
@@ -1244,7 +1269,7 @@ export class ExportBulkingRepository {
             doc_number_held_by_user_id: string | null;
           }
         | undefined;
-      if (!prev) {
+      if (!prev || prev.shipment_id !== shipmentId) {
         await client.query("ROLLBACK");
         return null;
       }
@@ -1328,8 +1353,13 @@ export class ExportBulkingRepository {
     }
   }
 
-  async deletePackingList(id: string): Promise<void> {
-    await this.pool.query(`DELETE FROM export_bulking_packing_list_lines WHERE packing_list_id = $1`, [id]);
-    await this.pool.query(`DELETE FROM export_bulking_packing_lists WHERE id = $1`, [id]);
+  async deletePackingList(shipmentId: string, id: string): Promise<void> {
+    const r = await this.pool.query(
+      `DELETE FROM export_bulking_packing_lists WHERE id = $1 AND shipment_id = $2`,
+      [id, shipmentId],
+    );
+    if ((r.rowCount ?? 0) === 0) {
+      throw new AppError("Packing list not found", 404);
+    }
   }
 }

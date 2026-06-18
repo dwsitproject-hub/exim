@@ -60,30 +60,7 @@ export const PERMISSION_CATALOG: readonly { key: string; label: string }[] = [
 
 /** Frontend copy of backend role→permission matrix (must stay in sync with backend `shared/rbac.ts`). */
 export const ROLE_DEFAULT_PERMISSIONS: Readonly<Record<UserRoleOption, readonly string[]>> = {
-  ADMIN: [
-    "VIEW_TRANSACTIONS",
-    "CREATE_TRANSACTION",
-    "UPDATE_TRANSACTION",
-    "UPDATE_STATUS",
-    "UPLOAD_DOCUMENT",
-    "MANAGE_USERS",
-    "VIEW_PO_INTAKE",
-    "TAKE_OWNERSHIP",
-    "CREATE_PO_INTAKE_TEST",
-    "UPDATE_PO_INTAKE",
-    "VIEW_SHIPMENTS",
-    "CREATE_SHIPMENT",
-    "UPDATE_SHIPMENT",
-    "COUPLE_DECOUPLE_PO",
-    "VIEW_EXPORT_BULKING",
-    "CREATE_EXPORT_BULKING",
-    "UPDATE_EXPORT_BULKING",
-    "UPDATE_EXPORT_BULKING_STATUS",
-    "MANAGE_SHIPPERS",
-    "MANAGE_AGENTS",
-    "VIEW_PO_PDF_AI_USAGE",
-    "VIEW_EXPORT_DOCUMENTATION",
-  ],
+  ADMIN: PERMISSION_CATALOG.map((p) => p.key),
   IMPORT_OFFICER: [
     "VIEW_TRANSACTIONS",
     "CREATE_TRANSACTION",

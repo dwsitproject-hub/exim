@@ -5,6 +5,7 @@ import { uploadSingle } from "../../middlewares/upload.middleware.js";
 import { PERMISSIONS } from "../../shared/rbac.js";
 import * as ctrl from "./controllers/export-bulking.controller.js";
 import * as docCtrl from "./controllers/export-bulking-document.controller.js";
+import * as billingParseCtrl from "./controllers/billing-pdf-parse.controller.js";
 
 export const exportBulkingRoutes = Router();
 
@@ -73,6 +74,15 @@ exportBulkingRoutes.post(
   ctrl.regeneratePackingListNumber,
 );
 exportBulkingRoutes.delete("/shipments/:id/packing-lists/:plId", authMiddleware, requirePermission(P.UPDATE_EXPORT_DOCUMENTATION, P.UPDATE_EXPORT_BULKING), ctrl.deletePL);
+
+/* ───── billing PDF OCR parse ───── */
+exportBulkingRoutes.post(
+  "/billing-parse",
+  authMiddleware,
+  requirePermission(P.UPDATE_EXPORT_DOCUMENTATION, P.UPDATE_EXPORT_BULKING),
+  uploadSingle,
+  billingParseCtrl.parseBillingDocument,
+);
 
 /* ───── uploaded documents (Export/bulking/ storage) ───── */
 exportBulkingRoutes.get(

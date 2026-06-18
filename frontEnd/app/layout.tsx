@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter, Merriweather } from "next/font/google";
 import { getThemeCssVars } from "@/lib/tokens";
 import { AuthProvider } from "@/components/providers/AuthProvider";
@@ -16,6 +16,11 @@ const merriweather = Merriweather({
   variable: "--font-merriweather",
   display: "swap",
 });
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+};
 
 export const metadata: Metadata = {
   title: "EOS — Exim Operation System",
