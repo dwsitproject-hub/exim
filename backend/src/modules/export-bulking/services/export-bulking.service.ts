@@ -172,8 +172,8 @@ export class ExportBulkingService {
     return this.repo.upsertCargoLines(shipmentId, lines);
   }
 
-  async deleteCargoLine(id: string): Promise<void> {
-    return this.repo.deleteCargoLine(id);
+  async deleteCargoLine(shipmentId: string, cargoId: string): Promise<void> {
+    return this.repo.deleteCargoLine(shipmentId, cargoId);
   }
 
   /* ───── shipping instructions ───── */
@@ -215,28 +215,30 @@ export class ExportBulkingService {
   }
 
   async updateShippingInstruction(
+    shipmentId: string,
     id: string,
     dto: ShippingInstructionDto,
     actingUserId?: string | null,
   ): Promise<unknown> {
     if (dto.lines !== undefined) {
-      const shipmentId = await this.repo.getShippingInstructionShipmentId(id);
-      if (!shipmentId) throw new AppError("Shipping instruction not found", 404);
+      const existingShipmentId = await this.repo.getShippingInstructionShipmentId(id);
+      if (!existingShipmentId) throw new AppError("Shipping instruction not found", 404);
+      if (existingShipmentId !== shipmentId) throw new AppError("Shipping instruction not found", 404);
       const existing = (await this.repo.listShippingInstructions(shipmentId)) as SiWithLines[];
       await this.assertSiQuantityReconciliation(shipmentId, existing, {
         overrideSiId: id,
         overrideLines: dto.lines,
       });
     }
-    return this.repo.updateShippingInstruction(id, dto, actingUserId);
+    return this.repo.updateShippingInstruction(shipmentId, id, dto, actingUserId);
   }
 
   async regenerateShippingInstructionNumber(siId: string, userId: string): Promise<unknown | null> {
     return this.repo.regenerateShippingInstructionNumber(siId, userId);
   }
 
-  async deleteShippingInstruction(id: string): Promise<void> {
-    return this.repo.deleteShippingInstruction(id);
+  async deleteShippingInstruction(shipmentId: string, id: string): Promise<void> {
+    return this.repo.deleteShippingInstruction(shipmentId, id);
   }
 
   /* ───── invoices ───── */
@@ -279,32 +281,38 @@ export class ExportBulkingService {
     return this.repo.createInvoice(shipmentId, dto, userId);
   }
 
-  async updateInvoice(id: string, dto: InvoiceDto, actingUserId?: string | null): Promise<unknown> {
+  async updateInvoice(
+    shipmentId: string,
+    id: string,
+    dto: InvoiceDto,
+    actingUserId?: string | null,
+  ): Promise<unknown> {
     if (dto.lines !== undefined) {
       const cur = await this.repo.getInvoiceHeader(id);
       if (!cur) throw new AppError("Invoice not found", 404);
+      if (cur.shipment_id !== shipmentId) throw new AppError("Invoice not found", 404);
       const siId = (
         dto.shipping_instruction_id !== undefined
           ? dto.shipping_instruction_id
           : cur.shipping_instruction_id
       )?.trim();
       if (siId) {
-        const invoices = (await this.repo.listInvoices(cur.shipment_id)) as InvoiceWithLines[];
-        await this.assertInvoiceQuantityReconciliation(cur.shipment_id, siId, invoices, {
+        const invoices = (await this.repo.listInvoices(shipmentId)) as InvoiceWithLines[];
+        await this.assertInvoiceQuantityReconciliation(shipmentId, siId, invoices, {
           overrideInvoiceId: id,
           overrideLines: dto.lines,
         });
       }
     }
-    return this.repo.updateInvoice(id, dto, actingUserId);
+    return this.repo.updateInvoice(shipmentId, id, dto, actingUserId);
   }
 
   async regenerateInvoiceNumber(invoiceId: string, userId: string): Promise<unknown | null> {
     return this.repo.regenerateInvoiceNumber(invoiceId, userId);
   }
 
-  async deleteInvoice(id: string): Promise<void> {
-    return this.repo.deleteInvoice(id);
+  async deleteInvoice(shipmentId: string, id: string): Promise<void> {
+    return this.repo.deleteInvoice(shipmentId, id);
   }
 
   /* ───── packing lists ───── */
@@ -372,26 +380,24 @@ export class ExportBulkingService {
   }
 
   async updatePackingList(
+    shipmentId: string,
     id: string,
     dto: PackingListDto,
     actingUserId?: string | null,
-    shipmentId?: string,
   ): Promise<unknown> {
-    const resolvedShipmentId = shipmentId ?? (await this.repo.getPackingListShipmentId(id));
-    if (!resolvedShipmentId) throw new AppError("Packing list not found", 404);
     if (dto.shipping_instruction_id !== undefined) {
-      await this.assertPackingListSiValid(resolvedShipmentId, dto.shipping_instruction_id, id);
+      await this.assertPackingListSiValid(shipmentId, dto.shipping_instruction_id, id);
     }
     const siId = (dto.shipping_instruction_id ?? "").trim();
-    const body = siId ? await this.enrichPackingListFromSi(resolvedShipmentId, dto) : dto;
-    return this.repo.updatePackingList(id, body, actingUserId);
+    const body = siId ? await this.enrichPackingListFromSi(shipmentId, dto) : dto;
+    return this.repo.updatePackingList(shipmentId, id, body, actingUserId);
   }
 
   async regeneratePackingListNumber(packingListId: string, userId: string): Promise<unknown | null> {
     return this.repo.regeneratePackingListNumber(packingListId, userId);
   }
 
-  async deletePackingList(id: string): Promise<void> {
-    return this.repo.deletePackingList(id);
+  async deletePackingList(shipmentId: string, id: string): Promise<void> {
+    return this.repo.deletePackingList(shipmentId, id);
   }
 }

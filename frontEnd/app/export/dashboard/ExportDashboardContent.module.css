@@ -24,14 +24,8 @@
 
 .summaryGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr));
   gap: var(--spacing-4, 24px);
-}
-
-@media (min-width: 1024px) {
-  .summaryGrid {
-    grid-template-columns: repeat(4, 1fr);
-  }
 }
 
 .quickActions {
