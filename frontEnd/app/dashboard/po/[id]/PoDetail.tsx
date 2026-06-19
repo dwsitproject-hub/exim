@@ -341,6 +341,12 @@ export function PoDetail({ id }: { id: string }) {
   const canClaimAndCreateShipment =
     can(user, "TAKE_OWNERSHIP") && can(user, "CREATE_SHIPMENT");
   const canCoupleToShipment = can(user, "COUPLE_DECOUPLE_PO");
+  /** Claimed PO with no active shipment link (e.g. after soft-delete) — create without re-claim. */
+  const canCreateShipmentAfterUnlink =
+    canCreateOrCouple &&
+    can(user, "CREATE_SHIPMENT") &&
+    st === "CLAIMED" &&
+    linkedShipments.length === 0;
   /** Second (or later) new shipment while links already exist — same API as first leg after Claim. */
   const canCreateAnotherShipment =
     canCreateOrCouple && can(user, "CREATE_SHIPMENT") && linkedShipments.length > 0;
@@ -456,6 +462,18 @@ export function PoDetail({ id }: { id: string }) {
               <Pencil size={18} strokeWidth={2} aria-hidden className={styles.actionOutlineIcon} />
               Edit Purchase Order
             </Link>
+          )}
+          {canCreateShipmentAfterUnlink && (
+            <Button
+              type="button"
+              variant="primary"
+              onClick={handleCreateAnotherShipment}
+              disabled={creatingAnotherShipment || taking}
+              className={styles.actionPrimary}
+              data-tour="po-create-shipment-after-unlink"
+            >
+              {creatingAnotherShipment ? "Creating shipment…" : "Create shipment"}
+            </Button>
           )}
           {canCreateAnotherShipment && (
             <button
@@ -756,8 +774,8 @@ export function PoDetail({ id }: { id: string }) {
         {coupleShipmentsError && <p className={styles.error}>{coupleShipmentsError}</p>}
         {!coupleShipmentsLoading && !coupleShipmentsError && eligibleCoupleShipments.length === 0 && (
           <p className={styles.fieldValue}>
-            No matching open shipments found. Use Create another shipment on this PO page, paste a shipment UUID below,
-            or use Claim if you have not created a shipment yet.
+            No matching open shipments found. Use Create shipment or Create another shipment on this PO page, paste a
+            shipment UUID below, or use Claim if you have not created a shipment yet.
           </p>
         )}
         {eligibleCoupleShipments.length > 0 && (
