@@ -1209,8 +1209,10 @@ export class ShipmentService {
   async update(id: string, dto: UpdateShipmentDto, changedBy?: string): Promise<ShipmentDetail | null> {
     const existing = await this.repo.findById(id);
     if (!existing) return null;
-    if (existing.closed_at) {
-      throw new AppError("Cannot update a closed shipment", 409);
+    if (dto.closed_at !== undefined && existing.current_status !== "DELIVERED") {
+      throw new AppError("Delivered at can only be set when shipment status is Delivered", 400, [
+        { field: "closed_at", message: "Delivered at can only be set when shipment status is Delivered" },
+      ]);
     }
 
     const effectiveEtd =

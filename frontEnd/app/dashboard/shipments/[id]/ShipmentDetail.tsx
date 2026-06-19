@@ -1796,7 +1796,10 @@ export function ShipmentDetail({ id }: { id: string }) {
       ata: editAta.trim() || detail.ata,
       nopen: editNopen.trim() || detail.nopen,
       nopen_date: editNopenDate.trim() || detail.nopen_date,
-      closed_at: editClosedAt.trim() || detail.closed_at,
+      closed_at:
+        detail.current_status === "DELIVERED"
+          ? editClosedAt.trim() || detail.closed_at
+          : detail.closed_at,
       linked_pos: linkedPosEff,
     };
   }, [
@@ -2563,7 +2566,9 @@ export function ShipmentDetail({ id }: { id: string }) {
             : null,
       net_weight_mt: editNetWeightMt.trim() ? Number(editNetWeightMt) : undefined,
       gross_weight_mt: editGrossWeightMt.trim() ? Number(editGrossWeightMt) : undefined,
-      closed_at: editClosedAt.trim() || undefined,
+      ...(detail.current_status === "DELIVERED" && editClosedAt.trim()
+        ? { closed_at: editClosedAt.trim() }
+        : {}),
       ...(!dutyCalculationSkipped
         ? {
             bm: parseDutyTotalAmountInput(editBmTotal) ?? 0,
@@ -4196,7 +4201,7 @@ export function ShipmentDetail({ id }: { id: string }) {
         <div className={styles.grid}>
           <div className={statusFieldClass("closed_at")} data-status-field="closed_at">
             <span className={styles.fieldLabel}>Delivered at</span>
-            {isUpdatingShipment ? (
+            {isUpdatingShipment && detail.current_status === "DELIVERED" ? (
               <input type="date" className={styles.input} value={editClosedAt} onChange={(e) => setEditClosedAt(e.target.value)} />
             ) : (
               <span className={styles.fieldValue}>{formatDayMonthYear(detail.closed_at)}</span>

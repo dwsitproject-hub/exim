@@ -44,9 +44,10 @@ export interface UpdatePoIntakeDto {
   items: UpdatePoIntakeItemDto[];
 }
 
-/** Create intake (ingestion or test-create). Matches SaaS payload. Rule: 1 PO = multiple items, 1 incoterm. */
+/** Create intake (SaaS ingestion or manual create). Rule: 1 PO = multiple items, 1 incoterm. */
 export interface CreatePoIntakeDto {
-  external_id: string;
+  /** SaaS source id; omit for POs created manually in EOS. */
+  external_id?: string | null;
   po_number: string;
   plant?: string;
   /** Legal entity / PT code on PO header (distinct from plant). */
@@ -118,7 +119,7 @@ export interface PoListFilterOptions {
 
 export interface PoIntakeRow {
   id: string;
-  external_id: string;
+  external_id: string | null;
   po_number: string;
   plant: string | null;
   pt: string | null;
@@ -128,7 +129,7 @@ export interface PoIntakeRow {
   kawasan_berikat: string | null;
   currency: string | null;
   intake_status: string;
-  /** Set when a logged-in user created the PO (test-create, CSV). Null for automated ingestion. */
+  /** Set when a logged-in user created the PO (manual create, CSV). Null for automated SaaS ingestion. */
   created_by_user_id: string | null;
   taken_by_user_id: string | null;
   taken_at: Date | null;
@@ -149,7 +150,7 @@ export interface PoIntakeItemRow {
 
 export interface PoIntakeListItem {
   id: string;
-  external_id: string;
+  external_id: string | null;
   po_number: string;
   plant: string | null;
   pt: string | null;
@@ -168,7 +169,7 @@ export interface PoIntakeListItem {
 
 export interface PoIntakeDetail {
   id: string;
-  external_id: string;
+  external_id: string | null;
   po_number: string;
   plant: string | null;
   pt: string | null;
@@ -226,7 +227,7 @@ export interface PoIntakeDetail {
 
 export interface CreatePoIntakeResponse {
   id: string;
-  external_id: string;
+  external_id: string | null;
   po_number: string;
   intake_status: string;
   created_at: string;

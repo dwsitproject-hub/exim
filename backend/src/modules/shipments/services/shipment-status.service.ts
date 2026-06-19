@@ -40,11 +40,8 @@ export class ShipmentStatusService {
   ): Promise<UpdateStatusResponseData> {
     const shipment = await this.shipmentRepo.findById(shipmentId);
     if (!shipment) throw new AppError("Shipment not found", 404);
-    if (shipment.closed_at && shipment.current_status === "DELIVERED") {
-      throw new AppError("Cannot update status of a closed shipment", 409);
-    }
-    if (shipment.closed_at && newStatus !== "DELIVERED") {
-      throw new AppError("Cannot update status of a closed shipment", 409);
+    if (shipment.current_status === "DELIVERED") {
+      throw new AppError("Cannot update status of a delivered shipment", 409);
     }
 
     const currentStatus = shipment.current_status;
@@ -147,6 +144,11 @@ export class ShipmentStatusService {
 
     const updated = await this.shipmentRepo.updateCurrentStatus(shipmentId, newStatus);
     if (!updated) throw new AppError("Failed to update shipment status", 500);
+
+    if (newStatus === "DELIVERED" && !shipment.closed_at) {
+      const deliveredOn = new Date().toISOString().slice(0, 10);
+      await this.shipmentRepo.update(shipmentId, { closed_at: deliveredOn });
+    }
 
     await syncPoIntakeStatusesForShipment(shipmentId);
 
