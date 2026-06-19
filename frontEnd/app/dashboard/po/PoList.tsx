@@ -34,12 +34,11 @@ import styles from "./PoList.module.css";
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 10;
 
-const PO_LIST_TABLE_COLUMNS_KEY = "eos.dash.poList.tableColumns.v3";
+const PO_LIST_TABLE_COLUMNS_KEY = "eos.dash.poList.tableColumns.v4";
 
 /** All scalar PO detail fields (lines / linked shipments are not columns). */
 const PO_TABLE_COLUMNS: TableColumnDef[] = [
   { id: "po_number", label: "PO number", locked: true },
-  { id: "external_id", label: "External ID" },
   { id: "pt", label: "PT" },
   { id: "plant", label: "Plant" },
   { id: "supplier", label: "Supplier" },
@@ -69,7 +68,6 @@ function buildPoListColumnFilters(
     if (statuses.length) q.intake_statuses = statuses;
   }
   if (raw("po_number").length) q.po_numbers = raw("po_number");
-  if (raw("external_id").length) q.external_ids = raw("external_id");
   if (raw("pt").length) q.pts = raw("pt");
   if (raw("plant").length) q.plants = raw("plant");
   if (raw("supplier").length) q.supplier_names = raw("supplier");
@@ -136,7 +134,6 @@ export function PoList() {
     const o = filterOptions;
     return {
       po_number: o.po_numbers,
-      external_id: o.external_ids,
       pt: o.pts,
       plant: o.plants,
       supplier: o.supplier_names,
@@ -304,8 +301,6 @@ export function PoList() {
         return <TableCell key={column.id}>{row.plant ?? "—"}</TableCell>;
       case "supplier":
         return <TableCell key={column.id}>{row.supplier_name ?? "—"}</TableCell>;
-      case "external_id":
-        return <TableCell key={column.id}>{row.external_id?.trim() || "—"}</TableCell>;
       case "delivery_location":
         return <TableCell key={column.id}>{row.delivery_location?.trim() || "—"}</TableCell>;
       case "incoterm_location":

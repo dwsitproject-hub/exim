@@ -174,7 +174,8 @@ const STATUS_REQUIREMENTS: Record<string, StatusRequirement> = {
   },
   DELIVERED: {
     status: "DELIVERED",
-    requiredFields: ["closed_at"],
+    /** `closed_at` is set automatically when status becomes Delivered; editable afterward on shipment update. */
+    requiredFields: [],
     requiredDocs: [],
   },
 };

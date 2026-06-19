@@ -110,11 +110,11 @@ export async function couplePoToShipment(
   return apiPost(`po/${id}/couple-to-shipment`, { shipment_id: shipmentId }, accessToken);
 }
 
-/** Temporary: create a test PO for E2E testing (integration not yet available). POST /po/test-create */
+/** Create PO manually in EOS. POST /po/test-create */
 export async function createTestPo(
   payload: CreateTestPoPayload,
   accessToken: string | null
-): Promise<ApiResponse<{ id: string; external_id: string; po_number: string; intake_status: string; created_at: string }>> {
+): Promise<ApiResponse<{ id: string; external_id: string | null; po_number: string; intake_status: string; created_at: string }>> {
   return apiPost("po/test-create", payload, accessToken);
 }
 

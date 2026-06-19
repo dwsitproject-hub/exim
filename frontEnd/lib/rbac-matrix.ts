@@ -15,7 +15,7 @@ export const PERMISSION_CATALOG: readonly { key: string; label: string }[] = [
   { key: "MANAGE_USERS", label: "Manage users" },
   { key: "VIEW_PO_INTAKE", label: "View PO intake" },
   { key: "TAKE_OWNERSHIP", label: "Take ownership" },
-  { key: "CREATE_PO_INTAKE_TEST", label: "Create PO intake (test)" },
+  { key: "CREATE_PO_INTAKE_TEST", label: "Create PO intake" },
   { key: "UPDATE_PO_INTAKE", label: "Update PO intake" },
   { key: "VIEW_SHIPMENTS", label: "View shipments" },
   { key: "CREATE_SHIPMENT", label: "Create shipment" },

@@ -108,17 +108,6 @@ function parseRequiredNumber(raw: string, field: string, row: number, poNumber: 
   return n;
 }
 
-async function generateExternalId(repo: PoIntakeRepository, poNumber: string): Promise<string> {
-  const base = `CSV-${poNumber.trim().toUpperCase().replace(/\s+/g, "-")}`;
-  let candidate = base;
-  let seq = 1;
-  while (await repo.existsByExternalId(candidate)) {
-    seq += 1;
-    candidate = `${base}-${seq}`;
-  }
-  return candidate;
-}
-
 /** node-pg returns DECIMAL/NUMERIC as strings — coerce so JSON clients get real numbers. */
 function coercePgNumeric(value: unknown): number | null {
   if (value == null) return null;
@@ -227,13 +216,14 @@ export class PoIntakeService {
     private readonly userRepo?: UserRepository
   ) {}
 
-  /** Create intake (ingestion or test-create). Prevents duplicate by external_id. */
+  /** Create intake (SaaS ingestion or manual create). Duplicate check applies when external_id is present. */
   async create(
     dto: CreatePoIntakeDto,
     options?: { skipDuplicateCheck?: boolean; createdByUserId?: string | null }
   ): Promise<CreatePoIntakeResponse> {
-    if (!options?.skipDuplicateCheck) {
-      const exists = await this.repo.existsByExternalId(dto.external_id);
+    const externalId = dto.external_id?.trim() || null;
+    if (externalId && !options?.skipDuplicateCheck) {
+      const exists = await this.repo.existsByExternalId(externalId);
       if (exists) {
         throw new AppError("Duplicate PO intake: external_id already exists", 409);
       }
@@ -242,7 +232,7 @@ export class PoIntakeService {
     if (dupPo) {
       throw new AppError("Purchase Order number already exists. PO numbers must be unique.", 409);
     }
-    const row = await this.repo.create(dto, "NEW_PO_DETECTED", options?.createdByUserId);
+    const row = await this.repo.create({ ...dto, external_id: externalId }, "NEW_PO_DETECTED", options?.createdByUserId);
     await this.repo.insertItems(row.id, dto.items);
     return {
       id: row.id,
@@ -521,10 +511,8 @@ export class PoIntakeService {
       }
 
       try {
-        const externalId = await generateExternalId(this.repo, sample.po_number);
         await this.repo.createWithItemsInTransaction(
           {
-            external_id: externalId,
             po_number: sample.po_number,
             supplier_name: sample.supplier_name,
             plant: sample.plant,

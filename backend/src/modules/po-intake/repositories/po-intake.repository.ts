@@ -144,7 +144,7 @@ export class PoIntakeRepository {
        RETURNING id, external_id, po_number, plant, pt, supplier_name, delivery_location, incoterm_location, kawasan_berikat, currency,
          intake_status, created_by_user_id, taken_by_user_id, taken_at, created_at, updated_at`,
       [
-        dto.external_id,
+        dto.external_id ?? null,
         dto.po_number,
         dto.plant ?? null,
         dto.pt ?? null,
@@ -223,7 +223,7 @@ export class PoIntakeRepository {
        RETURNING id, external_id, po_number, plant, pt, supplier_name, delivery_location, incoterm_location, kawasan_berikat, currency,
          intake_status, created_by_user_id, taken_by_user_id, taken_at, created_at, updated_at`,
       [
-        dto.external_id,
+        dto.external_id ?? null,
         dto.po_number,
         dto.plant ?? null,
         dto.pt ?? null,
