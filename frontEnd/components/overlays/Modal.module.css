@@ -19,6 +19,10 @@
   padding: var(--spacing-4, 24px);
 }
 
+.panelWide {
+  width: min(94vw, 960px);
+}
+
 .title {
   margin: 0 0 var(--spacing-3, 16px);
   font-size: var(--typography-fontSize-h3, 24px);

@@ -405,7 +405,15 @@
   display: flex;
   flex-direction: column;
   gap: var(--spacing-1, 4px);
-  min-width: 180px;
+  min-width: 0;
+  width: fit-content;
+}
+
+.unitCountField .input {
+  width: 4.5rem;
+  max-width: 4.5rem;
+  margin-top: 0;
+  text-align: center;
 }
 
 .actions {
@@ -2152,6 +2160,40 @@
   justify-content: center;
   font-size: 1rem;
   line-height: 1;
+}
+
+.docPreviewLoading,
+.docPreviewUnsupported {
+  margin: 0;
+  padding: var(--spacing-4, 24px) var(--spacing-2, 8px);
+  text-align: center;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  font-size: var(--typography-fontSize-small, 14px);
+}
+
+.docPreviewFrame {
+  display: block;
+  width: 100%;
+  height: min(75vh, 720px);
+  border: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  border-radius: var(--borderRadius-md, 8px);
+  background: var(--color-primitive-background-subtle, #f5f5f5);
+}
+
+.docPreviewImage {
+  display: block;
+  max-width: 100%;
+  max-height: min(75vh, 720px);
+  margin: 0 auto;
+  object-fit: contain;
+  border-radius: var(--borderRadius-md, 8px);
+}
+
+.docPreviewModalFooter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-2, 8px);
+  justify-content: flex-end;
 }
 
 @media (max-width: 640px) {
