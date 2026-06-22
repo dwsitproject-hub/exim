@@ -22,7 +22,7 @@ SET
   deleted_at = COALESCE(m.decoupled_at, s.deleted_at, NOW()),
   deleted_by = COALESCE(m.decoupled_by, s.deleted_by, 'migration:083')
 FROM shipment_po_mapping m
-JOIN shipments s ON s.id = r.shipment_id
+JOIN shipments s ON s.id = m.shipment_id
 WHERE r.shipment_id = m.shipment_id
   AND r.intake_id = m.intake_id
   AND r.deleted_at IS NULL

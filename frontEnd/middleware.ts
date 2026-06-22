@@ -9,15 +9,31 @@ import { ACCESS_COOKIE_NAME } from "@/lib/cookies";
 import { LOGIN_PATH, DEFAULT_AFTER_LOGIN_PATH } from "@/lib/constants";
 
 /** Paths that require authentication (exact or prefix). */
-const PROTECTED_PREFIXES = ["/dashboard"];
+const PROTECTED_PREFIXES = ["/dashboard", "/import"];
 
 function isProtectedPath(pathname: string): boolean {
   return PROTECTED_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 
+/** Legacy bookmark/casing: /import/Dashboard → /import/dashboard (exact-case only). */
+function normalizeImportDashboardPath(pathname: string): string | null {
+  if (pathname === "/import/Dashboard") return "/import/dashboard";
+  if (pathname.startsWith("/import/Dashboard/")) {
+    return `/import/dashboard${pathname.slice("/import/Dashboard".length)}`;
+  }
+  return null;
+}
+
 export function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   const accessToken = request.cookies.get(ACCESS_COOKIE_NAME)?.value;
+
+  const normalizedImportDashboard = normalizeImportDashboardPath(pathname);
+  if (normalizedImportDashboard) {
+    const url = request.nextUrl.clone();
+    url.pathname = normalizedImportDashboard;
+    return NextResponse.redirect(url);
+  }
 
   if (pathname === "/") {
     const url = request.nextUrl.clone();
@@ -37,5 +53,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/", "/dashboard", "/dashboard/:path*"],
+  matcher: ["/", "/dashboard", "/dashboard/:path*", "/import", "/import/:path*"],
 };

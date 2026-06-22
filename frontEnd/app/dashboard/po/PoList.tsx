@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
+import { useSessionPersistedState } from "@/hooks/use-session-persisted-state";
 import { useTableColumnVisibility, type TableColumnDef } from "@/hooks/use-table-column-visibility";
 import { listPo, getPoListFilterOptions } from "@/services/po-service";
 import { Card } from "@/components/cards";
@@ -35,6 +36,7 @@ const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 10;
 
 const PO_LIST_TABLE_COLUMNS_KEY = "eos.dash.poList.tableColumns.v4";
+const PO_LIST_COLUMN_FILTERS_KEY = "eos.dash.poList.columnFilters.v1";
 
 /** All scalar PO detail fields (lines / linked shipments are not columns). */
 const PO_TABLE_COLUMNS: TableColumnDef[] = [
@@ -113,7 +115,9 @@ export function PoList() {
   const [page, setPage] = useState(DEFAULT_PAGE);
   const [searchInput, setSearchInput] = useState("");
   const [searchParam, setSearchParam] = useState("");
-  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
+  const [columnFilters, setColumnFilters, columnFiltersHydrated] = useSessionPersistedState<
+    Record<string, string[]>
+  >(PO_LIST_COLUMN_FILTERS_KEY, {});
   const [openFilterColumnId, setOpenFilterColumnId] = useState<string | null>(null);
   const [filterOptions, setFilterOptions] = useState<PoListFilterOptions | null>(null);
   const [sortBy, setSortBy] = useState<string | null>(null);
@@ -219,8 +223,9 @@ export function PoList() {
   }, [accessToken, listQuery]);
 
   useEffect(() => {
+    if (!columnFiltersHydrated) return;
     fetchList();
-  }, [fetchList]);
+  }, [fetchList, columnFiltersHydrated]);
 
   useEffect(() => {
     if (!accessToken) return;

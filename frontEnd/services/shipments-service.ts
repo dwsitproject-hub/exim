@@ -139,10 +139,16 @@ export interface UpdateShipmentPayload {
   unit_40ft?: boolean;
   unit_package?: boolean;
   unit_20_iso_tank?: boolean;
+  unit_40_hc?: boolean;
+  unit_20_fr?: boolean;
+  unit_40_fr?: boolean;
   container_count_20ft?: number | null;
   container_count_40ft?: number | null;
   package_count?: number | null;
   container_count_20_iso_tank?: number | null;
+  container_count_40_hc?: number | null;
+  container_count_20_fr?: number | null;
+  container_count_40_fr?: number | null;
   /** BM total (IDR), user-entered. */
   bm?: number | null;
   /** PPN total (IDR), user-entered. */
@@ -373,6 +379,27 @@ export async function deleteShipmentDocument(
   accessToken: string | null
 ): Promise<ApiResponse<{ id: string }>> {
   return apiDelete<{ id: string }>(`shipments/${shipmentId}/documents/${documentId}`, accessToken);
+}
+
+/** Authenticated blob fetch for shipment document download or in-app preview. */
+export async function fetchShipmentDocumentBlob(shipmentId: string, documentId: string): Promise<Blob> {
+  const base = config.apiBaseUrl.replace(/\/$/, "");
+  const url = `${base}/shipments/${shipmentId}/documents/${documentId}/download`;
+  const fetchDoc = () => fetch(url, { credentials: "include" });
+
+  let response = await fetchDoc();
+  if (response.status === 401) {
+    const refresh = await fetch(`${base}/auth/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+      credentials: "include",
+    });
+    if (!refresh.ok) throw new Error("Failed to load document");
+    response = await fetchDoc();
+  }
+  if (!response.ok) throw new Error("Failed to load document");
+  return response.blob();
 }
 
 export async function importShipmentCombinedCsv(

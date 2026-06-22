@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { RotateCw, X } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import { useSessionPersistedState } from "@/hooks/use-session-persisted-state";
 import { useTableColumnVisibility, type TableColumnDef } from "@/hooks/use-table-column-visibility";
 import { listShipments, getShipmentListFilterOptions } from "@/services/shipments-service";
 import { Card } from "@/components/cards";
@@ -39,6 +40,7 @@ const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 10;
 
 const SHIPMENT_LIST_TABLE_COLUMNS_KEY = "eos.dash.shipmentList.tableColumns.v4";
+const SHIPMENT_LIST_COLUMN_FILTERS_KEY = "eos.dash.shipmentList.columnFilters.v1";
 
 /** PT and Plant first for sticky priority; Shipment scrolls with the table. */
 const SHIPMENT_TABLE_COLUMNS: TableColumnDef[] = [
@@ -165,7 +167,9 @@ export function ShipmentList() {
   const [poFromInput, setPoFromInput] = useState(poFromUrl);
   const [poToInput, setPoToInput] = useState(poToUrl);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
-  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
+  const [columnFilters, setColumnFilters, columnFiltersHydrated] = useSessionPersistedState<
+    Record<string, string[]>
+  >(SHIPMENT_LIST_COLUMN_FILTERS_KEY, {});
   const [openFilterColumnId, setOpenFilterColumnId] = useState<string | null>(null);
   const [filterOptions, setFilterOptions] = useState<ShipmentListFilterOptions | null>(null);
   const [sortBy, setSortBy] = useState<string | null>(null);
@@ -276,8 +280,9 @@ export function ShipmentList() {
   ]);
 
   useEffect(() => {
+    if (!columnFiltersHydrated) return;
     fetchList();
-  }, [fetchList]);
+  }, [fetchList, columnFiltersHydrated]);
 
   useEffect(() => {
     if (!accessToken) return;

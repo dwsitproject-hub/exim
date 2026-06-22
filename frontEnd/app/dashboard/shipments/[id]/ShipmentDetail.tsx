@@ -29,6 +29,7 @@ import {
   listShipmentDocuments,
   uploadShipmentDocument,
   deleteShipmentDocument,
+  fetchShipmentDocumentBlob,
 } from "@/services/shipments-service";
 import { getPoDetail, lookupPoByPoNumber } from "@/services/po-service";
 import { Card } from "@/components/cards";
@@ -44,6 +45,7 @@ import {
   TableHeaderCell,
 } from "@/components/tables";
 import { Button, ComboboxSelect } from "@/components/forms";
+import { Modal } from "@/components/overlays";
 import { useToast } from "@/components/providers/ToastProvider";
 import { ShipmentNoteMentionTextarea } from "@/components/shipments/ShipmentNoteMentionTextarea";
 import { renderNoteWithMentions } from "@/lib/render-note-mentions";
@@ -90,6 +92,13 @@ import type { PoDetail, PoItemSummary } from "@/types/po";
 import { config } from "@/lib/config";
 import { getCountryOptions } from "@/lib/countries";
 import { getVisibleShipmentDocumentSlots } from "@/lib/shipment-document-slots";
+import {
+  canPreviewShipmentDocument,
+  getShipmentDocumentPreviewMode,
+  type ShipmentDocumentPreviewMode,
+  createShipmentDocumentPreviewUrl,
+  revokeShipmentDocumentPreviewUrl,
+} from "@/lib/shipment-document-preview";
 import {
   canUploadPO,
   isPOUploaded,
@@ -748,6 +757,11 @@ export function ShipmentDetail({ id }: { id: string }) {
   const [shipmentDocuments, setShipmentDocuments] = useState<ShipmentDocumentListItem[]>([]);
   const [uploadingDocSlotKey, setUploadingDocSlotKey] = useState<string | null>(null);
   const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
+  const [previewDoc, setPreviewDoc] = useState<ShipmentDocumentListItem | null>(null);
+  const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null);
+  const [previewMode, setPreviewMode] = useState<ShipmentDocumentPreviewMode | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
   const [savingNote, setSavingNote] = useState(false);
   const [isUpdatingShipment, setIsUpdatingShipment] = useState(false);
@@ -784,10 +798,16 @@ export function ShipmentDetail({ id }: { id: string }) {
   const [editUnit40ft, setEditUnit40ft] = useState(false);
   const [editUnitPackage, setEditUnitPackage] = useState(false);
   const [editUnit20IsoTank, setEditUnit20IsoTank] = useState(false);
+  const [editUnit40Hc, setEditUnit40Hc] = useState(false);
+  const [editUnit20Fr, setEditUnit20Fr] = useState(false);
+  const [editUnit40Fr, setEditUnit40Fr] = useState(false);
   const [editContainerCount20ft, setEditContainerCount20ft] = useState("");
   const [editContainerCount40ft, setEditContainerCount40ft] = useState("");
   const [editPackageCount, setEditPackageCount] = useState("");
   const [editContainerCount20IsoTank, setEditContainerCount20IsoTank] = useState("");
+  const [editContainerCount40Hc, setEditContainerCount40Hc] = useState("");
+  const [editContainerCount20Fr, setEditContainerCount20Fr] = useState("");
+  const [editContainerCount40Fr, setEditContainerCount40Fr] = useState("");
   const [editIncotermAmount, setEditIncotermAmount] = useState("");
   const [editIncotermCurrency, setEditIncotermCurrency] = useState<FreightChargeCurrency>("IDR");
   const [editBmTotal, setEditBmTotal] = useState("");
@@ -835,6 +855,21 @@ export function ShipmentDetail({ id }: { id: string }) {
 
   /** Block shipment document upload/delete when status is DELIVERED (not based on closed/delivered date alone). */
   const shipmentDocumentsLockedByDeliveredStatus = detail?.current_status === "DELIVERED";
+
+  useEffect(() => {
+    return () => revokeShipmentDocumentPreviewUrl(previewBlobUrl);
+  }, [previewBlobUrl]);
+
+  const closeDocumentPreview = useCallback(() => {
+    setPreviewDoc(null);
+    setPreviewMode(null);
+    setPreviewError(null);
+    setPreviewLoading(false);
+    setPreviewBlobUrl((prev) => {
+      revokeShipmentDocumentPreviewUrl(prev);
+      return null;
+    });
+  }, []);
 
   const load = useCallback(() => {
     if (!accessToken || !id) return;
@@ -1023,12 +1058,18 @@ export function ShipmentDetail({ id }: { id: string }) {
     setEditUnit40ft(detail.unit_40ft === true);
     setEditUnitPackage(detail.unit_package === true);
     setEditUnit20IsoTank(detail.unit_20_iso_tank === true);
+    setEditUnit40Hc(detail.unit_40_hc === true);
+    setEditUnit20Fr(detail.unit_20_fr === true);
+    setEditUnit40Fr(detail.unit_40_fr === true);
     setEditContainerCount20ft(detail.container_count_20ft != null ? String(detail.container_count_20ft) : "");
     setEditContainerCount40ft(detail.container_count_40ft != null ? String(detail.container_count_40ft) : "");
     setEditPackageCount(detail.package_count != null ? String(detail.package_count) : "");
     setEditContainerCount20IsoTank(
       detail.container_count_20_iso_tank != null ? String(detail.container_count_20_iso_tank) : ""
     );
+    setEditContainerCount40Hc(detail.container_count_40_hc != null ? String(detail.container_count_40_hc) : "");
+    setEditContainerCount20Fr(detail.container_count_20_fr != null ? String(detail.container_count_20_fr) : "");
+    setEditContainerCount40Fr(detail.container_count_40_fr != null ? String(detail.container_count_40_fr) : "");
     setEditIncotermAmount(
       detail.incoterm_amount != null
         ? formatPriceInputWithCommas(
@@ -1429,29 +1470,7 @@ export function ShipmentDetail({ id }: { id: string }) {
 
   function handleShipmentDocumentDownload(doc: ShipmentDocumentListItem) {
     if (!id) return;
-    const base = config.apiBaseUrl.replace(/\/$/, "");
-    const url = `${base}/shipments/${id}/documents/${doc.id}/download`;
-    const downloadWithAuth = () =>
-      fetch(url, {
-        credentials: "include",
-      });
-
-    downloadWithAuth()
-      .then(async (r) => {
-        if (r.status === 401) {
-          const refreshUrl = `${base}/auth/refresh`;
-          const refresh = await fetch(refreshUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({}),
-            credentials: "include",
-          });
-          if (!refresh.ok) throw new Error("download failed");
-          r = await downloadWithAuth();
-        }
-        if (!r.ok) throw new Error("download failed");
-        return r.blob();
-      })
+    fetchShipmentDocumentBlob(id, doc.id)
       .then((blob) => {
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
@@ -1464,6 +1483,29 @@ export function ShipmentDetail({ id }: { id: string }) {
         setActionError("Failed to download document");
         pushToast("Failed to download document.", "error");
       });
+  }
+
+  function handleShipmentDocumentPreview(doc: ShipmentDocumentListItem) {
+    if (!id || !canPreviewShipmentDocument(doc)) return;
+    setPreviewBlobUrl((prev) => {
+      revokeShipmentDocumentPreviewUrl(prev);
+      return null;
+    });
+    setPreviewDoc(doc);
+    const mode = getShipmentDocumentPreviewMode(doc);
+    setPreviewMode(mode);
+    setPreviewLoading(true);
+    setPreviewError(null);
+    fetchShipmentDocumentBlob(id, doc.id)
+      .then((blob) => createShipmentDocumentPreviewUrl(blob, mode))
+      .then((url) => {
+        setPreviewBlobUrl(url);
+      })
+      .catch(() => {
+        setPreviewError("Failed to load document preview.");
+        pushToast("Failed to load document preview.", "error");
+      })
+      .finally(() => setPreviewLoading(false));
   }
 
   function handleShipmentDocumentDelete(docId: string) {
@@ -1497,6 +1539,18 @@ export function ShipmentDetail({ id }: { id: string }) {
           </span>
         </div>
         <div className={styles.shipmentDocFileActions}>
+          {canPreviewShipmentDocument(doc) && (
+            <Button
+              type="button"
+              variant="secondary"
+              className={styles.docIconBtn}
+              onClick={() => handleShipmentDocumentPreview(doc)}
+              aria-label={`Preview ${doc.original_file_name}`}
+              title="Preview"
+            >
+              <span aria-hidden>👁</span>
+            </Button>
+          )}
           <Button
             type="button"
             variant="secondary"
@@ -1546,10 +1600,16 @@ export function ShipmentDetail({ id }: { id: string }) {
       setEditUnit40ft(false);
       setEditUnitPackage(false);
       setEditUnit20IsoTank(false);
+      setEditUnit40Hc(false);
+      setEditUnit20Fr(false);
+      setEditUnit40Fr(false);
       setEditContainerCount20ft("");
       setEditContainerCount40ft("");
       setEditPackageCount("");
       setEditContainerCount20IsoTank("");
+      setEditContainerCount40Hc("");
+      setEditContainerCount20Fr("");
+      setEditContainerCount40Fr("");
       setEditCbm("");
       return;
     }
@@ -1559,17 +1619,29 @@ export function ShipmentDetail({ id }: { id: string }) {
       setEditUnit40ft(false);
       setEditUnitPackage(false);
       setEditUnit20IsoTank(false);
+      setEditUnit40Hc(false);
+      setEditUnit20Fr(false);
+      setEditUnit40Fr(false);
       setEditContainerCount20ft("");
       setEditContainerCount40ft("");
       setEditPackageCount("");
       setEditContainerCount20IsoTank("");
+      setEditContainerCount40Hc("");
+      setEditContainerCount20Fr("");
+      setEditContainerCount40Fr("");
     } else if (next === "LCL") {
       setEditUnit20ft(false);
       setEditUnit40ft(false);
       setEditUnit20IsoTank(false);
+      setEditUnit40Hc(false);
+      setEditUnit20Fr(false);
+      setEditUnit40Fr(false);
       setEditContainerCount20ft("");
       setEditContainerCount40ft("");
       setEditContainerCount20IsoTank("");
+      setEditContainerCount40Hc("");
+      setEditContainerCount20Fr("");
+      setEditContainerCount40Fr("");
     } else if (next === "FCL") {
       setEditUnitPackage(false);
       setEditPackageCount("");
@@ -1646,6 +1718,21 @@ export function ShipmentDetail({ id }: { id: string }) {
           `20${inch} ISO Tank${d.container_count_20_iso_tank != null ? ` × ${d.container_count_20_iso_tank}` : ""}`.trim()
         );
       }
+      if (d.unit_40_hc === true) {
+        parts.push(
+          `40${inch} HC${d.container_count_40_hc != null ? ` × ${d.container_count_40_hc}` : ""}`.trim()
+        );
+      }
+      if (d.unit_20_fr === true) {
+        parts.push(
+          `20${inch} FR${d.container_count_20_fr != null ? ` × ${d.container_count_20_fr}` : ""}`.trim()
+        );
+      }
+      if (d.unit_40_fr === true) {
+        parts.push(
+          `40${inch} FR${d.container_count_40_fr != null ? ` × ${d.container_count_40_fr}` : ""}`.trim()
+        );
+      }
       return parts.length > 0 ? parts.join(", ") : "—";
     }
     const parts: string[] = [];
@@ -1668,6 +1755,15 @@ export function ShipmentDetail({ id }: { id: string }) {
       parts.push(
         `20${inch} ISO Tank${d.container_count_20_iso_tank != null ? ` × ${d.container_count_20_iso_tank}` : ""}`.trim()
       );
+    }
+    if (d.unit_40_hc === true) {
+      parts.push(`40${inch} HC${d.container_count_40_hc != null ? ` × ${d.container_count_40_hc}` : ""}`.trim());
+    }
+    if (d.unit_20_fr === true) {
+      parts.push(`20${inch} FR${d.container_count_20_fr != null ? ` × ${d.container_count_20_fr}` : ""}`.trim());
+    }
+    if (d.unit_40_fr === true) {
+      parts.push(`40${inch} FR${d.container_count_40_fr != null ? ` × ${d.container_count_40_fr}` : ""}`.trim());
     }
     return parts.length > 0 ? parts.join(", ") : "—";
   }
@@ -2383,6 +2479,9 @@ export function ShipmentDetail({ id }: { id: string }) {
     let containerCount40ft: number | null = null;
     let packageCount: number | null = null;
     let containerCount20Iso: number | null = null;
+    let containerCount40Hc: number | null = null;
+    let containerCount20Fr: number | null = null;
+    let containerCount40Fr: number | null = null;
 
     const methodForSave = (editShipmentMethod.trim() || detail.shipment_method || "").trim();
     const sea = isShipmentMethodSea(methodForSave);
@@ -2428,6 +2527,39 @@ export function ShipmentDetail({ id }: { id: string }) {
       }
       containerCount20Iso = v;
     }
+    if (sea && editUnit40Hc) {
+      const v = parseOptInt(
+        editContainerCount40Hc,
+        "Number of 40 HC containers must be a non-negative whole number."
+      );
+      if (v === false) {
+        setSavingDetails(false);
+        return;
+      }
+      containerCount40Hc = v;
+    }
+    if (sea && editUnit20Fr) {
+      const v = parseOptInt(
+        editContainerCount20Fr,
+        "Number of 20 FR containers must be a non-negative whole number."
+      );
+      if (v === false) {
+        setSavingDetails(false);
+        return;
+      }
+      containerCount20Fr = v;
+    }
+    if (sea && editUnit40Fr) {
+      const v = parseOptInt(
+        editContainerCount40Fr,
+        "Number of 40 FR containers must be a non-negative whole number."
+      );
+      if (v === false) {
+        setSavingDetails(false);
+        return;
+      }
+      containerCount40Fr = v;
+    }
 
     const sb = sea ? editShipBy.trim() : "";
     if (sea && !sb) {
@@ -2471,10 +2603,16 @@ export function ShipmentDetail({ id }: { id: string }) {
           unit_40ft: false,
           unit_package: false,
           unit_20_iso_tank: false,
+          unit_40_hc: false,
+          unit_20_fr: false,
+          unit_40_fr: false,
           container_count_20ft: null as number | null,
           container_count_40ft: null as number | null,
           package_count: null as number | null,
           container_count_20_iso_tank: null as number | null,
+          container_count_40_hc: null as number | null,
+          container_count_20_fr: null as number | null,
+          container_count_40_fr: null as number | null,
         }
       : sb === "Bulk"
         ? {
@@ -2482,20 +2620,32 @@ export function ShipmentDetail({ id }: { id: string }) {
             unit_40ft: false,
             unit_package: false,
             unit_20_iso_tank: false,
+            unit_40_hc: false,
+            unit_20_fr: false,
+            unit_40_fr: false,
             container_count_20ft: null as number | null,
             container_count_40ft: null as number | null,
             package_count: null as number | null,
             container_count_20_iso_tank: null as number | null,
+            container_count_40_hc: null as number | null,
+            container_count_20_fr: null as number | null,
+            container_count_40_fr: null as number | null,
           }
         : sb === "LCL"
           ? {
               unit_20ft: false,
               unit_40ft: false,
               unit_20_iso_tank: false,
+              unit_40_hc: false,
+              unit_20_fr: false,
+              unit_40_fr: false,
               unit_package: editUnitPackage,
               container_count_20ft: null as number | null,
               container_count_40ft: null as number | null,
               container_count_20_iso_tank: null as number | null,
+              container_count_40_hc: null as number | null,
+              container_count_20_fr: null as number | null,
+              container_count_40_fr: null as number | null,
               package_count: editUnitPackage ? packageCount : null,
             }
           : sb === "FCL"
@@ -2505,19 +2655,31 @@ export function ShipmentDetail({ id }: { id: string }) {
                 unit_20ft: editUnit20ft,
                 unit_40ft: editUnit40ft,
                 unit_20_iso_tank: editUnit20IsoTank,
+                unit_40_hc: editUnit40Hc,
+                unit_20_fr: editUnit20Fr,
+                unit_40_fr: editUnit40Fr,
                 container_count_20ft: editUnit20ft ? containerCount20ft : null,
                 container_count_40ft: editUnit40ft ? containerCount40ft : null,
                 container_count_20_iso_tank: editUnit20IsoTank ? containerCount20Iso : null,
+                container_count_40_hc: editUnit40Hc ? containerCount40Hc : null,
+                container_count_20_fr: editUnit20Fr ? containerCount20Fr : null,
+                container_count_40_fr: editUnit40Fr ? containerCount40Fr : null,
               }
             : {
                 unit_20ft: editUnit20ft,
                 unit_40ft: editUnit40ft,
                 unit_package: editUnitPackage,
                 unit_20_iso_tank: editUnit20IsoTank,
+                unit_40_hc: editUnit40Hc,
+                unit_20_fr: editUnit20Fr,
+                unit_40_fr: editUnit40Fr,
                 container_count_20ft: editUnit20ft ? containerCount20ft : null,
                 container_count_40ft: editUnit40ft ? containerCount40ft : null,
                 package_count: editUnitPackage ? packageCount : null,
                 container_count_20_iso_tank: editUnit20IsoTank ? containerCount20Iso : null,
+                container_count_40_hc: editUnit40Hc ? containerCount40Hc : null,
+                container_count_20_fr: editUnit20Fr ? containerCount20Fr : null,
+                container_count_40_fr: editUnit40Fr ? containerCount40Fr : null,
               };
 
     const payload = {
@@ -3460,8 +3622,49 @@ export function ShipmentDetail({ id }: { id: string }) {
                         />
                         20″ ISO Tank
                       </label>
+                      <label className={styles.unitCheckboxLabel}>
+                        <input
+                          type="checkbox"
+                          checked={editUnit40Hc}
+                          onChange={(e) => {
+                            const v = e.target.checked;
+                            setEditUnit40Hc(v);
+                            if (!v) setEditContainerCount40Hc("");
+                          }}
+                        />
+                        40 HC
+                      </label>
+                      <label className={styles.unitCheckboxLabel}>
+                        <input
+                          type="checkbox"
+                          checked={editUnit20Fr}
+                          onChange={(e) => {
+                            const v = e.target.checked;
+                            setEditUnit20Fr(v);
+                            if (!v) setEditContainerCount20Fr("");
+                          }}
+                        />
+                        20 FR
+                      </label>
+                      <label className={styles.unitCheckboxLabel}>
+                        <input
+                          type="checkbox"
+                          checked={editUnit40Fr}
+                          onChange={(e) => {
+                            const v = e.target.checked;
+                            setEditUnit40Fr(v);
+                            if (!v) setEditContainerCount40Fr("");
+                          }}
+                        />
+                        40 FR
+                      </label>
                     </div>
-                    {(editUnit20ft || editUnit40ft || editUnit20IsoTank) && (
+                    {(editUnit20ft ||
+                      editUnit40ft ||
+                      editUnit20IsoTank ||
+                      editUnit40Hc ||
+                      editUnit20Fr ||
+                      editUnit40Fr) && (
                       <div className={styles.unitCountRow}>
                         {editUnit20ft && (
                           <div className={styles.unitCountField}>
@@ -3469,6 +3672,7 @@ export function ShipmentDetail({ id }: { id: string }) {
                             <input
                               type="number"
                               min={0}
+                              max={99}
                               step={1}
                               className={styles.input}
                               value={editContainerCount20ft}
@@ -3483,6 +3687,7 @@ export function ShipmentDetail({ id }: { id: string }) {
                             <input
                               type="number"
                               min={0}
+                              max={99}
                               step={1}
                               className={styles.input}
                               value={editContainerCount40ft}
@@ -3497,10 +3702,56 @@ export function ShipmentDetail({ id }: { id: string }) {
                             <input
                               type="number"
                               min={0}
+                              max={99}
                               step={1}
                               className={styles.input}
                               value={editContainerCount20IsoTank}
                               onChange={(e) => setEditContainerCount20IsoTank(e.target.value)}
+                              placeholder="e.g. 1"
+                            />
+                          </div>
+                        )}
+                        {editUnit40Hc && (
+                          <div className={styles.unitCountField}>
+                            <span className={styles.fieldLabel}>Number of 40 HC containers</span>
+                            <input
+                              type="number"
+                              min={0}
+                              max={99}
+                              step={1}
+                              className={styles.input}
+                              value={editContainerCount40Hc}
+                              onChange={(e) => setEditContainerCount40Hc(e.target.value)}
+                              placeholder="e.g. 1"
+                            />
+                          </div>
+                        )}
+                        {editUnit20Fr && (
+                          <div className={styles.unitCountField}>
+                            <span className={styles.fieldLabel}>Number of 20 FR containers</span>
+                            <input
+                              type="number"
+                              min={0}
+                              max={99}
+                              step={1}
+                              className={styles.input}
+                              value={editContainerCount20Fr}
+                              onChange={(e) => setEditContainerCount20Fr(e.target.value)}
+                              placeholder="e.g. 1"
+                            />
+                          </div>
+                        )}
+                        {editUnit40Fr && (
+                          <div className={styles.unitCountField}>
+                            <span className={styles.fieldLabel}>Number of 40 FR containers</span>
+                            <input
+                              type="number"
+                              min={0}
+                              max={99}
+                              step={1}
+                              className={styles.input}
+                              value={editContainerCount40Fr}
+                              onChange={(e) => setEditContainerCount40Fr(e.target.value)}
                               placeholder="e.g. 1"
                             />
                           </div>
@@ -4567,6 +4818,42 @@ export function ShipmentDetail({ id }: { id: string }) {
       </div>
         </>
       )}
+
+      <Modal
+        open={previewDoc != null}
+        title={previewDoc?.original_file_name ?? "Document preview"}
+        onClose={closeDocumentPreview}
+        wide
+        footer={
+          previewDoc ? (
+            <div className={styles.docPreviewModalFooter}>
+              <Button type="button" variant="secondary" onClick={closeDocumentPreview}>
+                Close
+              </Button>
+              <Button type="button" variant="primary" onClick={() => handleShipmentDocumentDownload(previewDoc)}>
+                Download
+              </Button>
+            </div>
+          ) : undefined
+        }
+      >
+        {previewLoading && <p className={styles.docPreviewLoading}>Loading preview…</p>}
+        {!previewLoading && previewError && <p className={styles.docPreviewUnsupported}>{previewError}</p>}
+        {!previewLoading && !previewError && previewBlobUrl && previewMode === "pdf" && (
+          <iframe
+            className={styles.docPreviewFrame}
+            src={previewBlobUrl}
+            title={previewDoc?.original_file_name ?? "Document preview"}
+          />
+        )}
+        {!previewLoading && !previewError && previewBlobUrl && previewMode === "image" && (
+          <img
+            className={styles.docPreviewImage}
+            src={previewBlobUrl}
+            alt={previewDoc?.original_file_name ?? "Document preview"}
+          />
+        )}
+      </Modal>
 
       {deleteConfirmOpen && canEditShipment && (
         <div
