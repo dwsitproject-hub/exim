@@ -149,6 +149,7 @@ export class ShipmentPoMappingRepository {
             ON r.shipment_id = m.shipment_id
             AND r.intake_id = m.intake_id
             AND r.item_id = it.id
+            AND r.deleted_at IS NULL
           WHERE it.import_purchase_order_id = m.intake_id),
           '[]'::json
         ) AS items

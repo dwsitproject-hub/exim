@@ -468,7 +468,7 @@ export class ShipmentRepository {
         JOIN Import_purchase_order_items it ON it.import_purchase_order_id = m.intake_id
         WHERE m.shipment_id = s.id AND m.decoupled_at IS NULL
         AND COALESCE(it.qty, 0) > COALESCE((
-          SELECT SUM(r.received_qty) FROM shipment_po_line_received r WHERE r.item_id = it.id
+          SELECT SUM(r.received_qty) FROM shipment_po_line_received r WHERE r.item_id = it.id AND r.deleted_at IS NULL
         ), 0)
       )`);
     }

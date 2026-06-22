@@ -1209,10 +1209,8 @@ export class ShipmentService {
   async update(id: string, dto: UpdateShipmentDto, changedBy?: string): Promise<ShipmentDetail | null> {
     const existing = await this.repo.findById(id);
     if (!existing) return null;
-    if (dto.closed_at !== undefined && existing.current_status !== "DELIVERED") {
-      throw new AppError("Delivered at can only be set when shipment status is Delivered", 400, [
-        { field: "closed_at", message: "Delivered at can only be set when shipment status is Delivered" },
-      ]);
+    if (existing.closed_at) {
+      throw new AppError("Cannot update a closed shipment", 409);
     }
 
     const effectiveEtd =
@@ -1269,6 +1267,9 @@ export class ShipmentService {
       deletedBy,
       "Shipment removed (soft delete)"
     );
+    if (this.lineReceivedRepo) {
+      await this.lineReceivedRepo.softDeleteForShipment(id, deletedBy);
+    }
     for (const intakeId of intakeIds) {
       await syncPoIntakeStatus(intakeId);
     }
@@ -1352,6 +1353,9 @@ export class ShipmentService {
 
     const updated = await this.mappingRepo.decouple(shipmentId, intakeId, decoupledBy, reason);
     if (!updated) throw new AppError("PO is not coupled to this shipment or already decoupled", 404);
+    if (this.lineReceivedRepo) {
+      await this.lineReceivedRepo.softDeleteForShipmentAndIntake(shipmentId, intakeId, decoupledBy);
+    }
     await syncPoIntakeStatus(intakeId);
     await this.syncComputedBmToDb(shipmentId);
   }

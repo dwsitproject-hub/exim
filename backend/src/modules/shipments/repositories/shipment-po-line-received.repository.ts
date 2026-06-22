@@ -14,6 +14,9 @@ export interface LineReceivedRow {
   pph_percentage: number | null;
 }
 
+/** Active (non-soft-deleted) delivery qty rows only. */
+const ACTIVE_LINE_FILTER = "deleted_at IS NULL";
+
 export class ShipmentPoLineReceivedRepository {
   private get pool(): Pool {
     return getPool();
@@ -24,7 +27,7 @@ export class ShipmentPoLineReceivedRepository {
       `SELECT item_id, received_qty, item_description,
          bm_percentage, ppn_percentage, pph_percentage
        FROM shipment_po_line_received
-       WHERE shipment_id = $1 AND intake_id = $2`,
+       WHERE shipment_id = $1 AND intake_id = $2 AND ${ACTIVE_LINE_FILTER}`,
       [shipmentId, intakeId]
     );
     return result.rows;
@@ -33,7 +36,7 @@ export class ShipmentPoLineReceivedRepository {
   /**
    * Total delivered qty for this PO line across all shipments that are **still coupled** to this PO
    * (`shipment_po_mapping.decoupled_at IS NULL`). No filter on shipment status — amounts on in-progress
-   * shipments count the same as delivered ones. Excludes rows left after decouple (no active mapping).
+   * shipments count the same as delivered ones. Excludes soft-deleted rows.
    */
   async getTotalReceivedByIntakeItem(intakeId: string, itemId: string): Promise<number> {
     const result = await this.pool.query<{ total: string }>(
@@ -43,14 +46,40 @@ export class ShipmentPoLineReceivedRepository {
          ON m.shipment_id = r.shipment_id
          AND m.intake_id = r.intake_id
          AND m.decoupled_at IS NULL
-       WHERE r.intake_id = $1 AND r.item_id = $2`,
+       WHERE r.intake_id = $1 AND r.item_id = $2 AND r.${ACTIVE_LINE_FILTER}`,
       [intakeId, itemId]
     );
     const total = result.rows[0]?.total;
     return total != null ? parseFloat(total) : 0;
   }
 
-  /** Set received qty for one line. Inserts or updates. */
+  /** Soft-delete all active delivery qty rows for one PO on a shipment (decouple / shipment remove). */
+  async softDeleteForShipmentAndIntake(
+    shipmentId: string,
+    intakeId: string,
+    deletedBy: string
+  ): Promise<number> {
+    const result = await this.pool.query(
+      `UPDATE shipment_po_line_received
+       SET deleted_at = NOW(), deleted_by = $3, updated_at = NOW()
+       WHERE shipment_id = $1 AND intake_id = $2 AND ${ACTIVE_LINE_FILTER}`,
+      [shipmentId, intakeId, deletedBy]
+    );
+    return result.rowCount ?? 0;
+  }
+
+  /** Soft-delete all active delivery qty rows for a shipment (all linked POs). */
+  async softDeleteForShipment(shipmentId: string, deletedBy: string): Promise<number> {
+    const result = await this.pool.query(
+      `UPDATE shipment_po_line_received
+       SET deleted_at = NOW(), deleted_by = $2, updated_at = NOW()
+       WHERE shipment_id = $1 AND ${ACTIVE_LINE_FILTER}`,
+      [shipmentId, deletedBy]
+    );
+    return result.rowCount ?? 0;
+  }
+
+  /** Set received qty for one line. Inserts or updates active row. */
   async upsert(
     shipmentId: string,
     intakeId: string,
@@ -61,7 +90,7 @@ export class ShipmentPoLineReceivedRepository {
     await this.pool.query(
       `INSERT INTO shipment_po_line_received (shipment_id, intake_id, item_id, received_qty, item_description, updated_at)
        VALUES ($1, $2, $3, $4, $5, NOW())
-       ON CONFLICT (shipment_id, intake_id, item_id) DO UPDATE SET
+       ON CONFLICT (shipment_id, intake_id, item_id) WHERE deleted_at IS NULL DO UPDATE SET
          received_qty = EXCLUDED.received_qty,
          item_description = EXCLUDED.item_description,
          updated_at = NOW()`,
@@ -69,7 +98,7 @@ export class ShipmentPoLineReceivedRepository {
     );
   }
 
-  /** Set received qtys for all lines of one PO on this shipment. Replaces existing. */
+  /** Set received qtys for all lines of one PO on this shipment. Replaces active rows (soft-deletes prior). */
   async setLines(
     shipmentId: string,
     intakeId: string,
@@ -80,13 +109,16 @@ export class ShipmentPoLineReceivedRepository {
       bm_percentage?: number | null;
       ppn_percentage?: number | null;
       pph_percentage?: number | null;
-    }[]
+    }[],
+    replacedBy = "system:line-replace"
   ): Promise<void> {
     const client = await this.pool.connect();
     try {
       await client.query(
-        `DELETE FROM shipment_po_line_received WHERE shipment_id = $1 AND intake_id = $2`,
-        [shipmentId, intakeId]
+        `UPDATE shipment_po_line_received
+         SET deleted_at = NOW(), deleted_by = $3, updated_at = NOW()
+         WHERE shipment_id = $1 AND intake_id = $2 AND ${ACTIVE_LINE_FILTER}`,
+        [shipmentId, intakeId, replacedBy]
       );
       for (const line of lines) {
         await client.query(
