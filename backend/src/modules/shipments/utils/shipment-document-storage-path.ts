@@ -1,6 +1,6 @@
 /**
  * Filing plan on shared storage:
- * PT / Year (shipment) / Plant__{BC 2.0|BC 2.3|…} / Supplier__{PO…} / file
+ * Import / PT / Year (shipment) / Plant__{BC 2.0|BC 2.3|…} / Supplier__{PO…} / file
  *
  * Same plant + different PIB → different Plant__BC segment (PIB from shipment).
  * Multiple POs from one supplier → one folder; PO numbers concatenated (sorted).
@@ -10,6 +10,8 @@ import type { PoIntakeRow } from "../../po-intake/dto/index.js";
 import type { LinkedPoWithIntake } from "../repositories/shipment-po-mapping.repository.js";
 import type { ShipmentRow } from "../dto/index.js";
 import { pibTypeStorageFolderName } from "../../../shared/pib-type.js";
+
+const IMPORT_STORAGE_ROOT = "Import";
 
 const MAX_SEGMENT = 120;
 
@@ -98,7 +100,8 @@ export function buildFilingPathContext(
  */
 export function buildShipmentDocumentDirectoryPrefix(
   shipment: ShipmentRow,
-  ctx: FilingPathContext | null
+  ctx: FilingPathContext | null,
+  documentType?: string
 ): string {
   const year = shipmentYearUtc(shipment);
   const pt = ctx ? segment(ctx.pt, "_NO_PT") : "_NO_PT";
@@ -114,5 +117,9 @@ export function buildShipmentDocumentDirectoryPrefix(
     : segment(shipment.shipment_no, "NO_SHIPMENT_NO");
   const supplierPo = `${supplierPart}__${poPart}`.slice(0, MAX_SEGMENT * 3);
 
-  return [pt, year, plantBc, supplierPo].join("/");
+  const prefix = [IMPORT_STORAGE_ROOT, pt, year, plantBc, supplierPo].join("/");
+  if (documentType === "OTHER") {
+    return `${prefix}/Other`;
+  }
+  return prefix;
 }

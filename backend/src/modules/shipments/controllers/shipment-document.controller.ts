@@ -11,6 +11,7 @@ import { ShipmentRepository } from "../repositories/shipment.repository.js";
 import { ShipmentDocumentRepository } from "../repositories/shipment-document.repository.js";
 import { ShipmentPoMappingRepository } from "../repositories/shipment-po-mapping.repository.js";
 import { PoIntakeRepository } from "../../po-intake/repositories/po-intake.repository.js";
+import { decodeMultipartFileName, contentDispositionAttachment } from "../../../shared/upload-filename.js";
 
 const shipmentRepo = new ShipmentRepository();
 const docRepo = new ShipmentDocumentRepository();
@@ -60,7 +61,7 @@ export async function uploadDocument(req: Request, res: Response, next: NextFunc
       validation.data.status,
       validation.data.intake_id,
       tempPath,
-      file.originalname || "file",
+      decodeMultipartFileName(file.originalname || "file"),
       file.mimetype,
       actorFromRequest(req)
     );
@@ -77,7 +78,7 @@ export async function downloadDocument(req: Request, res: Response, next: NextFu
   const documentId = req.params.documentId as string;
   try {
     const { stream, fileName, mimeType } = await service.getFileStream(shipmentId, documentId);
-    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(fileName)}"`);
+    res.setHeader("Content-Disposition", contentDispositionAttachment(fileName));
     if (mimeType) res.setHeader("Content-Type", mimeType);
     stream.pipe(res);
   } catch (e) {

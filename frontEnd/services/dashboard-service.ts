@@ -15,11 +15,16 @@ import type {
   ProcurementPlantReportPayload,
 } from "@/types/dashboard";
 import type {
+  ClassificationQtyRow,
+  FinancialSummaryResult,
+  PostArrivalLeadRow,
   ShipmentAnalyticsLineAggRow,
   ShipmentAnalyticsLinesQuery,
+  ShipmentAnalyticsLinesResult,
   ShipmentAnalyticsQuery,
   ShipmentAnalyticsSummary,
 } from "@/types/analytics";
+import type { LogisticsDetailSourceRow } from "@/components/logistics-detail-table/types";
 
 /** Counts for dashboard: new PO detected (NEW_PO_DETECTED), claimed awaiting allocation (CLAIMED). Rejects if API errors. */
 export async function getPoDashboardCounts(accessToken: string | null): Promise<{
@@ -142,7 +147,7 @@ export async function getShipmentAnalytics(
 export async function getShipmentAnalyticsLines(
   query: ShipmentAnalyticsLinesQuery,
   accessToken: string | null
-): Promise<ApiResponse<ShipmentAnalyticsLineAggRow[]>> {
+): Promise<ApiResponse<ShipmentAnalyticsLinesResult>> {
   const params = new URLSearchParams();
   params.set("date_from", query.date_from);
   params.set("date_to", query.date_to);
@@ -155,8 +160,82 @@ export async function getShipmentAnalyticsLines(
   if (query.detail_plant != null && query.detail_plant !== "") params.set("detail_plant", query.detail_plant);
   if (query.detail_classification != null && query.detail_classification !== "")
     params.set("detail_classification", query.detail_classification);
-  return apiGet<ShipmentAnalyticsLineAggRow[]>(
+  return apiGet<ShipmentAnalyticsLinesResult>(
     `dashboard/shipment-analytics/lines?${params.toString()}`,
+    accessToken
+  );
+}
+
+export async function getClassificationQty(
+  query: ShipmentAnalyticsQuery,
+  accessToken: string | null
+): Promise<ApiResponse<ClassificationQtyRow[]>> {
+  const params = new URLSearchParams();
+  params.set("date_from", query.date_from);
+  params.set("date_to", query.date_to);
+  query.pts?.forEach((p) => params.append("pt", p));
+  query.plants?.forEach((p) => params.append("plant", p));
+  query.vendor_names?.forEach((v) => params.append("vendor_name", v));
+  query.product_classifications?.forEach((c) => params.append("product_classification", c));
+  if (query.shipment_method) params.set("shipment_method", query.shipment_method);
+  return apiGet<ClassificationQtyRow[]>(
+    `dashboard/classification-qty?${params.toString()}`,
+    accessToken
+  );
+}
+
+export async function getPostArrivalLead(
+  query: ShipmentAnalyticsQuery,
+  accessToken: string | null
+): Promise<ApiResponse<PostArrivalLeadRow[]>> {
+  const params = new URLSearchParams();
+  params.set("date_from", query.date_from);
+  params.set("date_to", query.date_to);
+  query.pts?.forEach((p) => params.append("pt", p));
+  query.plants?.forEach((p) => params.append("plant", p));
+  query.vendor_names?.forEach((v) => params.append("vendor_name", v));
+  query.product_classifications?.forEach((c) => params.append("product_classification", c));
+  if (query.shipment_method) params.set("shipment_method", query.shipment_method);
+  return apiGet<PostArrivalLeadRow[]>(
+    `dashboard/post-arrival-lead?${params.toString()}`,
+    accessToken
+  );
+}
+
+export async function getLogisticsRows(
+  query: ShipmentAnalyticsQuery,
+  accessToken: string | null
+): Promise<ApiResponse<LogisticsDetailSourceRow[]>> {
+  const params = new URLSearchParams();
+  params.set("date_from", query.date_from);
+  params.set("date_to", query.date_to);
+  query.pts?.forEach((p) => params.append("pt", p));
+  query.plants?.forEach((p) => params.append("plant", p));
+  query.vendor_names?.forEach((v) => params.append("vendor_name", v));
+  query.product_classifications?.forEach((c) => params.append("product_classification", c));
+  if (query.shipment_method) params.set("shipment_method", query.shipment_method);
+  return apiGet<LogisticsDetailSourceRow[]>(
+    `dashboard/logistics-rows?${params.toString()}`,
+    accessToken
+  );
+}
+
+export async function getFinancialSummary(
+  query: ShipmentAnalyticsQuery,
+  idrPerUsd: number,
+  accessToken: string | null
+): Promise<ApiResponse<FinancialSummaryResult>> {
+  const params = new URLSearchParams();
+  params.set("date_from", query.date_from);
+  params.set("date_to", query.date_to);
+  params.set("idr_per_usd", String(idrPerUsd));
+  query.pts?.forEach((p) => params.append("pt", p));
+  query.plants?.forEach((p) => params.append("plant", p));
+  query.vendor_names?.forEach((v) => params.append("vendor_name", v));
+  query.product_classifications?.forEach((c) => params.append("product_classification", c));
+  if (query.shipment_method) params.set("shipment_method", query.shipment_method);
+  return apiGet<FinancialSummaryResult>(
+    `dashboard/financial-summary?${params.toString()}`,
     accessToken
   );
 }

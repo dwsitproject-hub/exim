@@ -54,6 +54,7 @@ export function groupLclRows(rows: LclLogisticsRow[]): GroupedLclRow[] {
       itemDescription: string;
       packages: number;
       packageKind: string;
+      cbm: number;
       forwarders: Set<string>;
     }
   >();
@@ -66,10 +67,12 @@ export function groupLclRows(rows: LclLogisticsRow[]): GroupedLclRow[] {
         itemDescription: r.itemDescription,
         packages: r.packages,
         packageKind: r.packageKind,
+        cbm: r.cbm ?? 0,
         forwarders: new Set([r.forwarder]),
       });
     } else {
       cur.packages += r.packages;
+      cur.cbm += r.cbm ?? 0;
       cur.forwarders.add(r.forwarder);
       if (cur.packageKind !== r.packageKind) {
         cur.packageKind = `${cur.packageKind} + ${r.packageKind}`;
@@ -81,6 +84,7 @@ export function groupLclRows(rows: LclLogisticsRow[]): GroupedLclRow[] {
       ptPlant: v.ptPlant,
       itemDescription: v.itemDescription,
       packageDisplay: `${v.packages.toLocaleString()} ${v.packageKind}`,
+      cbmDisplay: v.cbm > 0 ? `${v.cbm.toLocaleString(undefined, { maximumFractionDigits: 2 })} m³` : "—",
       forwarder: [...v.forwarders].sort().join("; "),
     }))
     .sort((a, b) => a.ptPlant.localeCompare(b.ptPlant) || a.itemDescription.localeCompare(b.itemDescription));

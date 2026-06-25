@@ -11,6 +11,7 @@ import { listShipments, getShipmentListFilterOptions } from "@/services/shipment
 import { Card } from "@/components/cards";
 import { LoadingSkeleton } from "@/components/feedback";
 import { PageHeader, ActionBar, EmptyState } from "@/components/navigation";
+import { useShipmentListRowContextMenu } from "@/components/shipments";
 import {
   Table,
   TableHead,
@@ -50,6 +51,7 @@ const SHIPMENT_TABLE_COLUMNS: TableColumnDef[] = [
   { id: "status", label: "Status" },
   { id: "pic", label: "PIC" },
   { id: "po_number", label: "PO number" },
+  { id: "eta", label: "ETA" },
   { id: "vendor", label: "Vendor" },
   { id: "incoterm", label: "Incoterms" },
   { id: "pib_type", label: "PIB type" },
@@ -58,7 +60,6 @@ const SHIPMENT_TABLE_COLUMNS: TableColumnDef[] = [
   { id: "ship_by", label: "Ship by" },
   { id: "forwarder", label: "Forwarder" },
   { id: "etd", label: "ETD" },
-  { id: "eta", label: "ETA" },
   { id: "origin_port", label: "Origin port" },
   { id: "destination_port", label: "Destination port" },
 ];
@@ -143,6 +144,7 @@ function CellText({ value, className }: { value: string | null | undefined; clas
 export function ShipmentList() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { openRowContextMenu, rowContextMenu } = useShipmentListRowContextMenu();
   const searchFromUrl = searchParams.get("search") ?? "";
   const poFromUrl = (searchParams.get("po_from_date") ?? "").trim();
   const poToUrl = (searchParams.get("po_to_date") ?? "").trim();
@@ -365,8 +367,12 @@ export function ShipmentList() {
 
   const totalPages = meta ? Math.ceil(meta.total / meta.limit) : 0;
 
+  function shipmentDetailHref(shipmentId: string) {
+    return `/dashboard/shipments/${shipmentId}`;
+  }
+
   function handleRowClick(shipmentId: string) {
-    router.push(`/dashboard/shipments/${shipmentId}`);
+    router.push(shipmentDetailHref(shipmentId));
   }
 
   function handleSearchSubmit(e: React.FormEvent) {
@@ -456,7 +462,7 @@ export function ShipmentList() {
         return (
           <TableCell key={column.id}>
             <Link
-              href={`/dashboard/shipments/${row.id}`}
+              href={shipmentDetailHref(row.id)}
               className={styles.cellLink}
               onClick={(e) => e.stopPropagation()}
             >
@@ -634,7 +640,7 @@ export function ShipmentList() {
           <form onSubmit={handleSearchSubmit} className={styles.searchForm}>
             <input
               type="search"
-              placeholder="Search shipment, supplier, or PO…"
+              placeholder="Search shipment, supplier, PO, BL, or invoice no…"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               className={styles.searchInput}
@@ -849,6 +855,7 @@ export function ShipmentList() {
                         <TableRow
                           className={styles.rowInteractive}
                           onClick={() => handleRowClick(row.id)}
+                          onContextMenu={(e) => openRowContextMenu(e, shipmentDetailHref(row.id))}
                           onKeyDown={(e) => {
                             if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) {
                               e.preventDefault();
@@ -902,6 +909,7 @@ export function ShipmentList() {
           )}
         </Card>
       )}
+      {rowContextMenu}
     </section>
   );
 }

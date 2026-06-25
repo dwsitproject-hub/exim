@@ -201,6 +201,174 @@ export async function getShipmentAnalytics(
   }
 }
 
+/** Total received qty per classification for DELIVERED shipments (unit-converted). */
+export async function getClassificationQty(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  const q = req.query as Record<string, unknown>;
+  const date_from = typeof q.date_from === "string" ? q.date_from.trim() : "";
+  const date_to = typeof q.date_to === "string" ? q.date_to.trim() : "";
+
+  if (!DATE_RE.test(date_from) || !DATE_RE.test(date_to)) {
+    sendError(res, "Validation error", {
+      statusCode: 400,
+      errors: [
+        { field: "date_from", message: "date_from is required (YYYY-MM-DD)" },
+        { field: "date_to", message: "date_to is required (YYYY-MM-DD)" },
+      ],
+    });
+    return;
+  }
+
+  const pts = mergeFilterTokens(q, "pt", "pts_in");
+  const plants = mergeFilterTokens(q, "plant", "plants_in");
+  const vendor_names = mergeFilterTokens(q, "vendor_name", "vendor_names_in");
+  const product_classifications = mergeFilterTokens(q, "product_classification", "product_classifications_in");
+  const shipment_method = parseOptionalStringQuery(q.shipment_method, 40);
+
+  try {
+    const payload = await service.getClassificationQty({
+      date_from,
+      date_to,
+      pts,
+      plants,
+      vendor_names,
+      product_classifications,
+      shipment_method,
+    });
+    sendSuccess(res, payload);
+  } catch (error) {
+    next(error);
+  }
+}
+
+/** Post-Arrival Lead Time (business days, ATA→closed_at) by FCL/LCL and plant for SEA DELIVERED shipments. */
+export async function getPostArrivalLead(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  const q = req.query as Record<string, unknown>;
+  const date_from = typeof q.date_from === "string" ? q.date_from.trim() : "";
+  const date_to = typeof q.date_to === "string" ? q.date_to.trim() : "";
+
+  if (!DATE_RE.test(date_from) || !DATE_RE.test(date_to)) {
+    sendError(res, "Validation error", {
+      statusCode: 400,
+      errors: [
+        { field: "date_from", message: "date_from is required (YYYY-MM-DD)" },
+        { field: "date_to", message: "date_to is required (YYYY-MM-DD)" },
+      ],
+    });
+    return;
+  }
+
+  const pts = mergeFilterTokens(q, "pt", "pts_in");
+  const plants = mergeFilterTokens(q, "plant", "plants_in");
+  const vendor_names = mergeFilterTokens(q, "vendor_name", "vendor_names_in");
+  const product_classifications = mergeFilterTokens(q, "product_classification", "product_classifications_in");
+  const shipment_method = parseOptionalStringQuery(q.shipment_method, 40);
+
+  try {
+    const payload = await service.getPostArrivalLead({
+      date_from,
+      date_to,
+      pts,
+      plants,
+      vendor_names,
+      product_classifications,
+      shipment_method,
+    });
+    sendSuccess(res, payload);
+  } catch (error) {
+    next(error);
+  }
+}
+
+/** Aggregated financial summary (import value, BM, PPH, PPN, freight) for DELIVERED shipments. */
+export async function getFinancialSummary(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  const q = req.query as Record<string, unknown>;
+  const date_from = typeof q.date_from === "string" ? q.date_from.trim() : "";
+  const date_to = typeof q.date_to === "string" ? q.date_to.trim() : "";
+
+  if (!DATE_RE.test(date_from) || !DATE_RE.test(date_to)) {
+    sendError(res, "Validation error", {
+      statusCode: 400,
+      errors: [
+        { field: "date_from", message: "date_from is required (YYYY-MM-DD)" },
+        { field: "date_to", message: "date_to is required (YYYY-MM-DD)" },
+      ],
+    });
+    return;
+  }
+
+  const idrPerUsd = typeof q.idr_per_usd === "string" ? parseFloat(q.idr_per_usd) : 0;
+  const pts = mergeFilterTokens(q, "pt", "pts_in");
+  const plants = mergeFilterTokens(q, "plant", "plants_in");
+  const vendor_names = mergeFilterTokens(q, "vendor_name", "vendor_names_in");
+  const product_classifications = mergeFilterTokens(q, "product_classification", "product_classifications_in");
+  const shipment_method = parseOptionalStringQuery(q.shipment_method, 40);
+
+  try {
+    const payload = await service.getFinancialSummary(
+      { date_from, date_to, pts, plants, vendor_names, product_classifications, shipment_method },
+      idrPerUsd
+    );
+    sendSuccess(res, payload);
+  } catch (error) {
+    next(error);
+  }
+}
+
+/** Per-shipment logistics rows for the Logistics Detail Table (transport mode + container/package fields). */
+export async function getLogisticsRows(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  const q = req.query as Record<string, unknown>;
+  const date_from = typeof q.date_from === "string" ? q.date_from.trim() : "";
+  const date_to = typeof q.date_to === "string" ? q.date_to.trim() : "";
+
+  if (!DATE_RE.test(date_from) || !DATE_RE.test(date_to)) {
+    sendError(res, "Validation error", {
+      statusCode: 400,
+      errors: [
+        { field: "date_from", message: "date_from is required (YYYY-MM-DD)" },
+        { field: "date_to", message: "date_to is required (YYYY-MM-DD)" },
+      ],
+    });
+    return;
+  }
+
+  const pts = mergeFilterTokens(q, "pt", "pts_in");
+  const plants = mergeFilterTokens(q, "plant", "plants_in");
+  const vendor_names = mergeFilterTokens(q, "vendor_name", "vendor_names_in");
+  const product_classifications = mergeFilterTokens(q, "product_classification", "product_classifications_in");
+  const shipment_method = parseOptionalStringQuery(q.shipment_method, 40);
+
+  try {
+    const payload = await service.getLogisticsRows({
+      date_from,
+      date_to,
+      pts,
+      plants,
+      vendor_names,
+      product_classifications,
+      shipment_method,
+    });
+    sendSuccess(res, payload);
+  } catch (error) {
+    next(error);
+  }
+}
+
 /** Aggregated PO lines for shipment analytics drill (plant / classification). */
 export async function getShipmentAnalyticsLines(
   req: Request,

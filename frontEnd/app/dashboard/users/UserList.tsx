@@ -28,7 +28,7 @@ const DEFAULT_LIMIT = 20;
 
 const CSV_TEMPLATE = `name,email,password,role,permissions
 Jane Doe,jane@example.com,ChangeMe12!,VIEWER,
-John Smith,john@example.com,ChangeMe12!,EXIM_OFFICER,CREATE_SHIPMENT|VIEW_SHIPMENTS
+John Smith,john@example.com,ChangeMe12!,IMPORT_OFFICER,CREATE_SHIPMENT|VIEW_SHIPMENTS
 `;
 
 export function UserList() {

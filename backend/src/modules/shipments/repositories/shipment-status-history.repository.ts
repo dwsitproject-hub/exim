@@ -2,7 +2,7 @@
  * Shipment status history repository: persistence only.
  */
 
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { getPool } from "../../../db/index.js";
 import type { ShipmentStatusHistoryRow } from "../dto/index.js";
 
@@ -19,8 +19,12 @@ export class ShipmentStatusHistoryRepository {
     return getPool();
   }
 
-  async create(input: CreateShipmentStatusHistoryInput): Promise<ShipmentStatusHistoryRow> {
-    const result = await this.pool.query<ShipmentStatusHistoryRow>(
+  async create(
+    input: CreateShipmentStatusHistoryInput,
+    client?: PoolClient
+  ): Promise<ShipmentStatusHistoryRow> {
+    const db: Pool | PoolClient = client ?? this.pool;
+    const result = await db.query<ShipmentStatusHistoryRow>(
       `INSERT INTO shipment_status_history
        (id, shipment_id, previous_status, new_status, remarks, changed_by, changed_at)
        VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, NOW())

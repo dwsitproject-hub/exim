@@ -79,7 +79,7 @@ export function RecentShipmentsCard({ rows, loading, viewAllHref }: RecentShipme
         <div className={styles.emptyStateWrap}>
           <EmptyState
             title="No recent shipments"
-            description="Nothing in this date range yet. Purchase Orders can be grouped into shipments from the Purchase Order screen."
+            description="No shipments yet. Purchase Orders can be grouped into shipments from the Purchase Order screen."
             action={
               <Link href="/dashboard/po" className={styles.btnPrimary}>
                 View PO
@@ -88,8 +88,8 @@ export function RecentShipmentsCard({ rows, loading, viewAllHref }: RecentShipme
           />
         </div>
       ) : (
-        <div className={styles.tableScroll}>
-          <div className={styles.headRow}>
+        <div className={styles.tableScroll} role="table" aria-label="Recent shipments">
+          <div className={styles.headRow} role="rowgroup">
             <div className={styles.grid} role="row">
               <div className={styles.headCell} role="columnheader">
                 Shipment ID
@@ -108,7 +108,7 @@ export function RecentShipmentsCard({ rows, loading, viewAllHref }: RecentShipme
               </div>
             </div>
           </div>
-          <ul className={styles.list}>
+          <ul className={styles.list} role="rowgroup">
             {rows.map((row) => {
               const tone = getShipmentDashboardTone(row.current_status);
               const vendor = formatDashboardVendorName(row.vendor_name ?? row.supplier_name);
@@ -116,16 +116,16 @@ export function RecentShipmentsCard({ rows, loading, viewAllHref }: RecentShipme
               const statusLabel = formatShipmentStatusTitleCase(row.current_status);
               const isActionCta = tone === "actionPrimary";
               return (
-                <li key={row.id} className={styles.rowWrap}>
+                <li key={row.id} className={styles.rowWrap} role="row">
                   <Link href={`/dashboard/shipments/${row.id}`} className={styles.row}>
-                    <div className={styles.grid}>
-                      <span className={styles.shipmentId}>{row.shipment_number}</span>
-                      <span className={styles.poCount}>{formatPoSummaryLine(row.linked_po_count ?? 0)}</span>
-                      <span className={styles.vendor} title={vendorTitle}>
+                    <div className={styles.grid} role="presentation">
+                      <span className={styles.shipmentId} role="cell">{row.shipment_number}</span>
+                      <span className={styles.poCount} role="cell">{formatPoSummaryLine(row.linked_po_count ?? 0)}</span>
+                      <span className={styles.vendor} title={vendorTitle} role="cell">
                         {vendor}
                       </span>
-                      <span className={styles.schedule}>{formatScheduleContext(row)}</span>
-                      <div className={styles.statusCell}>
+                      <span className={styles.schedule} role="cell">{formatScheduleContext(row)}</span>
+                      <div className={styles.statusCell} role="cell">
                         <span
                           className={`${styles.statusPill} ${TONE_CLASS[tone]} ${isActionCta ? styles.actionPrimaryPill : ""}`}
                         >

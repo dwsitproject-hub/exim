@@ -86,6 +86,104 @@ export const COUNTRY_NAMES: readonly string[] = [
   "Vietnam",
 ] as const;
 
+/**
+ * Broad region used for cargo “Area” (by destination country).
+ * Middle East is kept distinct from “Asia” for common shipping workflows.
+ */
+export const COUNTRY_AREA: Record<(typeof COUNTRY_NAMES)[number], string> = {
+  Afghanistan: "Asia",
+  Albania: "Europe",
+  Algeria: "Africa",
+  Argentina: "South America",
+  Australia: "Oceania",
+  Austria: "Europe",
+  Bahrain: "Middle East",
+  Bangladesh: "Asia",
+  Belgium: "Europe",
+  Brazil: "South America",
+  Brunei: "Asia",
+  Bulgaria: "Europe",
+  Cambodia: "Asia",
+  Canada: "North America",
+  Chile: "South America",
+  China: "Asia",
+  Colombia: "South America",
+  Croatia: "Europe",
+  "Czech Republic": "Europe",
+  Denmark: "Europe",
+  Egypt: "Africa",
+  Estonia: "Europe",
+  Ethiopia: "Africa",
+  Finland: "Europe",
+  France: "Europe",
+  Germany: "Europe",
+  Ghana: "Africa",
+  Greece: "Europe",
+  "Hong Kong": "Asia",
+  Hungary: "Europe",
+  India: "Asia",
+  Indonesia: "Asia",
+  Iran: "Middle East",
+  Iraq: "Middle East",
+  Ireland: "Europe",
+  Israel: "Middle East",
+  Italy: "Europe",
+  Japan: "Asia",
+  Jordan: "Middle East",
+  Kenya: "Africa",
+  Kuwait: "Middle East",
+  Laos: "Asia",
+  Latvia: "Europe",
+  Lebanon: "Middle East",
+  Lithuania: "Europe",
+  Malaysia: "Asia",
+  Mexico: "North America",
+  Myanmar: "Asia",
+  Morocco: "Africa",
+  Netherlands: "Europe",
+  "New Zealand": "Oceania",
+  Nigeria: "Africa",
+  Norway: "Europe",
+  Oman: "Middle East",
+  Pakistan: "Asia",
+  Philippines: "Asia",
+  Poland: "Europe",
+  Portugal: "Europe",
+  Qatar: "Middle East",
+  Romania: "Europe",
+  Russia: "Europe",
+  "Saudi Arabia": "Middle East",
+  Singapore: "Asia",
+  Slovakia: "Europe",
+  Slovenia: "Europe",
+  "South Africa": "Africa",
+  "South Korea": "Asia",
+  Spain: "Europe",
+  "Sri Lanka": "Asia",
+  Sudan: "Africa",
+  Sweden: "Europe",
+  Switzerland: "Europe",
+  Taiwan: "Asia",
+  Tanzania: "Africa",
+  Thailand: "Asia",
+  Turkey: "Middle East",
+  Ukraine: "Europe",
+  "United Arab Emirates": "Middle East",
+  "United Kingdom": "Europe",
+  "United States": "North America",
+  Vietnam: "Asia",
+};
+
+/** Area derived from destination country (continent / macro-region). */
+export function getCountryArea(countryName: string | null | undefined): string {
+  const trimmed = countryName?.trim();
+  if (!trimmed) return "";
+  const exact = COUNTRY_AREA[trimmed as (typeof COUNTRY_NAMES)[number]];
+  if (exact) return exact;
+  const found = COUNTRY_NAMES.find((c) => c.toLowerCase() === trimmed.toLowerCase());
+  return found ? COUNTRY_AREA[found] : "";
+}
+
 /** Options for country dropdown: blank + list. If currentValue is set and not in list, include it so existing data is preserved. */
 export function getCountryOptions(currentValue: string): string[] {
   const trimmed = currentValue?.trim() ?? "";

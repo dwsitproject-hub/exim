@@ -177,9 +177,13 @@ export async function updateShipmentStatus(
   id: string,
   newStatus: string,
   remarks: string | undefined,
-  accessToken: string | null
+  accessToken: string | null,
+  closedAt?: string
 ): Promise<ApiResponse<{ shipment_id: string; previous_status: string; current_status: string; updated_at: string }>> {
-  return apiPatch(`shipments/${id}/status`, { new_status: newStatus, remarks }, accessToken);
+  const body: { new_status: string; remarks?: string; closed_at?: string } = { new_status: newStatus };
+  if (remarks) body.remarks = remarks;
+  if (closedAt) body.closed_at = closedAt;
+  return apiPatch(`shipments/${id}/status`, body, accessToken);
 }
 
 export async function getShipmentTimeline(

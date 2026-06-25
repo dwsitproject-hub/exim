@@ -81,10 +81,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     getMe(null)
       .then((res) => {
         if (!isApiError(res) && res.data) {
+          const nextUser = normalizeAuthUser(res.data);
           setState((s) => ({
             ...s,
-            user: res.data as AuthUser,
-            accessToken: COOKIE_AUTH_SENTINEL,
+            user: nextUser,
+            accessToken: nextUser ? COOKIE_AUTH_SENTINEL : null,
             loading: false,
             initialized: true,
           }));

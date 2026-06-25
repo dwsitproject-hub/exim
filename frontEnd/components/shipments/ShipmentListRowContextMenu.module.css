@@ -1,0 +1,28 @@
+.menu {
+  position: fixed;
+  z-index: 2000;
+  min-width: 168px;
+  padding: 4px 0;
+  background: var(--color-primitive-background-white, #fff);
+  border: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  border-radius: var(--borderRadius-md, 8px);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+
+.menuItem {
+  display: block;
+  width: 100%;
+  padding: 8px 14px;
+  border: none;
+  background: none;
+  text-align: left;
+  font-size: var(--typography-fontSize-small, 14px);
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+  cursor: pointer;
+}
+
+.menuItem:hover,
+.menuItem:focus-visible {
+  background: var(--color-primitive-background-lighter, #fafafa);
+  outline: none;
+}

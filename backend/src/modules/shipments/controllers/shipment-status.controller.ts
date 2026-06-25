@@ -42,7 +42,8 @@ export async function updateStatus(req: Request, res: Response, next: NextFuncti
       id,
       validation.data.new_status,
       validation.data.remarks ?? null,
-      changedBy
+      changedBy,
+      validation.data.closed_at ?? null
     );
     sendSuccess(res, data, { message: "Shipment status updated successfully" });
   } catch (e) {

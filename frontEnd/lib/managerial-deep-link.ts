@@ -1,6 +1,6 @@
 /**
  * Central URL builders and query keys for dashboard “Exception & alert” deep links.
- * List routes live under `/dashboard/po` and `/dashboard/shipments` (not root `/purchase-orders`).
+ * List routes live under `/dashboard/po` and `/dashboard/shipments`.
  */
 
 export const MANAGERIAL_FILTER_PARAM = "filter";

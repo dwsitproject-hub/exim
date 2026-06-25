@@ -208,6 +208,16 @@ export class UserRepository {
     return result.rows;
   }
 
+  async listActiveUsers(): Promise<UserRow[]> {
+    const result = await this.pool.query<UserRow>(
+      `SELECT id, email, password_hash, name, role, is_active, email_verified_at,
+              COALESCE(permission_overrides, '{}') AS permission_overrides, created_at, updated_at
+       FROM users
+       WHERE is_active = true`,
+    );
+    return result.rows.map((r) => this.mapRow(r));
+  }
+
   /** Which of the given IDs refer to active users (for validating parsed @mentions). */
   async filterExistingActiveUserIds(ids: string[]): Promise<Set<string>> {
     if (ids.length === 0) return new Set();

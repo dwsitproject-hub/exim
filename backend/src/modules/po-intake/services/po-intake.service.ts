@@ -10,6 +10,7 @@ import type { LinkedShipmentByIntake } from "../../shipments/repositories/shipme
 import type { UserRepository } from "../../auth/repositories/user.repository.js";
 import { AppError } from "../../../middlewares/errorHandler.js";
 import { syncPoIntakeStatus } from "./po-intake-status-sync.service.js";
+import { evaluatePoIntakeReclaimEligibility } from "./po-intake-reclaim.js";
 import type {
   CreatePoIntakeDto,
   PoCsvImportErrorRow,
@@ -631,9 +632,6 @@ export class PoIntakeService {
 
     if (row.intake_status !== "NEW_PO_DETECTED") {
       const linkedShipments = this.mappingRepo ? await this.mappingRepo.findActiveShipmentsByIntakeId(id) : [];
-      const allDelivered =
-        linkedShipments.length > 0 &&
-        linkedShipments.every((s) => s.current_status === "DELIVERED");
       const items = await this.repo.findItemsByIntakeId(id);
       let totalReceived = 0;
       let totalPoQty = 0;
@@ -641,8 +639,13 @@ export class PoIntakeService {
         totalPoQty += it.qty ?? 0;
         totalReceived += await this.lineReceivedRepo.getTotalReceivedByIntakeItem(id, it.id);
       }
-      const hasRemaining = totalPoQty > 0 && totalReceived < totalPoQty;
-      if (!allDelivered || !hasRemaining) {
+      const eligibility = evaluatePoIntakeReclaimEligibility({
+        intakeStatus: row.intake_status,
+        linkedShipments,
+        totalPoQty,
+        totalReceived,
+      });
+      if (!eligibility.allowed) {
         throw new AppError("PO intake not available for claim", 409);
       }
     }
