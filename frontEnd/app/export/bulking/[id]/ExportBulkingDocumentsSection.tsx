@@ -28,7 +28,7 @@ import { isApiError } from "@/types/api";
 import type { ExportBulkingDocumentListItem } from "@/types/export-bulking";
 import { formatDateTime } from "@/lib/format-date";
 import { formatDocumentBytes } from "@/lib/format-files";
-import importDocStyles from "@/app/import/shipments/[id]/ShipmentDetail.module.css";
+import importDocStyles from "@/app/dashboard/shipments/[id]/ShipmentDetail.module.css";
 
 function formatUploadedAt(value: string): string {
   return formatDateTime(value);

@@ -72,7 +72,7 @@ export function NotificationBell() {
     if (exportBulkingId) {
       router.push(`/export/bulking/${exportBulkingId}?tab=documentation`);
     } else if (n.shipment_id) {
-      router.push(`/import/shipments/${n.shipment_id}`);
+      router.push(`/dashboard/shipments/${n.shipment_id}`);
     }
     refresh();
   }

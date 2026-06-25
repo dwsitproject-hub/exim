@@ -38,9 +38,9 @@ function detectSection(pathname: string): AppSection {
 }
 
 const IMPORT_NAV: NavItem[] = [
-  { href: "/import/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/import/po", label: "Purchase Order", icon: ClipboardList },
-  { href: "/import/shipments", label: "Shipments", icon: Truck },
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/dashboard/po", label: "Purchase Order", icon: ClipboardList },
+  { href: "/dashboard/shipments", label: "Shipments", icon: Truck },
 ];
 
 const EXPORT_NAV: NavItem[] = [
@@ -119,7 +119,7 @@ export function Sidebar({
     }
     const items: NavItem[] = [...IMPORT_NAV];
     if (can(user, IMPORT_PO_CSV)) {
-      items.push({ href: "/import/monitoring-data", label: "Import Data", icon: Upload });
+      items.push({ href: "/dashboard/monitoring-data", label: "Import Data", icon: Upload });
     }
     return items;
   }, [user, section]);
@@ -135,7 +135,7 @@ export function Sidebar({
 
   const dashboardHref =
     section === "import"
-      ? "/import/dashboard"
+      ? "/dashboard"
       : section === "export"
         ? "/export/dashboard"
         : "/admin/dashboard";

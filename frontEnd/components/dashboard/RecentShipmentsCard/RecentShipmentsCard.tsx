@@ -81,7 +81,7 @@ export function RecentShipmentsCard({ rows, loading, viewAllHref }: RecentShipme
             title="No recent shipments"
             description="No shipments yet. Purchase Orders can be grouped into shipments from the Purchase Order screen."
             action={
-              <Link href="/import/po" className={styles.btnPrimary}>
+              <Link href="/dashboard/po" className={styles.btnPrimary}>
                 View PO
               </Link>
             }
@@ -117,7 +117,7 @@ export function RecentShipmentsCard({ rows, loading, viewAllHref }: RecentShipme
               const isActionCta = tone === "actionPrimary";
               return (
                 <li key={row.id} className={styles.rowWrap} role="row">
-                  <Link href={`/import/shipments/${row.id}`} className={styles.row}>
+                  <Link href={`/dashboard/shipments/${row.id}`} className={styles.row}>
                     <div className={styles.grid} role="presentation">
                       <span className={styles.shipmentId} role="cell">{row.shipment_number}</span>
                       <span className={styles.poCount} role="cell">{formatPoSummaryLine(row.linked_po_count ?? 0)}</span>
