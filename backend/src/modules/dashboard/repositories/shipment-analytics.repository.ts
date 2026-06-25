@@ -73,9 +73,11 @@ const FIRST_PO_CTE = `first_po AS (
 
 function buildBaseWhereParams(q: ShipmentAnalyticsQuery): { whereParts: string[]; params: unknown[] } {
   const whereParts: string[] = [
-    `(s.created_at AT TIME ZONE 'UTC')::date >= $1::date`,
-    `(s.created_at AT TIME ZONE 'UTC')::date <= $2::date`,
+    `(s.closed_at AT TIME ZONE 'UTC')::date >= $1::date`,
+    `(s.closed_at AT TIME ZONE 'UTC')::date <= $2::date`,
     `s.deleted_at IS NULL`,
+    `UPPER(TRIM(COALESCE(s.current_status, ''))) = 'DELIVERED'`,
+    `s.closed_at IS NOT NULL`,
   ];
   const params: unknown[] = [q.date_from, q.date_to];
   let idx = 3;
@@ -280,7 +282,6 @@ export class ShipmentAnalyticsRepository {
         FROM shipments s
         LEFT JOIN first_po fp ON fp.shipment_id = s.id
         WHERE ${whereSql}
-          AND UPPER(TRIM(COALESCE(s.current_status, ''))) = 'DELIVERED'
       )
     `;
 
@@ -402,7 +403,6 @@ export class ShipmentAnalyticsRepository {
     const base = buildBaseWhereParams(q);
     const whereParts = [...base.whereParts];
     const params = [...base.params];
-    whereParts.push(`UPPER(TRIM(COALESCE(s.current_status, ''))) = 'DELIVERED'`);
     appendAnalyticsDetailDrill(whereParts, params, q);
     const whereSql = whereParts.join(" AND ");
 
@@ -494,7 +494,6 @@ export class ShipmentAnalyticsRepository {
    */
   async getClassificationQty(q: ShipmentAnalyticsQuery): Promise<ClassificationQtyRow[]> {
     const { whereParts, params } = buildBaseWhereParams(q);
-    whereParts.push(`UPPER(TRIM(COALESCE(s.current_status, ''))) = 'DELIVERED'`);
     const whereSql = whereParts.join(" AND ");
 
     const sql = `
@@ -562,7 +561,6 @@ export class ShipmentAnalyticsRepository {
    */
   async getLogisticsRows(q: ShipmentAnalyticsQuery): Promise<LogisticsDetailSourceRow[]> {
     const { whereParts, params } = buildBaseWhereParams(q);
-    whereParts.push(`UPPER(TRIM(COALESCE(s.current_status, ''))) = 'DELIVERED'`);
     const whereSql = whereParts.join(" AND ");
 
     const fclSelectCols = FCL_CONTAINER_REGISTRY
@@ -705,9 +703,7 @@ export class ShipmentAnalyticsRepository {
    */
   async getPostArrivalLead(q: ShipmentAnalyticsQuery): Promise<PostArrivalLeadRow[]> {
     const { whereParts, params } = buildBaseWhereParams(q);
-    whereParts.push(`UPPER(TRIM(COALESCE(s.current_status, ''))) = 'DELIVERED'`);
     whereParts.push(`s.ata IS NOT NULL`);
-    whereParts.push(`s.closed_at IS NOT NULL`);
     whereParts.push(`(
       (
         UPPER(TRIM(COALESCE(s.shipment_method, ''))) = 'SEA'
@@ -779,7 +775,6 @@ export class ShipmentAnalyticsRepository {
    */
   async getFinancialSummary(q: ShipmentAnalyticsQuery, idrPerUsd: number): Promise<FinancialSummaryResult> {
     const { whereParts, params } = buildBaseWhereParams(q);
-    whereParts.push(`UPPER(TRIM(COALESCE(s.current_status, ''))) = 'DELIVERED'`);
     const whereSql = whereParts.join(" AND ");
     params.push(idrPerUsd);
     const idrIdx = params.length;

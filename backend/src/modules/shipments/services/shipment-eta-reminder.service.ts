@@ -132,16 +132,11 @@ async function processKind(kind: EtaReminderKind): Promise<number> {
 
 /** Run H-3, H-2, then H-1 reminder cycle (idempotent per shipment / user / ETA date). */
 export async function runShipmentEtaReminderCycle(): Promise<{ h3: number; h2: number; h1: number }> {
-  try {
-    const h3 = await processKind("h3");
-    const h2 = await processKind("h2");
-    const h1 = await processKind("h1");
-    if (h3 > 0 || h2 > 0 || h1 > 0) {
-      logger.info("Shipment ETA reminder cycle completed", { h3, h2, h1 });
-    }
-    return { h3, h2, h1 };
-  } catch (err) {
-    logger.error("Shipment ETA reminder cycle failed", { error: String(err) });
-    return { h3: 0, h2: 0, h1: 0 };
+  const h3 = await processKind("h3");
+  const h2 = await processKind("h2");
+  const h1 = await processKind("h1");
+  if (h3 > 0 || h2 > 0 || h1 > 0) {
+    logger.info("Shipment ETA reminder cycle completed", { h3, h2, h1 });
   }
+  return { h3, h2, h1 };
 }

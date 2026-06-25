@@ -8,6 +8,7 @@ import { ShipmentStatusHistoryRepository } from "../repositories/shipment-status
 import { ShipmentDocumentRepository } from "../repositories/shipment-document.repository.js";
 import { ShipmentBidRepository } from "../repositories/shipment-bid.repository.js";
 import { AppError } from "../../../middlewares/errorHandler.js";
+import { getPool } from "../../../db/index.js";
 import {
   type TimelineEntry,
   type UpdateStatusResponseData,
@@ -135,35 +136,60 @@ export class ShipmentStatusService {
       );
     }
 
-    await this.historyRepo.create({
-      shipmentId,
-      previousStatus: currentStatus,
-      newStatus,
-      remarks,
-      changedBy,
-    });
-
-    const updated = await this.shipmentRepo.updateCurrentStatus(shipmentId, newStatus);
-    if (!updated) throw new AppError("Failed to update shipment status", 500);
-
+    let deliveredOn: string | undefined;
     if (newStatus === "DELIVERED") {
-      const deliveredOn = closedAt?.trim();
+      deliveredOn = closedAt?.trim();
       if (!deliveredOn) {
         throw new AppError("Delivered date is required when status is Delivered", 400, [
           { field: "closed_at", message: "Delivered date is required when status is Delivered" },
         ]);
       }
-      await this.shipmentRepo.update(shipmentId, { closed_at: deliveredOn });
     }
 
-    await syncPoIntakeStatusesForShipment(shipmentId);
+    const pool = getPool();
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
 
-    return {
-      shipment_id: shipmentId,
-      previous_status: currentStatus,
-      current_status: newStatus,
-      updated_at: updated.updated_at.toISOString(),
-    };
+      await this.historyRepo.create(
+        {
+          shipmentId,
+          previousStatus: currentStatus,
+          newStatus,
+          remarks,
+          changedBy,
+        },
+        client
+      );
+
+      const updated = await this.shipmentRepo.updateCurrentStatus(shipmentId, newStatus, client);
+      if (!updated) throw new AppError("Failed to update shipment status", 500);
+
+      if (deliveredOn) {
+        const withClosedAt = await this.shipmentRepo.update(
+          shipmentId,
+          { closed_at: deliveredOn },
+          client
+        );
+        if (!withClosedAt) throw new AppError("Failed to set delivered date", 500);
+      }
+
+      await client.query("COMMIT");
+
+      await syncPoIntakeStatusesForShipment(shipmentId);
+
+      return {
+        shipment_id: shipmentId,
+        previous_status: currentStatus,
+        current_status: newStatus,
+        updated_at: updated.updated_at.toISOString(),
+      };
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
+    }
   }
 
   async getTimeline(shipmentId: string): Promise<TimelineEntry[]> {

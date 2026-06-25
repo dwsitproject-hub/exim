@@ -2,7 +2,7 @@
  * Shipment repository: database access only.
  */
 
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { getPool } from "../../../db/index.js";
 import { classificationFilterSqlVariants } from "../../../shared/product-classification.js";
 import type {
@@ -637,7 +637,7 @@ export class ShipmentRepository {
     };
   }
 
-  async update(id: string, dto: UpdateShipmentDto): Promise<ShipmentRow | null> {
+  async update(id: string, dto: UpdateShipmentDto, client?: PoolClient): Promise<ShipmentRow | null> {
     const updates: string[] = ["updated_at = NOW()"];
     const params: unknown[] = [];
     let idx = 1;
@@ -885,7 +885,8 @@ export class ShipmentRepository {
     }
     if (params.length === 0) return this.findById(id);
     params.push(id);
-    const result = await this.pool.query<ShipmentRow>(
+    const db: Pool | PoolClient = client ?? this.pool;
+    const result = await db.query<ShipmentRow>(
       `UPDATE shipments SET ${updates.join(", ")} WHERE id = $${idx} AND deleted_at IS NULL RETURNING ${this.selectColumns}`,
       params
     );
@@ -900,8 +901,13 @@ export class ShipmentRepository {
     return result.rows[0] ?? null;
   }
 
-  async updateCurrentStatus(id: string, currentStatus: string): Promise<ShipmentRow | null> {
-    const result = await this.pool.query<ShipmentRow>(
+  async updateCurrentStatus(
+    id: string,
+    currentStatus: string,
+    client?: PoolClient
+  ): Promise<ShipmentRow | null> {
+    const db: Pool | PoolClient = client ?? this.pool;
+    const result = await db.query<ShipmentRow>(
       `UPDATE shipments SET current_status = $1, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL RETURNING ${this.selectColumns}`,
       [currentStatus, id]
     );

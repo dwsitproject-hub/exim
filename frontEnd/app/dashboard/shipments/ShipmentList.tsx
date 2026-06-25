@@ -51,6 +51,7 @@ const SHIPMENT_TABLE_COLUMNS: TableColumnDef[] = [
   { id: "status", label: "Status" },
   { id: "pic", label: "PIC" },
   { id: "po_number", label: "PO number" },
+  { id: "eta", label: "ETA" },
   { id: "vendor", label: "Vendor" },
   { id: "incoterm", label: "Incoterms" },
   { id: "pib_type", label: "PIB type" },
@@ -59,7 +60,6 @@ const SHIPMENT_TABLE_COLUMNS: TableColumnDef[] = [
   { id: "ship_by", label: "Ship by" },
   { id: "forwarder", label: "Forwarder" },
   { id: "etd", label: "ETD" },
-  { id: "eta", label: "ETA" },
   { id: "origin_port", label: "Origin port" },
   { id: "destination_port", label: "Destination port" },
 ];

@@ -2,9 +2,12 @@
  * Labels for admin user RBAC UI (keys must match backend PERMISSIONS).
  */
 
-export const USER_ROLE_OPTIONS = ["ADMIN", "IMPORT_OFFICER", "EXIM_OFFICER", "VIEWER", "DOCS"] as const;
+export const USER_ROLE_OPTIONS = ["ADMIN", "IMPORT_OFFICER", "VIEWER", "DOCS"] as const;
 
 export type UserRoleOption = (typeof USER_ROLE_OPTIONS)[number];
+
+/** Legacy DB role label — not offered for new users (migration 077). */
+export type LegacyUserRole = "EXIM_OFFICER";
 
 export const PERMISSION_CATALOG: readonly { key: string; label: string }[] = [
   { key: "VIEW_TRANSACTIONS", label: "View transactions" },
@@ -45,7 +48,9 @@ const IMPORT_OFFICER_PERMISSIONS = [
 ] as const;
 
 /** Frontend copy of backend role→permission matrix (must stay in sync with backend `shared/rbac.ts`). */
-export const ROLE_DEFAULT_PERMISSIONS: Readonly<Record<UserRoleOption, readonly string[]>> = {
+export const ROLE_DEFAULT_PERMISSIONS: Readonly<
+  Record<UserRoleOption | LegacyUserRole, readonly string[]>
+> = {
   ADMIN: PERMISSION_CATALOG.map((p) => p.key),
   IMPORT_OFFICER: IMPORT_OFFICER_PERMISSIONS,
   EXIM_OFFICER: IMPORT_OFFICER_PERMISSIONS,
@@ -61,7 +66,7 @@ export const ROLE_DEFAULT_PERMISSIONS: Readonly<Record<UserRoleOption, readonly 
 } as const;
 
 export function getRoleDefaultPermissionSet(role: string): ReadonlySet<string> {
-  const key = role.trim().toUpperCase() as UserRoleOption;
+  const key = role.trim().toUpperCase() as UserRoleOption | LegacyUserRole;
   const list = ROLE_DEFAULT_PERMISSIONS[key] ?? [];
   return new Set(list);
 }
