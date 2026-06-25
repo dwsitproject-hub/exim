@@ -109,7 +109,10 @@ export function ComboboxSelect({
         return;
       }
       if (t && options.includes(t)) {
-        onChange(t);
+        // Only fire onChange if the selection actually changed; avoid re-triggering
+        // parent side-effects (e.g. clearing dependent fields) when the value is
+        // the same as what was already committed via pick().
+        if (t !== value) onChange(t);
         setQuery(t);
         return;
       }

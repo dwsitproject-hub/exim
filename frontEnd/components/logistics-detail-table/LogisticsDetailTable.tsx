@@ -12,13 +12,9 @@ import {
   groupLclRows,
 } from "./group-logistics-rows";
 import type { FclSubType, LogisticsDetailSourceRow, TransportTab } from "./types";
+import { displayPtPlantLabel } from "@/lib/pt-display";
 
 const TAB_VALUES: TransportTab[] = ["AIR", "LCL", "FCL", "BULK"];
-const FCL_CHIPS: { id: FclSubType; label: string }[] = [
-  { id: "20", label: '20″' },
-  { id: "40", label: '40″' },
-  { id: "ISO", label: "20′ IsoTank" },
-];
 
 function downloadBlob(filename: string, content: string, mime: string) {
   const blob = new Blob([content], { type: mime });
@@ -60,7 +56,28 @@ export function LogisticsDetailTable({
   variant = "default",
 }: LogisticsDetailTableProps) {
   const [tab, setTab] = useState<TransportTab>("AIR");
-  const [fclSize, setFclSize] = useState<FclSubType>("20");
+  const [fclSize, setFclSize] = useState<FclSubType>("");
+
+  // Derive available FCL chip options from actual data so new container types
+  // appear automatically without any frontend code changes.
+  const fclChips = useMemo(() => {
+    const seen = new Map<string, string>(); // slug → label (containerSpec)
+    for (const r of rows) {
+      if (r.transportMode === "FCL" && !seen.has(r.fclSubType)) {
+        seen.set(r.fclSubType, r.containerSpec);
+      }
+    }
+    return [...seen.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([id, label]) => ({ id, label }));
+  }, [rows]);
+
+  // Keep selected chip valid: default to first available when chips change.
+  useEffect(() => {
+    if (fclChips.length > 0 && !fclChips.find((c) => c.id === fclSize)) {
+      setFclSize(fclChips[0].id);
+    }
+  }, [fclChips, fclSize]);
 
   useEffect(() => {
     if (!navigate || navigate.token < 1) return;
@@ -106,24 +123,24 @@ export function LogisticsDetailTable({
     const name = `logistics-detail_${tab}${suffix}_${new Date().toISOString().slice(0, 10)}.csv`;
     if (tab === "AIR") {
       const headers = ["PT – Plant", "Item Description", "Shipment count", "Forwarder"];
-      const data = airRows.map((r) => [r.ptPlant, r.itemDescription, String(r.shipmentCount), r.forwarder]);
+      const data = airRows.map((r) => [displayPtPlantLabel(r.ptPlant), r.itemDescription, String(r.shipmentCount), r.forwarder]);
       downloadBlob(name, "\uFEFF" + buildCsv(headers, data), "text/csv;charset=utf-8");
       return;
     }
     if (tab === "LCL") {
-      const headers = ["PT – Plant", "Item Description", "Package", "Forwarder"];
-      const data = lclRows.map((r) => [r.ptPlant, r.itemDescription, r.packageDisplay, r.forwarder]);
+      const headers = ["PT – Plant", "Item Description", "Package", "CBM (m³)", "Forwarder"];
+      const data = lclRows.map((r) => [displayPtPlantLabel(r.ptPlant), r.itemDescription, r.packageDisplay, r.cbmDisplay, r.forwarder]);
       downloadBlob(name, "\uFEFF" + buildCsv(headers, data), "text/csv;charset=utf-8");
       return;
     }
     if (tab === "FCL") {
       const headers = ["PT – Plant", "Item Description", "Container", "Forwarder"];
-      const data = fclRows.map((r) => [r.ptPlant, r.itemDescription, r.containerDisplay, r.forwarder]);
+      const data = fclRows.map((r) => [displayPtPlantLabel(r.ptPlant), r.itemDescription, r.containerDisplay, r.forwarder]);
       downloadBlob(name, "\uFEFF" + buildCsv(headers, data), "text/csv;charset=utf-8");
       return;
     }
     const headers = ["PT – Plant", "Item Description", "Volume / Weight", "Forwarder"];
-    const data = bulkRows.map((r) => [r.ptPlant, r.itemDescription, r.volumeWeightDisplay, r.forwarder]);
+    const data = bulkRows.map((r) => [displayPtPlantLabel(r.ptPlant), r.itemDescription, r.volumeWeightDisplay, r.forwarder]);
     downloadBlob(name, "\uFEFF" + buildCsv(headers, data), "text/csv;charset=utf-8");
   }, [tab, fclSize, airRows, lclRows, fclRows, bulkRows]);
 
@@ -217,7 +234,7 @@ export function LogisticsDetailTable({
                     key={`${r.ptPlant}|${r.itemDescription}`}
                     className="border-b border-slate-100 transition-colors hover:bg-slate-50/90"
                   >
-                    <td className="whitespace-nowrap px-3 py-2.5 font-medium text-slate-900">{r.ptPlant}</td>
+                    <td className="whitespace-nowrap px-3 py-2.5 font-medium text-slate-900">{displayPtPlantLabel(r.ptPlant)}</td>
                     <td className="px-3 py-2.5 text-slate-700">{r.itemDescription}</td>
                     <td className="whitespace-nowrap px-3 py-2.5 font-mono tabular-nums text-slate-900">
                       {r.shipmentCount.toLocaleString()}
@@ -247,6 +264,9 @@ export function LogisticsDetailTable({
                   <th className="whitespace-nowrap px-3 py-3 text-xs font-semibold uppercase tracking-wide text-slate-600">
                     Package
                   </th>
+                  <th className="whitespace-nowrap px-3 py-3 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                    CBM (m³)
+                  </th>
                   <th className="px-3 py-3 text-xs font-semibold uppercase tracking-wide text-slate-600">
                     Forwarder
                   </th>
@@ -258,10 +278,13 @@ export function LogisticsDetailTable({
                     key={`${r.ptPlant}|${r.itemDescription}`}
                     className="border-b border-slate-100 transition-colors hover:bg-slate-50/90"
                   >
-                    <td className="whitespace-nowrap px-3 py-2.5 font-medium text-slate-900">{r.ptPlant}</td>
+                    <td className="whitespace-nowrap px-3 py-2.5 font-medium text-slate-900">{displayPtPlantLabel(r.ptPlant)}</td>
                     <td className="px-3 py-2.5 text-slate-700">{r.itemDescription}</td>
                     <td className="whitespace-nowrap px-3 py-2.5 font-mono tabular-nums text-slate-900">
                       {r.packageDisplay}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2.5 font-mono tabular-nums text-slate-900">
+                      {r.cbmDisplay}
                     </td>
                     <td className="px-3 py-2.5 text-slate-600">{r.forwarder}</td>
                   </tr>
@@ -275,22 +298,24 @@ export function LogisticsDetailTable({
         </Tabs.Content>
 
         <Tabs.Content value="FCL" className="pt-4 outline-none">
-          <div className="mb-3 flex flex-wrap items-center gap-2" role="toolbar" aria-label="FCL container type">
-            {FCL_CHIPS.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => setFclSize(c.id)}
-                className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
-                  fclSize === c.id
-                    ? "border-[#c43a31] bg-[#c43a31]/10 text-[#9e2c25]"
-                    : "border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-white"
-                }`}
-              >
-                {c.label}
-              </button>
-            ))}
-          </div>
+          {fclChips.length > 0 && (
+            <div className="mb-3 flex flex-wrap items-center gap-2" role="toolbar" aria-label="FCL container type">
+              {fclChips.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => setFclSize(c.id)}
+                  className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                    fclSize === c.id
+                      ? "border-[#c43a31] bg-[#c43a31]/10 text-[#9e2c25]"
+                      : "border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-white"
+                  }`}
+                >
+                  {c.label}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="overflow-auto rounded-lg border border-slate-200 max-h-[min(70vh,520px)]">
             <table className="min-w-full border-collapse text-left text-sm text-slate-800">
               <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-100/95 backdrop-blur supports-[backdrop-filter]:bg-slate-100/80">
@@ -315,7 +340,7 @@ export function LogisticsDetailTable({
                     key={`${r.ptPlant}|${r.itemDescription}`}
                     className="border-b border-slate-100 transition-colors hover:bg-slate-50/90"
                   >
-                    <td className="whitespace-nowrap px-3 py-2.5 font-medium text-slate-900">{r.ptPlant}</td>
+                    <td className="whitespace-nowrap px-3 py-2.5 font-medium text-slate-900">{displayPtPlantLabel(r.ptPlant)}</td>
                     <td className="px-3 py-2.5 text-slate-700">{r.itemDescription}</td>
                     <td className="whitespace-nowrap px-3 py-2.5 font-mono text-sm text-slate-900">
                       {r.containerDisplay}
@@ -328,7 +353,7 @@ export function LogisticsDetailTable({
           </div>
           {fclRows.length === 0 && (
             <p className="py-8 text-center text-sm text-slate-500">
-              No FCL rows for {FCL_CHIPS.find((x) => x.id === fclSize)?.label ?? fclSize}.
+              No FCL rows for {fclChips.find((x) => x.id === fclSize)?.label ?? fclSize}.
             </p>
           )}
         </Tabs.Content>
@@ -358,7 +383,7 @@ export function LogisticsDetailTable({
                     key={`${r.ptPlant}|${r.itemDescription}`}
                     className="border-b border-slate-100 transition-colors hover:bg-slate-50/90"
                   >
-                    <td className="whitespace-nowrap px-3 py-2.5 font-medium text-slate-900">{r.ptPlant}</td>
+                    <td className="whitespace-nowrap px-3 py-2.5 font-medium text-slate-900">{displayPtPlantLabel(r.ptPlant)}</td>
                     <td className="px-3 py-2.5 text-slate-700">{r.itemDescription}</td>
                     <td className="whitespace-nowrap px-3 py-2.5 font-mono tabular-nums text-slate-900">
                       {r.volumeWeightDisplay}

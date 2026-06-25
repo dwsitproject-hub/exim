@@ -76,7 +76,8 @@ export function formatDashboardUsd(amount: number, decimals?: boolean): string {
 type DashboardCurrencyContextValue = {
   idrPerUsd: number;
   setIdrPerUsd: (n: number) => void;
-  applyIdrPerUsd: (raw: string) => void;
+  /** Returns true when the rate was applied. */
+  applyIdrPerUsd: (raw: string) => boolean;
   formatUsd: (amount: number, decimals?: boolean) => string;
 };
 
@@ -97,7 +98,11 @@ export function DashboardCurrencyProvider({ children }: { children: ReactNode })
 
   const applyIdrPerUsd = useCallback((raw: string) => {
     const n = Number.parseFloat(raw.replace(/,/g, ""));
-    if (Number.isFinite(n) && n > 0) setIdrPerUsd(n);
+    if (Number.isFinite(n) && n > 0) {
+      setIdrPerUsd(n);
+      return true;
+    }
+    return false;
   }, [setIdrPerUsd]);
 
   const value = useMemo(
@@ -130,7 +135,7 @@ export function useDashboardCurrencyOptional(): DashboardCurrencyContextValue {
     ctx ?? {
       idrPerUsd: DEFAULT_IDR_PER_USD,
       setIdrPerUsd: () => {},
-      applyIdrPerUsd: () => {},
+      applyIdrPerUsd: () => false,
       formatUsd: formatDashboardUsd,
     }
   );

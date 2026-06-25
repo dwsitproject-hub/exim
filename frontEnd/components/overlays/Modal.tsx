@@ -9,8 +9,8 @@ interface ModalProps {
   onClose: () => void;
   children: React.ReactNode;
   footer?: React.ReactNode;
-  /** Wider panel for document preview and similar content. */
-  wide?: boolean;
+  /** Wide panel for document previews (default: compact form dialog). */
+  size?: "default" | "wide";
 }
 
 const FOCUSABLE = [
@@ -22,7 +22,7 @@ const FOCUSABLE = [
   "[tabindex]:not([tabindex='-1'])",
 ].join(", ");
 
-export function Modal({ open, title, onClose, children, footer, wide = false }: ModalProps) {
+export function Modal({ open, title, onClose, children, footer, size = "default" }: ModalProps) {
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
   const lastFocusedRef = useRef<HTMLElement | null>(null);
@@ -71,7 +71,7 @@ export function Modal({ open, title, onClose, children, footer, wide = false }: 
   return (
     <div className={styles.overlay} onClick={onClose}>
       <div
-        className={[styles.panel, wide ? styles.panelWide : ""].filter(Boolean).join(" ")}
+        className={size === "wide" ? `${styles.panel} ${styles.panelWide}` : styles.panel}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
@@ -88,4 +88,3 @@ export function Modal({ open, title, onClose, children, footer, wide = false }: 
     </div>
   );
 }
-

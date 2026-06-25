@@ -185,6 +185,20 @@ export const config = {
       return Number.isNaN(n) ? 8192 : Math.min(16384, Math.max(1024, n));
     })(),
   },
+  /** Import shipment ETA H-2 / H-1 in-app notifications to linked PO claimers (Asia/Jakarta). */
+  etaReminder: {
+    enabled: (getEnvOptional("ETA_REMINDER_ENABLED", "true") ?? "true").toLowerCase() === "true",
+    runHourJakarta: (() => {
+      const raw = getEnvOptional("ETA_REMINDER_RUN_HOUR_JAKARTA", "7") ?? "7";
+      const n = parseInt(raw, 10);
+      return Number.isNaN(n) ? 7 : Math.min(23, Math.max(0, n));
+    })(),
+    runMinuteJakarta: (() => {
+      const raw = getEnvOptional("ETA_REMINDER_RUN_MINUTE_JAKARTA", "0") ?? "0";
+      const n = parseInt(raw, 10);
+      return Number.isNaN(n) ? 0 : Math.min(59, Math.max(0, n));
+    })(),
+  },
   smtp: {
     host: getEnvOptional("SMTP_HOST", "localhost"),
     port: (() => {

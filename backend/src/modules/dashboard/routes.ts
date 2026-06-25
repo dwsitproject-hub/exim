@@ -42,6 +42,30 @@ dashboardRoutes.get(
   requirePermission(PERMISSIONS.VIEW_SHIPMENTS),
   dashboardController.getShipmentAnalyticsLines
 );
+dashboardRoutes.get(
+  "/classification-qty",
+  authMiddleware,
+  requirePermission(PERMISSIONS.VIEW_SHIPMENTS),
+  dashboardController.getClassificationQty
+);
+dashboardRoutes.get(
+  "/post-arrival-lead",
+  authMiddleware,
+  requirePermission(PERMISSIONS.VIEW_SHIPMENTS),
+  dashboardController.getPostArrivalLead
+);
+dashboardRoutes.get(
+  "/logistics-rows",
+  authMiddleware,
+  requirePermission(PERMISSIONS.VIEW_SHIPMENTS),
+  dashboardController.getLogisticsRows
+);
+dashboardRoutes.get(
+  "/financial-summary",
+  authMiddleware,
+  requirePermission(PERMISSIONS.VIEW_SHIPMENTS),
+  dashboardController.getFinancialSummary
+);
 /** @deprecated Use GET /dashboard/delivered-management — same response shape. */
 dashboardRoutes.get(
   "/product-specification-summary",

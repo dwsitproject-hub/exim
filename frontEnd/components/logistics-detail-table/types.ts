@@ -1,7 +1,11 @@
 export type TransportTab = "AIR" | "LCL" | "FCL" | "BULK";
 
-/** FCL sub-filter (container family). */
-export type FclSubType = "20" | "40" | "ISO";
+/**
+ * FCL sub-filter key.  Matches the `slug` values from the backend FCL_CONTAINER_REGISTRY
+ * (e.g. "20FT", "40FT", "ISO", "40HC", "20FR", "40FR").  Kept as `string` so new container
+ * types registered on the backend flow through without any frontend code changes.
+ */
+export type FclSubType = string;
 
 export interface AirLogisticsRow {
   transportMode: "AIR";
@@ -17,6 +21,7 @@ export interface LclLogisticsRow {
   itemDescription: string;
   packages: number;
   packageKind: string;
+  cbm: number | null;
   forwarder: string;
 }
 
@@ -57,6 +62,7 @@ export type GroupedLclRow = {
   ptPlant: string;
   itemDescription: string;
   packageDisplay: string;
+  cbmDisplay: string;
   forwarder: string;
 };
 

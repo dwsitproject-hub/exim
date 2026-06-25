@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useState, Suspense } from "react";
 import { Input, Button } from "@/components/forms";
+import { AuthShell, authBackLinkClassName } from "@/components/auth";
+import { Alert } from "@/components/feedback";
 import { resetPassword as resetPasswordApi } from "@/services/auth-service";
 import { useToast } from "@/components/providers/ToastProvider";
 import { isApiError } from "@/types/api";
@@ -61,69 +63,66 @@ function ResetPasswordFormInner() {
 
   if (success) {
     return (
-      <div className={styles.wrapper}>
-        <div className={styles.card}>
-          <h1 className={styles.title}>Password reset</h1>
-          <p className={styles.subtitle}>Your password has been updated. You can now sign in with your new password.</p>
-          <p className={styles.footer}>
-            <Link href="/login" className={styles.backLink}>
-              Sign in
-            </Link>
-          </p>
-        </div>
-      </div>
+      <AuthShell
+        title="Password reset"
+        subtitle="Your password has been updated. You can now sign in with your new password."
+        footer={
+          <Link href="/login" className={authBackLinkClassName()}>
+            Sign in
+          </Link>
+        }
+      />
     );
   }
 
   return (
-    <div className={styles.wrapper}>
-      <div className={styles.card}>
-        <h1 className={styles.title}>Set new password</h1>
-        <p className={styles.subtitle}>Enter your new password below. Use the link from your email if you don’t see a token.</p>
-        <form onSubmit={handleSubmit} className={styles.form}>
-          {error && <p className={styles.error} role="alert">{error}</p>}
-          {!tokenFromUrl && (
-            <Input
-              label="Reset token"
-              type="text"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              placeholder="Paste token from email (or use link from email)"
-              error={fieldErrors.token}
-            />
-          )}
+    <AuthShell
+      title="Set new password"
+      subtitle="Enter your new password below. Use the link from your email if you don’t see a token."
+      footer={
+        <Link href="/login" className={authBackLinkClassName()}>
+          Back to sign in
+        </Link>
+      }
+    >
+      <form onSubmit={handleSubmit} className={styles.form}>
+        {error && <Alert>{error}</Alert>}
+        {!tokenFromUrl && (
           <Input
-            label="New password"
-            type="password"
-            value={newPassword}
-            onChange={(e) => setNewPassword(e.target.value)}
-            required
-            autoComplete="new-password"
-            minLength={8}
-            placeholder="At least 8 characters"
-            error={fieldErrors.new_password}
+            label="Reset token"
+            type="text"
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+            placeholder="Paste token from email (or use link from email)"
+            error={fieldErrors.token}
           />
-          <Input
-            label="Confirm password"
-            type="password"
-            value={passwordConfirmation}
-            onChange={(e) => setPasswordConfirmation(e.target.value)}
-            required
-            autoComplete="new-password"
-            placeholder="Repeat password"
-            error={fieldErrors.password_confirmation}
-          />
-          <Button type="submit" fullWidth disabled={loading} className={styles.submit}>
-            {loading ? "Resetting…" : "Reset password"}
-          </Button>
-        </form>
-        <p className={styles.footer}>
-          <Link href="/login" className={styles.backLink}>
-            Back to sign in
-          </Link>
-        </p>
-      </div>
-    </div>
+        )}
+        <Input
+          label="New password"
+          type="password"
+          value={newPassword}
+          onChange={(e) => setNewPassword(e.target.value)}
+          required
+          autoComplete="new-password"
+          minLength={8}
+          placeholder="At least 8 characters"
+          error={fieldErrors.new_password}
+        />
+        <Input
+          label="Confirm password"
+          type="password"
+          value={passwordConfirmation}
+          onChange={(e) => setPasswordConfirmation(e.target.value)}
+          required
+          autoComplete="new-password"
+          placeholder="Repeat password"
+          error={fieldErrors.password_confirmation}
+        />
+        <Button type="submit" fullWidth disabled={loading} className={styles.submit}>
+          {loading ? "Resetting…" : "Reset password"}
+        </Button>
+      </form>
+    </AuthShell>
   );
 }
 

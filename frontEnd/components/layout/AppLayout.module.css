@@ -1,15 +1,27 @@
 /* Design tokens only — design-tokens.json */
 
 .wrapper {
+  width: 100%;
+  min-width: 0;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  overflow-x: clip;
   background-color: var(--color-primitive-background-lighter, #fafafa);
+  --eos-sidebar-width: 220px;
+}
+
+@media (min-width: 1024px) {
+  :global(.eos-sidebar-collapsed).wrapper {
+    --eos-sidebar-width: 56px;
+  }
 }
 
 .body {
   display: flex;
   flex: 1;
+  width: 100%;
+  min-width: 0;
   min-height: 0;
   position: relative;
 }

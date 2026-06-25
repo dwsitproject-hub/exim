@@ -2,7 +2,7 @@
  * Labels for admin user RBAC UI (keys must match backend PERMISSIONS).
  */
 
-export const USER_ROLE_OPTIONS = ["ADMIN", "EXIM_OFFICER", "VIEWER", "DOCS"] as const;
+export const USER_ROLE_OPTIONS = ["ADMIN", "IMPORT_OFFICER", "EXIM_OFFICER", "VIEWER", "DOCS"] as const;
 
 export type UserRoleOption = (typeof USER_ROLE_OPTIONS)[number];
 
@@ -17,67 +17,47 @@ export const PERMISSION_CATALOG: readonly { key: string; label: string }[] = [
   { key: "TAKE_OWNERSHIP", label: "Take ownership" },
   { key: "CREATE_PO_INTAKE_TEST", label: "Create PO intake" },
   { key: "UPDATE_PO_INTAKE", label: "Update PO intake" },
+  { key: "IMPORT_PO_CSV", label: "Import PO CSV" },
+  { key: "PARSE_PO_PDF", label: "Parse PO PDF" },
   { key: "VIEW_SHIPMENTS", label: "View shipments" },
   { key: "CREATE_SHIPMENT", label: "Create shipment" },
   { key: "UPDATE_SHIPMENT", label: "Update shipment" },
   { key: "COUPLE_DECOUPLE_PO", label: "Couple / decouple PO" },
-  { key: "VIEW_EXPORT_BULKING", label: "View export bulking" },
-  { key: "CREATE_EXPORT_BULKING", label: "Create export bulking" },
-  { key: "UPDATE_EXPORT_BULKING", label: "Update export bulking" },
-  { key: "UPDATE_EXPORT_BULKING_STATUS", label: "Update export bulking status" },
-  { key: "MANAGE_SHIPPERS", label: "Manage shippers" },
-  { key: "MANAGE_AGENTS", label: "Manage agents" },
   { key: "VIEW_PO_PDF_AI_USAGE", label: "View PO PDF AI usage" },
-  { key: "VIEW_EXPORT_DOCUMENTATION", label: "View export documentation" },
+] as const;
+
+const IMPORT_OFFICER_PERMISSIONS = [
+  "VIEW_TRANSACTIONS",
+  "CREATE_TRANSACTION",
+  "UPDATE_TRANSACTION",
+  "UPDATE_STATUS",
+  "UPLOAD_DOCUMENT",
+  "VIEW_PO_INTAKE",
+  "TAKE_OWNERSHIP",
+  "CREATE_PO_INTAKE_TEST",
+  "UPDATE_PO_INTAKE",
+  "IMPORT_PO_CSV",
+  "PARSE_PO_PDF",
+  "VIEW_SHIPMENTS",
+  "CREATE_SHIPMENT",
+  "UPDATE_SHIPMENT",
+  "COUPLE_DECOUPLE_PO",
 ] as const;
 
 /** Frontend copy of backend role→permission matrix (must stay in sync with backend `shared/rbac.ts`). */
 export const ROLE_DEFAULT_PERMISSIONS: Readonly<Record<UserRoleOption, readonly string[]>> = {
-  ADMIN: [
+  ADMIN: PERMISSION_CATALOG.map((p) => p.key),
+  IMPORT_OFFICER: IMPORT_OFFICER_PERMISSIONS,
+  EXIM_OFFICER: IMPORT_OFFICER_PERMISSIONS,
+  VIEWER: [
     "VIEW_TRANSACTIONS",
-    "CREATE_TRANSACTION",
-    "UPDATE_TRANSACTION",
-    "UPDATE_STATUS",
-    "UPLOAD_DOCUMENT",
-    "MANAGE_USERS",
     "VIEW_PO_INTAKE",
-    "TAKE_OWNERSHIP",
     "CREATE_PO_INTAKE_TEST",
-    "UPDATE_PO_INTAKE",
+    "IMPORT_PO_CSV",
+    "PARSE_PO_PDF",
     "VIEW_SHIPMENTS",
-    "CREATE_SHIPMENT",
-    "UPDATE_SHIPMENT",
-    "COUPLE_DECOUPLE_PO",
-    "VIEW_EXPORT_BULKING",
-    "CREATE_EXPORT_BULKING",
-    "UPDATE_EXPORT_BULKING",
-    "UPDATE_EXPORT_BULKING_STATUS",
-    "MANAGE_SHIPPERS",
-    "MANAGE_AGENTS",
-    "VIEW_PO_PDF_AI_USAGE",
-    "VIEW_EXPORT_DOCUMENTATION",
   ],
-  EXIM_OFFICER: [
-    "VIEW_TRANSACTIONS",
-    "CREATE_TRANSACTION",
-    "UPDATE_TRANSACTION",
-    "UPDATE_STATUS",
-    "UPLOAD_DOCUMENT",
-    "VIEW_PO_INTAKE",
-    "TAKE_OWNERSHIP",
-    "CREATE_PO_INTAKE_TEST",
-    "UPDATE_PO_INTAKE",
-    "VIEW_SHIPMENTS",
-    "CREATE_SHIPMENT",
-    "UPDATE_SHIPMENT",
-    "COUPLE_DECOUPLE_PO",
-    "VIEW_EXPORT_BULKING",
-    "CREATE_EXPORT_BULKING",
-    "UPDATE_EXPORT_BULKING",
-    "UPDATE_EXPORT_BULKING_STATUS",
-  ],
-  VIEWER: ["VIEW_TRANSACTIONS", "VIEW_PO_INTAKE", "CREATE_PO_INTAKE_TEST", "VIEW_SHIPMENTS", "VIEW_EXPORT_BULKING"],
-  DOCS: ["VIEW_TRANSACTIONS", "VIEW_PO_INTAKE", "VIEW_SHIPMENTS", "VIEW_EXPORT_BULKING", "VIEW_EXPORT_DOCUMENTATION"],
+  DOCS: ["VIEW_TRANSACTIONS", "VIEW_PO_INTAKE", "VIEW_SHIPMENTS"],
 } as const;
 
 export function getRoleDefaultPermissionSet(role: string): ReadonlySet<string> {

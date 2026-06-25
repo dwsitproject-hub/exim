@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { Input, Button } from "@/components/forms";
+import { AuthShell, authBackLinkClassName, authForgotLinkWrapClassName } from "@/components/auth";
+import { Alert } from "@/components/feedback";
 import { DEFAULT_AFTER_LOGIN_PATH } from "@/lib/constants";
 import { useToast } from "@/components/providers/ToastProvider";
 import styles from "./LoginForm.module.css";
@@ -32,7 +34,6 @@ export function LoginForm() {
     const result = await login(email, password);
     if (result.ok) {
       pushToast("Signed in successfully.", "success");
-      // Full page redirect so the browser sends the new cookies and dashboard loads with auth
       window.location.href = from;
       return;
     }
@@ -47,41 +48,37 @@ export function LoginForm() {
   }
 
   return (
-    <div className={styles.wrapper}>
-      <div className={styles.card}>
-        <h1 className={styles.title}>Log in</h1>
-        <p className={styles.subtitle}>Sign in to EOS — Exim Operation System</p>
-        <form onSubmit={handleSubmit} className={styles.form}>
-          {error && <p className={styles.error} role="alert">{error}</p>}
-          <Input
-            label="Email"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            autoComplete="email"
-            placeholder="you@example.com"
-            error={fieldErrors.email}
-          />
-          <Input
-            label="Password"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            autoComplete="current-password"
-            error={fieldErrors.password}
-          />
-          <p className={styles.forgotLinkWrap}>
-            <Link href="/forgot-password" className={styles.backLink}>
-              Forgot password?
-            </Link>
-          </p>
-          <Button type="submit" fullWidth disabled={loading} className={styles.submit}>
-            {loading ? "Signing in…" : "Sign in"}
-          </Button>
-        </form>
-      </div>
-    </div>
+    <AuthShell title="Log in" subtitle="Sign in to EOS — Exim Operation System">
+      <form onSubmit={handleSubmit} className={styles.form}>
+        {error && <Alert>{error}</Alert>}
+        <Input
+          label="Email"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          required
+          autoComplete="email"
+          placeholder="you@example.com"
+          error={fieldErrors.email}
+        />
+        <Input
+          label="Password"
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+          autoComplete="current-password"
+          error={fieldErrors.password}
+        />
+        <p className={authForgotLinkWrapClassName()}>
+          <Link href="/forgot-password" className={authBackLinkClassName()}>
+            Forgot password?
+          </Link>
+        </p>
+        <Button type="submit" fullWidth disabled={loading} className={styles.submit}>
+          {loading ? "Signing in…" : "Sign in"}
+        </Button>
+      </form>
+    </AuthShell>
   );
 }
