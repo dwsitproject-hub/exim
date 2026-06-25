@@ -28,7 +28,9 @@ export function NotificationBell() {
   const [items, setItems] = useState<AppNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
 
-  const allowed = user ? can(user, "VIEW_SHIPMENTS") : false;
+  const allowed = user
+    ? can(user, "VIEW_SHIPMENTS") || can(user, "VIEW_EXPORT_DOCUMENTATION")
+    : false;
 
   const refresh = useCallback(() => {
     if (!accessToken || !allowed) return;
@@ -64,8 +66,13 @@ export function NotificationBell() {
       await markNotificationRead(n.id, accessToken);
     }
     setOpen(false);
-    if (n.shipment_id) {
-      router.push(`/dashboard/shipments/${n.shipment_id}`);
+    const exportBulkingId =
+      n.export_bulking_shipment_id ??
+      (n.type === "export_sent_doc_missing" ? n.reference_id : null);
+    if (exportBulkingId) {
+      router.push(`/export/bulking/${exportBulkingId}?tab=documentation`);
+    } else if (n.shipment_id) {
+      router.push(`/import/shipments/${n.shipment_id}`);
     }
     refresh();
   }

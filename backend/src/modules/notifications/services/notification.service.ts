@@ -9,6 +9,7 @@ export interface NotificationDto {
   type: string;
   reference_id: string;
   shipment_id: string | null;
+  export_bulking_shipment_id: string | null;
   message: string;
   read_at: string | null;
   created_at: string;
@@ -20,6 +21,7 @@ function toDto(row: NotificationRow): NotificationDto {
     type: row.type,
     reference_id: row.reference_id,
     shipment_id: row.shipment_id,
+    export_bulking_shipment_id: row.export_bulking_shipment_id ?? null,
     message: row.message,
     read_at: row.read_at ? row.read_at.toISOString() : null,
     created_at: row.created_at.toISOString(),

@@ -1,0 +1,11 @@
+/* Design tokens only — design-tokens.json */
+
+.message {
+  margin: var(--spacing-3, 16px) 0 0;
+  padding: var(--spacing-3, 16px);
+  font-size: var(--typography-fontSize-base, 16px);
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  background-color: var(--color-primitive-background-lighter, #fafafa);
+  border: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  border-radius: var(--borderRadius-md, 8px);
+}

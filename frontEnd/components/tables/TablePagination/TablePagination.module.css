@@ -1,0 +1,38 @@
+/* Design tokens only — design-tokens.json */
+
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2, 8px);
+  margin-top: var(--spacing-3, 16px);
+  padding-top: var(--spacing-3, 16px);
+  border-top: 1px solid var(--color-primitive-border-light, #e0e0e0);
+}
+
+.info {
+  align-self: center;
+  font-size: var(--typography-fontSize-small, 14px);
+  color: var(--color-primitive-text-steel, #6b6b6b);
+}
+
+.button {
+  padding: var(--spacing-2, 8px) var(--spacing-3, 16px);
+  font-size: var(--typography-fontSize-small, 14px);
+  font-weight: var(--typography-fontWeight-medium, 500);
+  color: var(--color-semantic-primary-foreground, #ffffff);
+  background-color: var(--color-semantic-primary-default, #c43a31);
+  border: none;
+  border-radius: var(--borderRadius-md, 8px);
+  cursor: pointer;
+  transition: background-color var(--animation-duration-fast, 150ms) var(--animation-easing-default, ease-out);
+}
+
+.button:hover:not(:disabled) {
+  background-color: var(--color-semantic-primary-hover, #9e2c25);
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

@@ -179,7 +179,7 @@ Response
       "id": "usr_001",
       "name": "Alex Tan",
       "email": "exim.user@company.com",
-      "role": "EXIM_OFFICER"
+      "role": "IMPORT_OFFICER"
     }
   }
 }
@@ -252,7 +252,7 @@ Response
     "id": "usr_001",
     "name": "Alex Tan",
     "email": "exim.user@company.com",
-    "role": "EXIM_OFFICER"
+    "role": "IMPORT_OFFICER"
   }
 }
 
@@ -283,7 +283,7 @@ Response
       "id": "usr_001",
       "name": "Alex Tan",
       "email": "exim.user@company.com",
-      "role": "EXIM_OFFICER",
+      "role": "IMPORT_OFFICER",
       "is_active": true
     }
   ],
@@ -916,7 +916,7 @@ Role | View Transactions | Create Transaction | Update Transaction | Update Stat
 
 Admin | Yes | Yes | Yes | Yes | Yes | Yes
 
-Exim Officer | Yes | Yes | Yes | Yes | Yes | No
+Import Officer | Yes | Yes | Yes | Yes | Yes | No
 
 Viewer | Yes | No | No | No | No | No
 

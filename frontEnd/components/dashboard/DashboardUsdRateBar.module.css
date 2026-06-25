@@ -66,3 +66,14 @@
   line-height: 1.45;
   max-width: 48rem;
 }
+
+.error {
+  margin: 8px 0 0;
+  font-size: var(--typography-fontSize-xs, 12px);
+  color: var(--color-semantic-destructive-default, #c43a31);
+  line-height: 1.45;
+}
+
+.inputError {
+  border-color: var(--color-semantic-destructive-default, #c43a31);
+}

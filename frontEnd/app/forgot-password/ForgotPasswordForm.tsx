@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useState } from "react";
 import { Input, Button } from "@/components/forms";
+import { AuthShell, authBackLinkClassName } from "@/components/auth";
+import { Alert } from "@/components/feedback";
 import { forgotPassword as forgotPasswordApi } from "@/services/auth-service";
 import { useToast } from "@/components/providers/ToastProvider";
 import { isApiError } from "@/types/api";
@@ -24,7 +26,6 @@ export function ForgotPasswordForm() {
     try {
       const res = await forgotPasswordApi(email);
       if (isApiError(res)) {
-        setError(res.message ?? "Request failed");
         const msg = res.message ?? "Request failed";
         setError(msg);
         pushToast(msg, "error");
@@ -48,49 +49,49 @@ export function ForgotPasswordForm() {
 
   if (success) {
     return (
-      <div className={styles.wrapper}>
-        <div className={styles.card}>
-          <h1 className={styles.title}>Check your email</h1>
-          <p className={styles.subtitle}>
-            If an account exists for <strong>{email}</strong>, you will receive a link to reset your password. The link expires in 1 hour.
-          </p>
-          <p className={styles.footer}>
-            <Link href="/login" className={styles.backLink}>
-              Back to sign in
-            </Link>
-          </p>
-        </div>
-      </div>
+      <AuthShell
+        title="Check your email"
+        subtitle={
+          <>
+            If an account exists for <strong>{email}</strong>, you will receive a link to reset your password. The
+            link expires in 1 hour.
+          </>
+        }
+        footer={
+          <Link href="/login" className={authBackLinkClassName()}>
+            Back to sign in
+          </Link>
+        }
+      />
     );
   }
 
   return (
-    <div className={styles.wrapper}>
-      <div className={styles.card}>
-        <h1 className={styles.title}>Forgot password</h1>
-        <p className={styles.subtitle}>Enter your email and we’ll send you a link to reset your password.</p>
-        <form onSubmit={handleSubmit} className={styles.form}>
-          {error && <p className={styles.error} role="alert">{error}</p>}
-          <Input
-            label="Email"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            autoComplete="email"
-            placeholder="you@example.com"
-            error={fieldErrors.email}
-          />
-          <Button type="submit" fullWidth disabled={loading} className={styles.submit}>
-            {loading ? "Sending…" : "Send reset link"}
-          </Button>
-        </form>
-        <p className={styles.footer}>
-          <Link href="/login" className={styles.backLink}>
-            Back to sign in
-          </Link>
-        </p>
-      </div>
-    </div>
+    <AuthShell
+      title="Forgot password"
+      subtitle="Enter your email and we’ll send you a link to reset your password."
+      footer={
+        <Link href="/login" className={authBackLinkClassName()}>
+          Back to sign in
+        </Link>
+      }
+    >
+      <form onSubmit={handleSubmit} className={styles.form}>
+        {error && <Alert>{error}</Alert>}
+        <Input
+          label="Email"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          required
+          autoComplete="email"
+          placeholder="you@example.com"
+          error={fieldErrors.email}
+        />
+        <Button type="submit" fullWidth disabled={loading} className={styles.submit}>
+          {loading ? "Sending…" : "Send reset link"}
+        </Button>
+      </form>
+    </AuthShell>
   );
 }

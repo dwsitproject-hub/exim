@@ -7,6 +7,7 @@ export interface AppNotification {
   type: string;
   reference_id: string;
   shipment_id: string | null;
+  export_bulking_shipment_id?: string | null;
   message: string;
   read_at: string | null;
   created_at: string;
