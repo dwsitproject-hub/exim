@@ -36,7 +36,8 @@ export class ShipmentStatusService {
     shipmentId: string,
     newStatus: string,
     remarks: string | null,
-    changedBy: string
+    changedBy: string,
+    closedAt?: string | null
   ): Promise<UpdateStatusResponseData> {
     const shipment = await this.shipmentRepo.findById(shipmentId);
     if (!shipment) throw new AppError("Shipment not found", 404);
@@ -145,8 +146,13 @@ export class ShipmentStatusService {
     const updated = await this.shipmentRepo.updateCurrentStatus(shipmentId, newStatus);
     if (!updated) throw new AppError("Failed to update shipment status", 500);
 
-    if (newStatus === "DELIVERED" && !shipment.closed_at) {
-      const deliveredOn = new Date().toISOString().slice(0, 10);
+    if (newStatus === "DELIVERED") {
+      const deliveredOn = closedAt?.trim();
+      if (!deliveredOn) {
+        throw new AppError("Delivered date is required when status is Delivered", 400, [
+          { field: "closed_at", message: "Delivered date is required when status is Delivered" },
+        ]);
+      }
       await this.shipmentRepo.update(shipmentId, { closed_at: deliveredOn });
     }
 

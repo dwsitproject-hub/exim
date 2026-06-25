@@ -588,6 +588,7 @@ function ShipmentDocUploadControl({
   onFile,
   labelTitle,
   buttonLabel = "Upload",
+  accept = SHIPMENT_DOC_FILE_ACCEPT,
 }: {
   disabled: boolean;
   isUploading: boolean;
@@ -595,6 +596,8 @@ function ShipmentDocUploadControl({
   /** Shown on hover when disabled (native tooltip). */
   labelTitle?: string;
   buttonLabel?: string;
+  /** File input accept attribute; unrestricted uploads use any MIME type. */
+  accept?: string;
 }) {
   const inputId = useId();
   return (
@@ -603,7 +606,7 @@ function ShipmentDocUploadControl({
         id={inputId}
         type="file"
         className={styles.shipmentDocFileInputHidden}
-        accept={SHIPMENT_DOC_FILE_ACCEPT}
+        accept={accept}
         disabled={disabled}
         tabIndex={-1}
         onChange={(e) => {
@@ -737,6 +740,10 @@ export function ShipmentDetail({ id }: { id: string }) {
   const [newStatus, setNewStatus] = useState("");
   const [remarks, setRemarks] = useState("");
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [deliveredDateModalOpen, setDeliveredDateModalOpen] = useState(false);
+  const [deliveredDateDraft, setDeliveredDateDraft] = useState("");
+  const [deliveredDateError, setDeliveredDateError] = useState<string | null>(null);
+  const [pendingStatusUpdate, setPendingStatusUpdate] = useState<{ status: string; remarks?: string } | null>(null);
   const [coupleModal, setCoupleModal] = useState(false);
   const [coupleModalError, setCoupleModalError] = useState<string | null>(null);
   const [coupleIntakeIds, setCoupleIntakeIds] = useState("");
@@ -1109,27 +1116,54 @@ export function ShipmentDetail({ id }: { id: string }) {
     setActionError(null);
   }
 
-  function handleUpdateStatus(e: React.FormEvent) {
-    e.preventDefault();
-    if (isUpdatingShipment) return;
-    if (!canUpdateStatus) return;
-    if (!accessToken || !id || !newStatus.trim()) return;
+  function performStatusUpdate(statusToApply: string, remarksValue?: string, closedAt?: string) {
+    if (!accessToken || !id) return;
     setActionError(null);
     setUpdatingStatus(true);
-    const statusToApply = newStatus.trim();
-    updateShipmentStatus(id, statusToApply, remarks.trim() || undefined, accessToken)
+    updateShipmentStatus(id, statusToApply, remarksValue, accessToken, closedAt)
       .then((res) => {
         if (isApiError(res)) {
           setActionError(res.message);
           pushToast(res.message, "error");
           return;
         }
+        setDeliveredDateModalOpen(false);
+        setPendingStatusUpdate(null);
+        setDeliveredDateDraft("");
+        setDeliveredDateError(null);
         setNewStatus("");
         setRemarks("");
         pushToast(`Status updated to ${formatStatusLabel(statusToApply)}.`, "success");
         load();
       })
       .finally(() => setUpdatingStatus(false));
+  }
+
+  function handleUpdateStatus(e: React.FormEvent) {
+    e.preventDefault();
+    if (isUpdatingShipment) return;
+    if (!canUpdateStatus) return;
+    if (!accessToken || !id || !newStatus.trim()) return;
+    setActionError(null);
+    const statusToApply = newStatus.trim();
+    if (statusToApply === "DELIVERED") {
+      setPendingStatusUpdate({ status: statusToApply, remarks: remarks.trim() || undefined });
+      setDeliveredDateDraft("");
+      setDeliveredDateError(null);
+      setDeliveredDateModalOpen(true);
+      return;
+    }
+    performStatusUpdate(statusToApply, remarks.trim() || undefined);
+  }
+
+  function handleConfirmDeliveredDate() {
+    if (!pendingStatusUpdate) return;
+    const date = deliveredDateDraft.trim();
+    if (!date) {
+      setDeliveredDateError("Delivered date is required.");
+      return;
+    }
+    performStatusUpdate(pendingStatusUpdate.status, pendingStatusUpdate.remarks, date);
   }
 
   const INTAKE_UUID_RE =
@@ -1433,7 +1467,7 @@ export function ShipmentDetail({ id }: { id: string }) {
       pushToast(documentRestrictionToastMessage(block), "error");
       return;
     }
-    if (!isAcceptedShipmentDocFile(file)) {
+    if (documentType !== "OTHER" && !isAcceptedShipmentDocFile(file)) {
       pushToast("This file type is not accepted. Use PDF, Word, Excel, or an image.", "error");
       return;
     }
@@ -1690,11 +1724,14 @@ export function ShipmentDetail({ id }: { id: string }) {
     const sb = (d.ship_by ?? "").trim();
     if (sb === "Bulk") return "—";
     if (sb === "LCL") {
-      if (d.unit_package === true) {
-        const cnt = d.package_count != null ? ` × ${d.package_count}` : "";
-        return `Package${cnt}`;
+      const parts: string[] = [];
+      if (d.package_count != null) {
+        parts.push(`${d.package_count.toLocaleString()} packages`);
       }
-      return "—";
+      if (d.cbm != null) {
+        parts.push(`${formatDecimal(d.cbm)} m³`);
+      }
+      return parts.length > 0 ? parts.join(", ") : "—";
     }
     if (sb === "FCL") {
       const parts: string[] = [];
@@ -2480,6 +2517,7 @@ export function ShipmentDetail({ id }: { id: string }) {
 
     const methodForSave = (editShipmentMethod.trim() || detail.shipment_method || "").trim();
     const sea = isShipmentMethodSea(methodForSave);
+    const sb = sea ? editShipBy.trim() : "";
 
     if (sea && editUnit20ft) {
       const v = parseOptInt(
@@ -2503,7 +2541,14 @@ export function ShipmentDetail({ id }: { id: string }) {
       }
       containerCount40ft = v;
     }
-    if (sea && editUnitPackage) {
+    if (sea && sb === "LCL") {
+      const v = parseOptInt(editPackageCount, "Number of packages must be a non-negative whole number.");
+      if (v === false) {
+        setSavingDetails(false);
+        return;
+      }
+      packageCount = v;
+    } else if (sea && editUnitPackage) {
       const v = parseOptInt(editPackageCount, "Number of packages must be a non-negative whole number.");
       if (v === false) {
         setSavingDetails(false);
@@ -2556,7 +2601,6 @@ export function ShipmentDetail({ id }: { id: string }) {
       containerCount40Fr = v;
     }
 
-    const sb = sea ? editShipBy.trim() : "";
     if (sea && !sb) {
       const msg = "Ship by is required when Ship via is Sea.";
       setActionError(msg);
@@ -2634,14 +2678,14 @@ export function ShipmentDetail({ id }: { id: string }) {
               unit_40_hc: false,
               unit_20_fr: false,
               unit_40_fr: false,
-              unit_package: editUnitPackage,
+              unit_package: packageCount != null,
               container_count_20ft: null as number | null,
               container_count_40ft: null as number | null,
               container_count_20_iso_tank: null as number | null,
               container_count_40_hc: null as number | null,
               container_count_20_fr: null as number | null,
               container_count_40_fr: null as number | null,
-              package_count: editUnitPackage ? packageCount : null,
+              package_count: packageCount,
             }
           : sb === "FCL"
             ? {
@@ -3546,37 +3590,32 @@ export function ShipmentDetail({ id }: { id: string }) {
                 ) : editShipBy === "Bulk" ? (
                   <span className={styles.fieldValue}>—</span>
                 ) : editShipBy === "LCL" ? (
-                  <div>
-                    <div className={styles.unitCheckboxRow}>
-                      <label className={styles.unitCheckboxLabel}>
-                        <input
-                          type="checkbox"
-                          checked={editUnitPackage}
-                          onChange={(e) => {
-                            const v = e.target.checked;
-                            setEditUnitPackage(v);
-                            if (!v) setEditPackageCount("");
-                          }}
-                        />
-                        Package
-                      </label>
+                  <div className={styles.unitCountRow}>
+                    <div className={styles.unitCountField}>
+                      <span className={styles.fieldLabel}>Number of packages</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step={1}
+                        className={styles.input}
+                        value={editPackageCount}
+                        onChange={(e) => setEditPackageCount(e.target.value)}
+                        placeholder="e.g. 10"
+                      />
                     </div>
-                    {editUnitPackage && (
-                      <div className={styles.unitCountRow}>
-                        <div className={styles.unitCountField}>
-                          <span className={styles.fieldLabel}>Number of packages</span>
-                          <input
-                            type="number"
-                            min={0}
-                            step={1}
-                            className={styles.input}
-                            value={editPackageCount}
-                            onChange={(e) => setEditPackageCount(e.target.value)}
-                            placeholder="e.g. 10"
-                          />
-                        </div>
-                      </div>
-                    )}
+                    <div className={styles.unitCountField}>
+                      <span className={styles.fieldLabel}>CBM (m³)</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.000001"
+                        className={styles.input}
+                        value={editCbm}
+                        onChange={(e) => setEditCbm(normalizeDecimalInput(e.target.value))}
+                        placeholder="e.g. 12.5"
+                        aria-label="CBM cubic metres"
+                      />
+                    </div>
                   </div>
                 ) : editShipBy === "FCL" ? (
                   <div>
@@ -3986,27 +4025,6 @@ export function ShipmentDetail({ id }: { id: string }) {
             <span className={styles.fieldLabel}>Total Invoice amount</span>
             <span className={styles.fieldValue}>{formatRupiah(detail.total_items_amount)}</span>
           </div>
-          {isShipmentMethodSea(isUpdatingShipment ? editShipmentMethod.trim() || detail.shipment_method : detail.shipment_method) &&
-          (isUpdatingShipment ? editShipBy : detail.ship_by)?.trim() === "LCL" ? (
-            <div className={styles.field}>
-              <span className={styles.fieldLabel}>CBM</span>
-              {isUpdatingShipment ? (
-                <input
-                  type="number"
-                  min={0}
-                  step="0.000001"
-                  className={styles.input}
-                  value={editCbm}
-                  onChange={(e) => setEditCbm(normalizeDecimalInput(e.target.value))}
-                  aria-label="CBM (cubic metres)"
-                />
-              ) : (
-                <span className={styles.fieldValue}>
-                  {detail.cbm != null ? formatDecimal(detail.cbm) : "—"}
-                </span>
-              )}
-            </div>
-          ) : null}
           <div className={styles.field}>
             <span className={styles.fieldLabel}>Net weight (MT)</span>
             {isUpdatingShipment ? (
@@ -4634,12 +4652,17 @@ export function ShipmentDetail({ id }: { id: string }) {
                   .join(" ")}
               >
               {(() => {
-                const blockReason = getShipmentDocumentUploadBlockReason({
-                  shipment: detail,
-                  documentType: slot.document_type,
-                  documents: shipmentDocuments,
-                  shipmentStatusDelivered: shipmentDocumentsLockedByDeliveredStatus,
-                });
+                const blockReason = slot.noUploadPrerequisites
+                  ? shipmentDocumentsLockedByDeliveredStatus
+                    ? ("delivered" as DocumentUploadBlockReason)
+                    : null
+                  : getShipmentDocumentUploadBlockReason({
+                      shipment: detail,
+                      documentType: slot.document_type,
+                      documents: shipmentDocuments,
+                      shipmentStatusDelivered: shipmentDocumentsLockedByDeliveredStatus,
+                    });
+                const fileAccept = slot.allowAnyFile ? "*/*" : SHIPMENT_DOC_FILE_ACCEPT;
                 const uploadTitle = getShipmentDocUploadButtonTitle(slot.document_type, blockReason);
                 const showSlotLock = blockReason !== null;
                 const subShell = (locked: boolean) =>
@@ -4650,7 +4673,9 @@ export function ShipmentDetail({ id }: { id: string }) {
                 const uploadOff = (key: string) => blockReason !== null || uploadBusy(key);
 
                 const prereqHintPib =
-                  !shipmentDocumentsLockedByDeliveredStatus && !canUploadPO(detail) ? (
+                  !slot.noUploadPrerequisites &&
+                  !shipmentDocumentsLockedByDeliveredStatus &&
+                  !canUploadPO(detail) ? (
                     <p className={styles.shipmentDocLockedHint} role="note">
                       {slot.document_type === "PO"
                         ? "Set and save PIB type in General Information before uploading PO documents."
@@ -4658,6 +4683,7 @@ export function ShipmentDetail({ id }: { id: string }) {
                     </p>
                   ) : null;
                 const prereqHintPo =
+                  !slot.noUploadPrerequisites &&
                   !shipmentDocumentsLockedByDeliveredStatus &&
                   canUploadPO(detail) &&
                   !isPOUploaded(shipmentDocuments) &&
@@ -4714,6 +4740,7 @@ export function ShipmentDetail({ id }: { id: string }) {
                                         isUploading={uploadBusy(slotKey)}
                                         labelTitle={uploadTitle}
                                         buttonLabel={slot.document_type === "PO" ? "Upload PO" : "Upload"}
+                                        accept={fileAccept}
                                         onFile={(f) => handleShipmentDocumentUpload(slot.document_type, null, f, po.intake_id)}
                                       />
                                     )}
@@ -4764,6 +4791,7 @@ export function ShipmentDetail({ id }: { id: string }) {
                                     disabled={uploadOff(slotKey)}
                                     isUploading={uploadBusy(slotKey)}
                                     labelTitle={uploadTitle}
+                                    accept={fileAccept}
                                     onFile={(f) => handleShipmentDocumentUpload(slot.document_type, st, f)}
                                   />
                                 )}
@@ -4789,6 +4817,7 @@ export function ShipmentDetail({ id }: { id: string }) {
                               disabled={uploadOff(shipmentDocSlotKey(slot.document_type, null))}
                               isUploading={uploadBusy(shipmentDocSlotKey(slot.document_type, null))}
                               labelTitle={uploadTitle}
+                              accept={fileAccept}
                               onFile={(f) => handleShipmentDocumentUpload(slot.document_type, null, f)}
                             />
                           )}
@@ -4880,6 +4909,78 @@ export function ShipmentDetail({ id }: { id: string }) {
                 variant="secondary"
                 onClick={() => setDeleteConfirmOpen(false)}
                 disabled={deletingShipment}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deliveredDateModalOpen && pendingStatusUpdate && (
+        <div
+          className={styles.modalOverlay}
+          onClick={() => {
+            if (updatingStatus) return;
+            setDeliveredDateModalOpen(false);
+            setPendingStatusUpdate(null);
+            setDeliveredDateDraft("");
+            setDeliveredDateError(null);
+          }}
+        >
+          <div
+            className={styles.modal}
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delivered-date-modal-title"
+          >
+            <h3 id="delivered-date-modal-title" className={styles.modalTitle}>
+              Delivered date required
+            </h3>
+            <p className={styles.modalHint}>
+              Enter the date this shipment was delivered. The status will not change until you confirm with a valid date.
+            </p>
+            <label className={styles.field}>
+              <span className={styles.fieldLabel}>Delivered date</span>
+              <input
+                type="date"
+                className={styles.input}
+                value={deliveredDateDraft}
+                onChange={(e) => {
+                  setDeliveredDateDraft(e.target.value);
+                  if (deliveredDateError) setDeliveredDateError(null);
+                }}
+                aria-invalid={deliveredDateError ? true : undefined}
+                aria-describedby={deliveredDateError ? "delivered-date-modal-error" : undefined}
+                autoFocus
+              />
+            </label>
+            {deliveredDateError && (
+              <p id="delivered-date-modal-error" className={styles.error} role="alert">
+                {deliveredDateError}
+              </p>
+            )}
+            <div className={styles.modalActions}>
+              <Button
+                type="button"
+                variant="primary"
+                onClick={handleConfirmDeliveredDate}
+                disabled={updatingStatus}
+              >
+                {updatingStatus ? "Updating…" : "Confirm delivered"}
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => {
+                  if (updatingStatus) return;
+                  setDeliveredDateModalOpen(false);
+                  setPendingStatusUpdate(null);
+                  setDeliveredDateDraft("");
+                  setDeliveredDateError(null);
+                }}
+                disabled={updatingStatus}
               >
                 Cancel
               </Button>

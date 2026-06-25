@@ -11,6 +11,40 @@
   color: var(--color-semantic-destructive-default, #c43a31);
 }
 
+.errorContainer {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3, 16px);
+  flex-wrap: wrap;
+  padding: var(--spacing-4, 24px);
+  border: 1px solid var(--color-semantic-destructive-default, #c43a31);
+  border-radius: var(--borderRadius-lg, 12px);
+  background-color: #fff5f5;
+  margin-bottom: var(--spacing-5, 32px);
+}
+
+.retryBtn {
+  flex-shrink: 0;
+  padding: var(--spacing-2, 8px) var(--spacing-3, 16px);
+  font-size: var(--typography-fontSize-small, 14px);
+  font-weight: var(--typography-fontWeight-semibold, 600);
+  color: var(--color-semantic-primary-foreground, #ffffff);
+  background-color: var(--color-semantic-destructive-default, #c43a31);
+  border: none;
+  border-radius: var(--borderRadius-md, 8px);
+  cursor: pointer;
+  transition: background-color var(--animation-duration-fast, 150ms) var(--animation-easing-default, ease-out);
+}
+
+.retryBtn:hover {
+  background-color: var(--color-semantic-primary-hover, #9e2c25);
+}
+
+.retryBtn:focus-visible {
+  outline: 2px solid var(--color-semantic-destructive-default, #c43a31);
+  outline-offset: 2px;
+}
+
 .summaryGrid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 168px), 1fr));

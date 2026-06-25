@@ -343,7 +343,7 @@ export function CreatePo() {
             </div>
             <div className={styles.field}>
               <label className={styles.fieldLabel} htmlFor="plant">
-                Plant <RequiredMark />
+                Plant {form.pt && plantConfig?.mode !== "none" ? <RequiredMark /> : null}
               </label>
               {!form.pt && (
                 <input
@@ -384,6 +384,17 @@ export function CreatePo() {
                     </option>
                   ))}
                 </select>
+              )}
+              {form.pt && plantConfig?.mode === "none" && (
+                <input
+                  id="plant"
+                  type="text"
+                  className={styles.formInput}
+                  value="—"
+                  readOnly
+                  disabled
+                  aria-label="Plant not applicable"
+                />
               )}
             </div>
             <div className={styles.field}>

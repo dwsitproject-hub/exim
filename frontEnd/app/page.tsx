@@ -42,7 +42,7 @@ export default function HubPage() {
       </div>
       <p className={styles.hubWelcome}>Welcome, {user.name}. Choose a section to continue.</p>
       <div className={styles.hubCards}>
-        <Link href="/import/dashboard" className={styles.hubCard}>
+        <Link href="/dashboard" className={styles.hubCard}>
           <ArrowDownLeft size={28} strokeWidth={2} aria-hidden />
           <div>
             <span className={styles.hubCardTitle}>Import</span>

@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronRight, Filter, Plane, Ship, X } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { can } from "@/lib/permissions";
 import { PT_OPTION_LABELS, getAllPlantsSorted } from "@/lib/po-create-constants";
+import { displayPtPlantLabel, displayPtShortName } from "@/lib/pt-display";
 import { PRODUCT_CLASSIFICATION_OPTIONS, displayProductClassification } from "@/lib/product-classification";
 import { getShipmentAnalytics, getShipmentAnalyticsLines } from "@/services/dashboard-service";
 import { listPo, getPoDetail } from "@/services/po-service";
@@ -25,6 +26,7 @@ import { isApiError } from "@/types/api";
 import type { ApiSuccess } from "@/types/api";
 import type {
   ShipmentAnalyticsLineAggRow,
+  ShipmentAnalyticsLinesResult,
   ShipmentAnalyticsQuery,
   ShipmentAnalyticsSummary,
 } from "@/types/analytics";
@@ -91,8 +93,7 @@ function formatYmd(d: Date): string {
 
 function defaultRange(): { from: string; to: string } {
   const to = new Date();
-  const from = new Date();
-  from.setDate(from.getDate() - 90);
+  const from = new Date(to.getFullYear(), 0, 1);
   return { from: formatYmd(from), to: formatYmd(to) };
 }
 
@@ -171,6 +172,9 @@ export function DashboardAnalyticsSection() {
   const [logisticsModalOpen, setLogisticsModalOpen] = useState(false);
   const [managerialLoading, setManagerialLoading] = useState(false);
   const [managerial, setManagerial] = useState<ManagerialInsights | null>(null);
+
+  const drillCloseRef = useRef<HTMLButtonElement>(null);
+  const logisticsCloseRef = useRef<HTMLButtonElement>(null);
 
   const goLogisticsDetail = useCallback((tab: TransportTab) => {
     setDrill(null);
@@ -459,7 +463,8 @@ export function DashboardAnalyticsSection() {
           setLineAggRows([]);
           return;
         }
-        setLineAggRows((res as ApiSuccess<ShipmentAnalyticsLineAggRow[]>).data ?? []);
+        const data = (res as ApiSuccess<ShipmentAnalyticsLinesResult>).data;
+        setLineAggRows(data?.rows ?? []);
       })
       .catch(() => {
         if (!cancelled) setLineAggRows([]);
@@ -557,6 +562,14 @@ export function DashboardAnalyticsSection() {
     return () => window.removeEventListener("keydown", onKey);
   }, [drill, logisticsModalOpen]);
 
+  useEffect(() => {
+    if (drill) drillCloseRef.current?.focus();
+  }, [drill]);
+
+  useEffect(() => {
+    if (logisticsModalOpen) logisticsCloseRef.current?.focus();
+  }, [logisticsModalOpen]);
+
   const dateRangeLabel = useMemo(() => {
     const a = new Date(`${applied.dateFrom}T12:00:00`);
     const b = new Date(`${applied.dateTo}T12:00:00`);
@@ -596,7 +609,7 @@ export function DashboardAnalyticsSection() {
             <Filter size={18} strokeWidth={2} aria-hidden />
             Filter
           </button>
-          <button type="button" className={styles.refreshBtn} onClick={loadSummary} disabled={loading}>
+          <button type="button" className={styles.filterOpenBtn} onClick={loadSummary} disabled={loading}>
             Refresh
           </button>
         </div>
@@ -617,7 +630,7 @@ export function DashboardAnalyticsSection() {
           )}
           {applied.pts.map((pt) => (
             <span key={pt} className={styles.analyticsChip}>
-              PT: {pt}
+              PT: {displayPtShortName(pt)}
               <button
                 type="button"
                 className={styles.analyticsChipRemove}
@@ -720,7 +733,9 @@ export function DashboardAnalyticsSection() {
               <div className={styles.alertTiles}>
                 <button
                   type="button"
-                  className={`${styles.alertTile} ${styles.alertTileDeepLink}`}
+                  className={`${styles.alertTile} ${styles.alertTileDeepLink} ${
+                    (managerial?.stalePoNumbers.length ?? 0) > 0 ? styles.alertTileWarning : ""
+                  }`}
                   title={managerialFilterTooltip(managerial?.stalePoNumbers.length ?? 0)}
                   onClick={() =>
                     router.push(buildPoListDeepLink(MANAGERIAL_LIST_FILTERS.stale, DEFAULT_STALE_DAYS))
@@ -747,7 +762,9 @@ export function DashboardAnalyticsSection() {
                 </button>
                 <button
                   type="button"
-                  className={`${styles.alertTile} ${styles.alertTileDeepLink}`}
+                  className={`${styles.alertTile} ${styles.alertTileDeepLink} ${
+                    (managerial?.dormantShipmentCount ?? 0) > 0 ? styles.alertTileWarning : ""
+                  }`}
                   title={managerialFilterTooltip(managerial?.dormantShipmentCount ?? 0)}
                   onClick={() =>
                     router.push(
@@ -760,13 +777,32 @@ export function DashboardAnalyticsSection() {
                 </button>
                 <button
                   type="button"
-                  className={styles.alertTile}
+                  className={`${styles.alertTile} ${styles.alertTileDeepLink} ${
+                    (managerial?.overdueCustomsCount ?? 0) > 0 ? styles.alertTileWarning : ""
+                  }`}
                   onClick={() => router.push("/import/shipments?status=CUSTOMS_CLEARANCE")}
                 >
-                  <p className={styles.alertTileLabel}>Overdue customs shipments ({managerialThresholds.overdueCustomsDays}d+)</p>
+                  <p className={styles.alertTileLabel}>Overdue customs ({managerialThresholds.overdueCustomsDays}d+)</p>
                   <p className={styles.alertTileValue}>{managerial?.overdueCustomsCount ?? 0}</p>
                 </button>
               </div>
+
+              {(managerial?.customsLeadByPlant ?? []).length > 0 && (
+                <div className={styles.customsLeadMini}>
+                  <p className={styles.seaLoadLabel}>Customs clearance avg days by plant</p>
+                  <ul className={styles.customsLeadList}>
+                    {managerial!.customsLeadByPlant.map((row) => (
+                      <li key={row.plant}>
+                        <span>{row.plant}</span>
+                        <div className={styles.customsLeadBarTrack}>
+                          <div className={styles.customsLeadBarFill} style={{ width: `${Math.min(100, row.days * 10)}%` }} />
+                        </div>
+                        <strong>{row.days.toFixed(1)}d</strong>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </Card>
             <Card className={styles.managerialCard}>
               <h3 className={styles.analyticsCardTitle}>Financial visibility</h3>
@@ -1008,27 +1044,18 @@ export function DashboardAnalyticsSection() {
                     ))}
                   </ul>
                   <p className={styles.seaLoadCaption}>
-                    LCL — total packages: {summary.sea_logistics.lcl_package_count_total}. FCL containers
-                    (20′ / 40′ / ISO tank): {summary.sea_logistics.fcl_container_totals.container_20ft} /{" "}
-                    {summary.sea_logistics.fcl_container_totals.container_40ft} /{" "}
-                    {summary.sea_logistics.fcl_container_totals.iso_tank_20}.
+                    LCL — packages: {summary.sea_logistics.lcl_package_count_total.toLocaleString()}
+                    {summary.sea_logistics.lcl_cbm_total > 0
+                      ? ` · CBM: ${summary.sea_logistics.lcl_cbm_total.toLocaleString(undefined, { maximumFractionDigits: 2 })} m³`
+                      : ""}
+                    .{" "}
+                    FCL containers:{" "}
+                    {summary.sea_logistics.fcl_containers.length > 0
+                      ? summary.sea_logistics.fcl_containers.map((fc) => `${fc.label}: ${fc.count}`).join(" / ")
+                      : "—"}.
                   </p>
                 </div>
               )}
-              <div className={styles.customsLeadMini}>
-                <p className={styles.seaLoadLabel}>Customs clearance avg days by plant</p>
-                <ul className={styles.customsLeadList}>
-                  {(managerial?.customsLeadByPlant ?? []).map((row) => (
-                    <li key={row.plant}>
-                      <span>{row.plant}</span>
-                      <div className={styles.customsLeadBarTrack}>
-                        <div className={styles.customsLeadBarFill} style={{ width: `${Math.min(100, row.days * 10)}%` }} />
-                      </div>
-                      <strong>{row.days.toFixed(1)}d</strong>
-                    </li>
-                  ))}
-                </ul>
-              </div>
             </Card>
           </div>
 
@@ -1051,9 +1078,10 @@ export function DashboardAnalyticsSection() {
                     Logistics detail
                   </h3>
                   <button
+                    ref={logisticsCloseRef}
                     type="button"
                     className={styles.analyticsDrillClose}
-                    aria-label="Close"
+                    aria-label="Close logistics detail"
                     onClick={() => setLogisticsModalOpen(false)}
                   >
                     <X size={20} />
@@ -1095,9 +1123,10 @@ export function DashboardAnalyticsSection() {
                         : `Classification · ${displayProductClassification(drill.classification)}`)}
                   </h3>
                   <button
+                    ref={drillCloseRef}
                     type="button"
                     className={styles.analyticsDrillClose}
-                    aria-label="Close"
+                    aria-label="Close drill-down detail"
                     onClick={() => setDrill(null)}
                   >
                     <X size={20} />
@@ -1130,7 +1159,7 @@ export function DashboardAnalyticsSection() {
                           key={`${row.item_description}|${row.pt ?? ""}|${row.plant ?? ""}`}
                         >
                           <TableCell>{row.item_description}</TableCell>
-                          <TableCell>{row.pt ?? "—"}</TableCell>
+                          <TableCell>{row.pt ? displayPtShortName(row.pt) : "—"}</TableCell>
                           <TableCell>{row.plant ?? "—"}</TableCell>
                           <TableCell>{row.unit?.trim() ? row.unit.trim() : "—"}</TableCell>
                           <TableCell>{formatQtyDelivered(row.total_qty_delivered)}</TableCell>
@@ -1172,12 +1201,10 @@ export function DashboardAnalyticsSection() {
               <button
                 type="button"
                 className={styles.filterIconBtn}
-                aria-label="Close"
+                aria-label="Close filters"
                 onClick={() => setFilterOpen(false)}
               >
-                <span aria-hidden style={{ fontSize: "1.25rem", lineHeight: 1 }}>
-                  ×
-                </span>
+                <X size={20} aria-hidden />
               </button>
             </div>
             <div className={styles.filterAsideBody}>
@@ -1217,7 +1244,7 @@ export function DashboardAnalyticsSection() {
                           }))
                         }
                       />
-                      {pt}
+                      {displayPtShortName(pt)}
                     </label>
                   ))}
                 </div>
@@ -1308,7 +1335,7 @@ export function DashboardAnalyticsSection() {
               <button type="button" className={styles.btnSecondary} style={{ flex: 1 }} onClick={resetFilters}>
                 Reset
               </button>
-              <button type="button" className={styles.refreshBtn} style={{ flex: 1 }} onClick={applyFilters}>
+              <button type="button" className={styles.btnPrimary} style={{ flex: 1 }} onClick={applyFilters}>
                 Apply filters
               </button>
             </div>

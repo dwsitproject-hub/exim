@@ -99,7 +99,8 @@ export function buildFilingPathContext(
  */
 export function buildShipmentDocumentDirectoryPrefix(
   shipment: ShipmentRow,
-  ctx: FilingPathContext | null
+  ctx: FilingPathContext | null,
+  documentType?: string
 ): string {
   const year = shipmentYearUtc(shipment);
   const pt = ctx ? segment(ctx.pt, "_NO_PT") : "_NO_PT";
@@ -115,5 +116,9 @@ export function buildShipmentDocumentDirectoryPrefix(
     : segment(shipment.shipment_no, "NO_SHIPMENT_NO");
   const supplierPo = `${supplierPart}__${poPart}`.slice(0, MAX_SEGMENT * 3);
 
-  return [IMPORT_STORAGE_ROOT, pt, year, plantBc, supplierPo].join("/");
+  const prefix = [IMPORT_STORAGE_ROOT, pt, year, plantBc, supplierPo].join("/");
+  if (documentType === "OTHER") {
+    return `${prefix}/Other`;
+  }
+  return prefix;
 }

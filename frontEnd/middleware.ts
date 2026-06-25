@@ -6,10 +6,10 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { ACCESS_COOKIE_NAME } from "@/lib/cookies";
-import { LOGIN_PATH } from "@/lib/constants";
+import { LOGIN_PATH, DEFAULT_AFTER_LOGIN_PATH } from "@/lib/constants";
 
 /** Paths that require authentication (exact or prefix). */
-const PROTECTED_PREFIXES = ["/import", "/export", "/admin"];
+const PROTECTED_PREFIXES = ["/dashboard", "/import"];
 
 function isProtectedPath(pathname: string): boolean {
   return PROTECTED_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
@@ -53,5 +53,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/", "/import", "/import/:path*", "/export/:path*", "/admin/:path*"],
+  matcher: ["/", "/dashboard", "/dashboard/:path*", "/import", "/import/:path*"],
 };

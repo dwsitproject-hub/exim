@@ -61,18 +61,30 @@ export const PT_OPTION_LABELS = [
   "ROYAL FOODS INDONESIA",
   "PRIMA MAKMUR CAKRAWALA",
   "SUMBER PANGAN CEMERLANG",
+  "RIAU SEMESTA BIOMASA",
+  "SUMATERA BULKERS",
+  "SUMATERA UNGGUL MAKMUR",
 ] as const;
 
 export type PtOptionLabel = (typeof PT_OPTION_LABELS)[number];
 
 export type PtPlantConfig =
   | { mode: "fixed"; plant: string }
-  | { mode: "select"; plants: readonly string[] };
+  | { mode: "select"; plants: readonly string[] }
+  | { mode: "none" };
 
 export const PT_PLANT_MAP: Record<PtOptionLabel, PtPlantConfig> = {
   "ENERGI UNGGUL PERSADA": {
     mode: "select",
-    plants: ["BATAM", "BONTANG", "LUBUK GAUNG", "KIJING / TJ PURA"],
+    plants: [
+      "BATAM",
+      "BONTANG",
+      "DUMAI",
+      "KUMAI",
+      "LUBUK GAUNG",
+      "PALEMBANG",
+      "TANJUNG PURA",
+    ],
   },
   "ENERGI OLEO PERSADA": { mode: "fixed", plant: "MORAWA" },
   "PRIMUS SANUS COOKING OIL INDUSTRIAL (PT. PRISCOLIN)": {
@@ -83,6 +95,9 @@ export const PT_PLANT_MAP: Record<PtOptionLabel, PtPlantConfig> = {
   "ROYAL FOODS INDONESIA": { mode: "fixed", plant: "BEKASI" },
   "PRIMA MAKMUR CAKRAWALA": { mode: "fixed", plant: "LUBUK GAUNG" },
   "SUMBER PANGAN CEMERLANG": { mode: "fixed", plant: "LUBUK GAUNG" },
+  "RIAU SEMESTA BIOMASA": { mode: "none" },
+  "SUMATERA BULKERS": { mode: "none" },
+  "SUMATERA UNGGUL MAKMUR": { mode: "none" },
 };
 
 /** Lowercase PT → canonical label from `PT_OPTION_LABELS` (for API/import casing drift). */
@@ -108,7 +123,7 @@ export function getAllPlantsSorted(): string[] {
   const set = new Set<string>();
   for (const cfg of Object.values(PT_PLANT_MAP)) {
     if (cfg.mode === "fixed") set.add(cfg.plant);
-    else cfg.plants.forEach((p) => set.add(p));
+    else if (cfg.mode === "select") cfg.plants.forEach((p) => set.add(p));
   }
   return [...set].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
 }

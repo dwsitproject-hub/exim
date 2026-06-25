@@ -88,8 +88,13 @@ function detailToForm(detail: PoDetailType): EditPoFormState {
   const pt = canonicalizePtLabel(detail.pt);
   const pc = pt ? getPlantConfigForPt(pt) : null;
   let plant = detail.plant?.trim() ?? "";
+  if (plant.toUpperCase() === "KIJING / TJ PURA") {
+    plant = "TANJUNG PURA";
+  }
   if (pc?.mode === "fixed") {
     plant = pc.plant;
+  } else if (pc?.mode === "none") {
+    plant = "";
   } else if (pc?.mode === "select" && plant) {
     const hit = pc.plants.find((p) => p.localeCompare(plant, undefined, { sensitivity: "accent" }) === 0);
     if (hit) plant = hit;
@@ -392,7 +397,7 @@ export function PoEdit({ id }: { id: string }) {
             </div>
             <div className={styles.field}>
               <label className={styles.fieldLabel} htmlFor="plant">
-                Plant *
+                Plant {plantConfig?.mode !== "none" ? "*" : ""}
               </label>
               {!form.pt && (
                 <input
@@ -440,6 +445,17 @@ export function PoEdit({ id }: { id: string }) {
                     </option>
                   ))}
                 </select>
+              )}
+              {form.pt && plantConfig?.mode === "none" && (
+                <input
+                  id="plant"
+                  type="text"
+                  className={styles.formInput}
+                  value="—"
+                  readOnly
+                  disabled
+                  aria-label="Plant not applicable"
+                />
               )}
               {form.pt && !plantConfig && (
                 <input

@@ -7,6 +7,8 @@
 export const ROLES = {
   ADMIN: "ADMIN",
   IMPORT_OFFICER: "IMPORT_OFFICER",
+  /** Legacy name; still present in some production DBs (same privileges as IMPORT_OFFICER). */
+  EXIM_OFFICER: "EXIM_OFFICER",
   VIEWER: "VIEWER",
   DOCS: "DOCS",
   EXPORT_BULKING_OPERATION: "EXPORT_BULKING_OPERATION",
@@ -15,6 +17,12 @@ export const ROLES = {
 } as const;
 
 export type Role = (typeof ROLES)[keyof typeof ROLES];
+
+/** Active users with either role receive import shipment ETA H-3/H-2/H-1 notifications. */
+export const IMPORT_ETA_REMINDER_ROLES: readonly string[] = [
+  ROLES.IMPORT_OFFICER,
+  ROLES.EXIM_OFFICER,
+];
 
 /** Permissions from Access Control Matrix. */
 export const PERMISSIONS = {

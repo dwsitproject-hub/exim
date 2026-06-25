@@ -34,6 +34,7 @@ export function DashboardContent() {
   const [countsLoading, setCountsLoading] = useState(true);
   const [recentListLoading, setRecentListLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [retryTrigger, setRetryTrigger] = useState(0);
 
   useEffect(() => {
     if (!accessToken) {
@@ -82,10 +83,29 @@ export function DashboardContent() {
     return () => {
       cancelled = true;
     };
-  }, [accessToken]);
+  }, [accessToken, retryTrigger]);
 
   if (authLoading) return <LoadingSkeleton lines={5} className={styles.loading} />;
-  if (error) return <p className={styles.error}>{error}</p>;
+  if (error) {
+    return (
+      <section>
+        <PageHeader
+          title="Dashboard"
+          subtitle={user ? `Welcome, ${user.name} (${user.role})` : undefined}
+        />
+        <div className={styles.errorContainer}>
+          <p className={styles.error}>{error}</p>
+          <button
+            type="button"
+            className={styles.retryBtn}
+            onClick={() => setRetryTrigger((t) => t + 1)}
+          >
+            Try again
+          </button>
+        </div>
+      </section>
+    );
+  }
 
   const viewAllShipmentsHref = "/import/shipments";
 
@@ -97,69 +117,69 @@ export function DashboardContent() {
           subtitle={user ? `Welcome, ${user.name} (${user.role})` : undefined}
         />
 
+        <div className={styles.quickActions}>
+          <span className={styles.quickActionsLabel}>Quick actions</span>
+          <div className={styles.quickActionsButtons}>
+            <Link href="/import/po" className={styles.btnPrimary}>
+              View Purchase Orders
+            </Link>
+            <Link href="/import/shipments" className={styles.btnSecondary}>
+              View Shipments
+            </Link>
+          </div>
+        </div>
+
         {!can(user, VIEW_SHIPMENTS) && <DashboardUsdRateBar />}
 
         {countsLoading ? (
           <LoadingSkeleton lines={4} className={styles.loading} />
         ) : (
-        <div className={styles.summaryGrid}>
-        <StatsCard
-          label="New Purchase Order detected"
-          value={poCounts.newPoDetected}
-          href="/import/po?intake_status=NEW_PO_DETECTED"
-          icon={<IconBox />}
-        />
-        <StatsCard
-          label="Claimed (awaiting allocation)"
-          value={poCounts.awaitingAssignment}
-          href="/import/po?intake_status=CLAIMED"
-          aria-label="Claimed awaiting allocation"
-          icon={<IconClock />}
-        />
-        <StatsCard
-          label="Active shipments"
-          value={shipmentCounts.activeShipments}
-          href="/import/shipments"
-          aria-label="Shipments in progress (not delivered and not closed)"
-          icon={<IconShip />}
-        />
-        <StatsCard
-          label="Customs clearance"
-          value={shipmentCounts.customsClearance}
-          href="/import/shipments?status=CUSTOMS_CLEARANCE"
-          aria-label="Customs clearance"
-          icon={<IconDocument />}
-        />
-        <StatsCard
-          label="Delivered"
-          value={shipmentCounts.delivered}
-          href="/import/shipments?status=DELIVERED"
-          aria-label="Delivered"
-          icon={<IconCheck />}
-        />
-      </div>
+          <div className={styles.summaryGrid}>
+            <StatsCard
+              label="New POs Detected"
+              value={poCounts.newPoDetected}
+              href="/import/po?intake_status=NEW_PO_DETECTED"
+              icon={<IconBox />}
+            />
+            <StatsCard
+              label="Awaiting Allocation"
+              value={poCounts.awaitingAssignment}
+              href="/import/po?intake_status=CLAIMED"
+              aria-label="Claimed awaiting allocation"
+              icon={<IconClock />}
+            />
+            <StatsCard
+              label="Active Shipments"
+              value={shipmentCounts.activeShipments}
+              href="/import/shipments"
+              aria-label="Shipments in progress (not delivered and not closed)"
+              icon={<IconShip />}
+            />
+            <StatsCard
+              label="In Customs"
+              value={shipmentCounts.customsClearance}
+              href="/import/shipments?status=CUSTOMS_CLEARANCE"
+              aria-label="Customs clearance"
+              icon={<IconDocument />}
+            />
+            <StatsCard
+              label="Delivered"
+              value={shipmentCounts.delivered}
+              href="/import/shipments?status=DELIVERED"
+              aria-label="Delivered"
+              icon={<IconCheck />}
+            />
+          </div>
         )}
 
-      <div className={styles.quickActions}>
-        <span className={styles.quickActionsLabel}>Quick actions</span>
-        <div className={styles.quickActionsButtons}>
-          <Link href="/import/po" className={styles.btnPrimary}>
-            View Purchase Order
-          </Link>
-          <Link href="/import/shipments" className={styles.btnSecondary}>
-            View shipments
-          </Link>
-        </div>
-      </div>
+        {can(user, VIEW_SHIPMENTS) && <DashboardAnalyticsSection />}
 
-      {can(user, VIEW_SHIPMENTS) && <DashboardAnalyticsSection />}
-
-      <div className={styles.recentSection} data-tour="dashboard-recent-shipments">
-        <RecentShipmentsCard
-          rows={recentShipments}
-          loading={recentListLoading}
-          viewAllHref={viewAllShipmentsHref}
-        />
+        <div className={styles.recentSection} data-tour="dashboard-recent-shipments">
+          <RecentShipmentsCard
+            rows={recentShipments}
+            loading={recentListLoading}
+            viewAllHref={viewAllShipmentsHref}
+          />
         </div>
       </section>
     </DashboardCurrencyProvider>

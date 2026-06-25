@@ -12,6 +12,7 @@ import { Card } from "@/components/cards";
 import { LoadingSkeleton } from "@/components/feedback";
 import { StatusBadge } from "@/components/badges/StatusBadge";
 import { PageHeader, ActionBar, EmptyState } from "@/components/navigation";
+import { useShipmentListRowContextMenu } from "@/components/shipments";
 import { SearchBar } from "@/components/forms";
 import {
   Table,
@@ -145,6 +146,7 @@ function CellText({ value, className }: { value: string | null | undefined; clas
 export function ShipmentList() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { openRowContextMenu, rowContextMenu } = useShipmentListRowContextMenu();
   const searchFromUrl = searchParams.get("search") ?? "";
   const poFromUrl = (searchParams.get("po_from_date") ?? "").trim();
   const poToUrl = (searchParams.get("po_to_date") ?? "").trim();
@@ -367,8 +369,12 @@ export function ShipmentList() {
 
   const totalPages = meta ? Math.ceil(meta.total / meta.limit) : 0;
 
+  function shipmentDetailHref(shipmentId: string) {
+    return `/import/shipments/${shipmentId}`;
+  }
+
   function handleRowClick(shipmentId: string) {
-    router.push(`/import/shipments/${shipmentId}`);
+    router.push(shipmentDetailHref(shipmentId));
   }
 
   function handleSearchSubmit() {
@@ -451,7 +457,7 @@ export function ShipmentList() {
         return (
           <TableCell key={column.id}>
             <Link
-              href={`/import/shipments/${row.id}`}
+              href={shipmentDetailHref(row.id)}
               className={styles.cellLink}
               onClick={(e) => e.stopPropagation()}
             >
@@ -628,7 +634,7 @@ export function ShipmentList() {
             value={searchInput}
             onChange={setSearchInput}
             onSubmit={handleSearchSubmit}
-            placeholder="Search shipment or supplier…"
+            placeholder="Search shipment, supplier, PO, BL, or invoice no…"
             ariaLabel="Search shipments"
             fluid
           />
@@ -837,6 +843,7 @@ export function ShipmentList() {
                         <TableRow
                           className={styles.rowInteractive}
                           onClick={() => handleRowClick(row.id)}
+                          onContextMenu={(e) => openRowContextMenu(e, shipmentDetailHref(row.id))}
                           onKeyDown={(e) => {
                             if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) {
                               e.preventDefault();
@@ -872,6 +879,7 @@ export function ShipmentList() {
           )}
         </Card>
       )}
+      {rowContextMenu}
     </section>
   );
 }
