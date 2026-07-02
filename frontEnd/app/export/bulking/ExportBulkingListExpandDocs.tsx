@@ -395,7 +395,8 @@ export function BulkingExpandDocsPanel({
   const sis = data?.sis ?? [];
   const invoices = data?.invoices ?? [];
 
-  const showCargo = listView === "all" || listView === "operations";
+  const showCargo =
+    listView === "all" || listView === "documentation" || (listView === "operations" && !canViewDocs);
   const showDocs = (listView === "all" || listView === "documentation") && canViewDocs;
 
   let panelClass = styles.expandedPanel;

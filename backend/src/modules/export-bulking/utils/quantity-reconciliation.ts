@@ -63,13 +63,21 @@ export function sumInvoiceQtyForSi(
 ): number {
   let total = 0;
   for (const inv of invoices) {
-    if ((inv.shipping_instruction_id ?? "").trim() !== siId) continue;
     if (excludeInvoiceId && inv.id === excludeInvoiceId) continue;
-    const lines =
-      overrideInvoiceId && inv.id === overrideInvoiceId && overrideLines !== undefined
-        ? overrideLines
-        : (inv.lines ?? []);
-    for (const line of lines) {
+
+    const isOverride =
+      overrideInvoiceId != null &&
+      inv.id === overrideInvoiceId &&
+      overrideLines !== undefined;
+
+    if (isOverride) {
+      for (const line of overrideLines) total += toQty(line.quantity);
+      continue;
+    }
+
+    if ((inv.shipping_instruction_id ?? "").trim() !== siId) continue;
+
+    for (const line of inv.lines ?? []) {
       total += toQty(line.quantity);
     }
   }

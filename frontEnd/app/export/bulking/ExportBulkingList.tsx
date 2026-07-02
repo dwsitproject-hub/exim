@@ -68,6 +68,7 @@ import {
   EXPORT_DOC_COLUMN_IDS,
   buildBulkingDetailUrl,
   canEditExportBulking,
+  canEditExportCargo,
   canEditExportDocumentation,
   canEditExportOperations,
   expandRowAriaLabel,
@@ -329,6 +330,7 @@ export function ExportBulkingList() {
   const canViewDocs = can(user, "VIEW_EXPORT_DOCUMENTATION");
   const canEditOps = canEditExportOperations(user);
   const canEditDocs = canEditExportDocumentation(user);
+  const canEditCargo = canEditExportCargo(user);
   const canEditAny = canEditExportBulking(user);
   const canCreateShipment = can(user, "CREATE_EXPORT_BULKING");
   const canAssignDocs = can(user, "ASSIGN_EXPORT_BULKING_DOCUMENTATION");
@@ -1217,7 +1219,7 @@ export function ExportBulkingList() {
             data={rowExpandedData[row.id] ?? null}
             loading={!!rowExpandLoading[row.id]}
             canViewDocs={canViewDocs}
-            canEditCargo={canEditOps}
+            canEditCargo={canEditCargo}
             canEditDocs={canEditDocs}
             listView={listView}
             onRefresh={() => refreshRowExpandedData(row.id)}

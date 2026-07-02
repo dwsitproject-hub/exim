@@ -37,8 +37,18 @@ exportBulkingRoutes.get("/shipments/:id/status-events", authMiddleware, requireP
 
 /* ───── cargo lines ───── */
 exportBulkingRoutes.get("/shipments/:id/cargos", authMiddleware, requirePermission(P.VIEW_EXPORT_BULKING), ctrl.listCargos);
-exportBulkingRoutes.put("/shipments/:id/cargos", authMiddleware, requirePermission(P.UPDATE_EXPORT_OPERATIONS, P.UPDATE_EXPORT_BULKING), ctrl.upsertCargos);
-exportBulkingRoutes.delete("/shipments/:id/cargos/:cargoId", authMiddleware, requirePermission(P.UPDATE_EXPORT_OPERATIONS, P.UPDATE_EXPORT_BULKING), ctrl.deleteCargo);
+exportBulkingRoutes.put(
+  "/shipments/:id/cargos",
+  authMiddleware,
+  requirePermission(P.UPDATE_EXPORT_OPERATIONS, P.UPDATE_EXPORT_DOCUMENTATION, P.UPDATE_EXPORT_BULKING),
+  ctrl.upsertCargos,
+);
+exportBulkingRoutes.delete(
+  "/shipments/:id/cargos/:cargoId",
+  authMiddleware,
+  requirePermission(P.UPDATE_EXPORT_OPERATIONS, P.UPDATE_EXPORT_DOCUMENTATION, P.UPDATE_EXPORT_BULKING),
+  ctrl.deleteCargo,
+);
 
 /* ───── shipping instructions ───── */
 exportBulkingRoutes.get("/shipments/:id/shipping-instructions", authMiddleware, requirePermission(P.VIEW_EXPORT_BULKING), ctrl.listSIs);

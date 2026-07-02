@@ -74,18 +74,23 @@ function hasPermission(user: AuthUser | null | undefined, permission: string): b
   return Boolean(user?.effective_permissions?.includes(permission));
 }
 
-/** Edit voyage planning, nomination, loading, cargo, and status fields. */
+/** Edit voyage planning, nomination, loading, and status fields. */
 export function canEditExportOperations(user: AuthUser | null | undefined): boolean {
   return (
     hasPermission(user, "UPDATE_EXPORT_OPERATIONS") || hasPermission(user, "UPDATE_EXPORT_BULKING")
   );
 }
 
-/** Edit SI, invoices, packing lists, B/L, PEB, and uploaded export documents. */
+/** Edit cargo lines, SI, invoices, packing lists, B/L, PEB, and uploaded export documents. */
 export function canEditExportDocumentation(user: AuthUser | null | undefined): boolean {
   return (
     hasPermission(user, "UPDATE_EXPORT_DOCUMENTATION") || hasPermission(user, "UPDATE_EXPORT_BULKING")
   );
+}
+
+/** Edit cargo lines (Documentation tab; operations or documentation permission). */
+export function canEditExportCargo(user: AuthUser | null | undefined): boolean {
+  return canEditExportOperations(user) || canEditExportDocumentation(user);
 }
 
 /** Any export bulking edit (operations or documentation). */

@@ -6,6 +6,7 @@
 import {
   validateSiTotalsMatchCargo,
   validateInvoiceTotalsMatchSi,
+  sumInvoiceQtyForSi,
   sumSiQtyForCargo,
   siTotalQuantity,
 } from "../utils/quantity-reconciliation.js";
@@ -64,6 +65,25 @@ assert(
     { id: "inv1", shipping_instruction_id: "si1", lines: [{ quantity: 1000 }] },
   ]).length === 1,
   "invoice under SI total fails",
+);
+
+assert(
+  sumInvoiceQtyForSi(
+    "si1",
+    [{ id: "inv-new", shipping_instruction_id: null, lines: [] }],
+    undefined,
+    "inv-new",
+    [{ quantity: 6000 }],
+  ) === 6000,
+  "override invoice counts draft lines before SI link is saved",
+);
+
+assert(
+  validateInvoiceTotalsMatchSi(si, [{ id: "inv-new", shipping_instruction_id: null, lines: [] }], {
+    overrideInvoiceId: "inv-new",
+    overrideLines: [{ quantity: 6000 }],
+  }).length === 0,
+  "invoice with unsaved SI link passes when draft lines match SI total",
 );
 
 console.log(`\n${passed} passed, ${failed} failed`);

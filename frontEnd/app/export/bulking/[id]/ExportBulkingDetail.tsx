@@ -34,6 +34,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { can } from "@/lib/permissions";
 import {
   buildBulkingListReturnUrl,
+  canEditExportCargo,
   canEditExportDocumentation,
   canEditExportOperations,
   friendlyExportDetailError,
@@ -53,6 +54,7 @@ import {
   EXPORT_BULKING_STATUSES,
 } from "@/types/export-bulking";
 import type {
+  ExportBulkingListItem,
   ExportBulkingShipmentDetail,
   CargoLine,
   ShippingInstruction,
@@ -725,6 +727,57 @@ function DemurrageSimulationSidebar({ data }: { data: ExportBulkingShipmentDetai
   );
 }
 
+// ─── save / refresh helpers ──────────────────────────────────────────────────
+
+type DetailRefreshMode = "initial" | "silent";
+
+type DetailSavedOptions = {
+  patch?: Partial<ExportBulkingShipmentDetail>;
+  cargo_lines?: CargoLine[];
+  shipping_instructions?: ShippingInstruction[];
+  invoices?: Invoice[];
+  packing_lists?: PackingList[];
+  /** @default "none" */
+  refetch?: "none" | "silent";
+};
+
+type OnSavedFn = (options?: DetailSavedOptions) => void;
+
+function listItemToDetailPatch(item: ExportBulkingListItem): Partial<ExportBulkingShipmentDetail> {
+  const {
+    cargo_count: _cargoCount,
+    cargo_summaries: _cargoSummaries,
+    si_numbers: _siNumbers,
+    invoice_numbers: _invoiceNumbers,
+    pl_numbers: _plNumbers,
+    cargo_names: _cargoNames,
+    invoice_line_summaries: _invoiceLineSummaries,
+    documentation_assigned_to: _docAssignedTo,
+    documentation_assignee_name: _docAssigneeName,
+    documentation_assigned_at: _docAssignedAt,
+    ...shipmentFields
+  } = item;
+  return shipmentFields;
+}
+
+function mergeDetailSaved(
+  prev: ExportBulkingShipmentDetail,
+  options: DetailSavedOptions,
+): ExportBulkingShipmentDetail {
+  return {
+    ...prev,
+    ...options.patch,
+    ...(options.cargo_lines !== undefined ? { cargo_lines: options.cargo_lines } : {}),
+    ...(options.shipping_instructions !== undefined ? { shipping_instructions: options.shipping_instructions } : {}),
+    ...(options.invoices !== undefined ? { invoices: options.invoices } : {}),
+    ...(options.packing_lists !== undefined ? { packing_lists: options.packing_lists } : {}),
+  };
+}
+
+function replaceNestedItem<T extends { id: string }>(items: T[], updated: T): T[] {
+  return items.map((item) => (item.id === updated.id ? updated : item));
+}
+
 // ─── shared section props ────────────────────────────────────────────────────
 
 interface SectionProps {
@@ -732,7 +785,7 @@ interface SectionProps {
   accessToken: string;
   open: boolean;
   onToggle: () => void;
-  onSaved: () => void;
+  onSaved: OnSavedFn;
   toast: ReturnType<typeof useToast>;
   saveTrigger: number;
   onDirtyChange: (key: string, dirty: boolean) => void;
@@ -957,7 +1010,10 @@ function GeneralSection({ data, accessToken, open, onToggle, onSaved, toast, sav
     }
 
     toast.pushToast("General information saved", "success");
-    onSaved();
+    onSaved({
+      patch: listItemToDetailPatch(res.data),
+      refetch: qty != null && qty > 0 ? "silent" : "none",
+    });
     setSaving(false);
   }, [data.id, data.cargo_lines, data.total_quantity, form, loadportOptions, accessToken, toast, onSaved]);
 
@@ -1252,7 +1308,7 @@ function NominationSection({ data, accessToken, open, onToggle, onSaved, toast, 
     body.demurrage_rate_pdpr = parseQuantityInput(form.demurrage_rate_pdpr);
     const res = await updateExportBulkingShipment(data.id, body, accessToken);
     if (isApiError(res)) toast.pushToast(res.message, "error");
-    else { toast.pushToast("Nomination details saved", "success"); onSaved(); }
+    else { toast.pushToast("Nomination details saved", "success"); onSaved({ patch: listItemToDetailPatch(res.data), refetch: "none" }); }
     setSaving(false);
   }, [data.id, form, agentNameOptions, accessToken, toast, onSaved]);
 
@@ -1533,7 +1589,7 @@ function CargoSection({ data, accessToken, open, onToggle, onSaved, toast, saveT
     });
     const res = await upsertCargoLines(data.id, payload, accessToken);
     if (isApiError(res)) toast.pushToast(res.message, "error");
-    else { toast.pushToast("Cargo lines saved", "success"); onSaved(); }
+    else { toast.pushToast("Cargo lines saved", "success"); onSaved({ cargo_lines: res.data, refetch: "none" }); }
     setSaving(false);
   }, [data.id, lines, accessToken, toast, onSaved]);
 
@@ -1858,7 +1914,7 @@ function SISection({
     setCreating(true);
     const res = await createShippingInstruction(data.id, {}, accessToken);
     if (isApiError(res)) toast.pushToast(res.message, "error");
-    else { toast.pushToast("Shipping instruction created", "success"); onSaved(); }
+    else { toast.pushToast("Shipping instruction created", "success"); onSaved({ refetch: "silent" }); }
     setCreating(false);
   };
 
@@ -1912,7 +1968,7 @@ function SICard({
   shipmentId: string;
   shipment: ExportBulkingShipmentDetail;
   accessToken: string;
-  onSaved: () => void;
+  onSaved: OnSavedFn;
   toast: ReturnType<typeof useToast>;
   saveTrigger?: number;
   onDirtyChange?: (dirty: boolean) => void;
@@ -2181,7 +2237,10 @@ function SICard({
     if (isApiError(res)) toast.pushToast(res.message, "error");
     else {
       toast.pushToast("Shipping instruction saved", "success");
-      onSaved();
+      onSaved({
+        shipping_instructions: replaceNestedItem(shipment.shipping_instructions, res.data),
+        refetch: "none",
+      });
     }
     setSaving(false);
   };
@@ -2203,7 +2262,7 @@ function SICard({
     if (isApiError(res)) toast.pushToast(res.message, "error");
     else {
       toast.pushToast("Shipping instruction deleted", "success");
-      onSaved();
+      onSaved({ refetch: "silent" });
     }
     setDeleting(false);
     setConfirmDelete(false);
@@ -2310,9 +2369,15 @@ function SICard({
                 <label className={styles.fieldLabel}>NPWP</label>
                 <input className={styles.fieldInput} value={form.npwp} onChange={setFormField("npwp")} />
               </div>
-              <div className={styles.field}>
+              <div className={`${styles.field} ${styles.fieldFullRow}`}>
                 <label className={styles.fieldLabel}>B/L Indicated</label>
-                <input className={styles.fieldInput} value={form.bl_indicated} onChange={setFormField("bl_indicated")} />
+                <textarea
+                  className={`${styles.fieldInput} ${styles.textareaInput}`}
+                  value={form.bl_indicated}
+                  onChange={setFormField("bl_indicated")}
+                  rows={3}
+                  aria-label="B/L indicated"
+                />
               </div>
             </div>
 
@@ -2973,15 +3038,31 @@ const EXPORT_SECTION_ANCHORS: Record<
   packing: "export-section-packing",
 };
 
+const EXPORT_VOYAGE_SECTION_ANCHORS = [
+  { anchor: "export-section-arrival", short: "Arrival", full: "Arrival Times" },
+  { anchor: "export-section-at-berth", short: "Berth", full: "At Berth" },
+  { anchor: "export-section-loading", short: "Loading", full: "Loading Operations" },
+  { anchor: "export-section-case-off", short: "Case Off", full: "Case Off — Departure" },
+] as const;
+
+const EXPORT_DOC_SECTION_ANCHORS = [
+  { key: "npeSpb" as const, anchor: "export-section-npe-spb", short: "NPE", full: "NPE & SPB" },
+  { key: "billOfLading" as const, anchor: "export-section-bill-of-lading", short: "B/L", full: "Bill of Lading" },
+  { key: "sentDocuments" as const, anchor: "export-section-sent-documents", short: "Sent", full: "Sent Documents" },
+  { key: "pe" as const, anchor: "export-section-pe", short: "PE", full: "PE" },
+  { key: "peb" as const, anchor: "export-section-peb", short: "PEB", full: "PEB" },
+  { key: "billingLevy" as const, anchor: "export-section-billing-levy", short: "Billing", full: "Billing & Levy" },
+];
+
 type ExportDetailSectionKey = keyof typeof EXPORT_SECTION_ANCHORS;
 
 const EXPORT_DETAIL_NAV_OPS: { key: ExportDetailSectionKey; short: string; full: string }[] = [
   { key: "general", short: "General", full: "General Information" },
   { key: "nomination", short: "Nomination", full: "Nomination" },
-  { key: "cargo", short: "Cargo", full: "Cargo Lines" },
 ];
 
 const EXPORT_DETAIL_NAV_DOCS: { key: ExportDetailSectionKey; short: string; full: string }[] = [
+  { key: "cargo", short: "Cargo", full: "Cargo Lines" },
   { key: "si", short: "SI", full: "Shipping Instructions" },
   { key: "invoices", short: "Invoices", full: "Invoices" },
   { key: "packing", short: "Packing", full: "Packing Lists" },
@@ -3005,7 +3086,7 @@ type OpenSectionsState = {
 const OPS_OPEN_SECTIONS: OpenSectionsState = {
   general: true,
   nomination: true,
-  cargo: true,
+  cargo: false,
   si: false,
   invoices: false,
   packing: false,
@@ -3020,7 +3101,7 @@ const OPS_OPEN_SECTIONS: OpenSectionsState = {
 const DOCS_OPEN_SECTIONS: OpenSectionsState = {
   general: false,
   nomination: false,
-  cargo: false,
+  cargo: true,
   si: true,
   invoices: true,
   packing: true,
@@ -3032,6 +3113,22 @@ const DOCS_OPEN_SECTIONS: OpenSectionsState = {
   billingLevy: true,
 };
 
+const DIRTY_SECTION_OPEN_KEYS: Partial<Record<string, keyof OpenSectionsState>> = {
+  general: "general",
+  nomination: "nomination",
+  cargo: "cargo",
+  si: "si",
+  siReceiveDate: "si",
+  invoices: "invoices",
+  packing: "packing",
+  npeSpb: "npeSpb",
+  billOfLading: "billOfLading",
+  sentDocuments: "sentDocuments",
+  pe: "pe",
+  peb: "peb",
+  billingLevy: "billingLevy",
+};
+
 function ExportWorkspaceBanner({
   variant,
 }: {
@@ -3041,7 +3138,7 @@ function ExportWorkspaceBanner({
     return (
       <div className={styles.workspaceBanner} role="status">
         <strong>Documentation workspace</strong>
-        <span>Operational fields are read-only — use the Documentation tab for SI, invoices, packing lists, B/L, and export documents.</span>
+        <span>Operational fields are read-only — use the Documentation tab for cargo lines, SI, invoices, packing lists, B/L, and export documents.</span>
       </div>
     );
   }
@@ -3057,7 +3154,7 @@ function ExportWorkspaceBanner({
     return (
       <div className={styles.workspaceBanner} role="status">
         <strong>Documentation (view only)</strong>
-        <span>Shipping instructions, invoices, packing lists, and uploads are read-only in your role.</span>
+        <span>Cargo lines, shipping instructions, invoices, packing lists, and uploads are read-only in your role.</span>
       </div>
     );
   }
@@ -3206,35 +3303,94 @@ function ShipmentOverviewStrip({
 
 function SectionJumpNav({
   onJump,
+  onJumpAnchor,
   allSectionsExpanded,
   onToggleExpandCollapse,
   onFocusOperations,
   onFocusDocuments,
   canViewDocs = true,
+  showVoyageNav = false,
+  showDocComplianceNav = false,
+  dirtySections = {},
 }: {
   onJump: (key: ExportDetailSectionKey) => void;
+  onJumpAnchor: (anchorId: string, sectionKey?: keyof OpenSectionsState) => void;
   allSectionsExpanded: boolean;
   onToggleExpandCollapse: () => void;
   onFocusOperations: () => void;
   onFocusDocuments: () => void;
   canViewDocs?: boolean;
+  showVoyageNav?: boolean;
+  showDocComplianceNav?: boolean;
+  dirtySections?: Record<string, boolean>;
 }) {
+  const jumpBtnClass = (dirty?: boolean) =>
+    `${styles.jumpNavBtn}${dirty ? ` ${styles.jumpNavBtnDirty}` : ""}`;
+
   return (
     <div className={styles.jumpNavWrap}>
       <nav className={styles.jumpNav} aria-label="Jump to section">
         {EXPORT_DETAIL_NAV_OPS.map(({ key, short, full }) => (
-          <button key={key} type="button" className={styles.jumpNavBtn} title={full} onClick={() => onJump(key)}>
+          <button
+            key={key}
+            type="button"
+            className={jumpBtnClass(dirtySections[key])}
+            title={dirtySections[key] ? `${full} — unsaved changes` : full}
+            onClick={() => onJump(key)}
+          >
             {short}
           </button>
         ))}
+        {showVoyageNav && (
+          <>
+            <span className={styles.jumpNavDivider} aria-hidden />
+            {EXPORT_VOYAGE_SECTION_ANCHORS.map(({ anchor, short, full }) => (
+              <button
+                key={anchor}
+                type="button"
+                className={jumpBtnClass(
+                  (anchor === "export-section-loading" && dirtySections.loading) ||
+                    (anchor === "export-section-case-off" && dirtySections.caseOff),
+                )}
+                title={
+                  (anchor === "export-section-loading" && dirtySections.loading) ||
+                  (anchor === "export-section-case-off" && dirtySections.caseOff)
+                    ? `${full} — unsaved changes`
+                    : full
+                }
+                onClick={() => onJumpAnchor(anchor)}
+              >
+                {short}
+              </button>
+            ))}
+          </>
+        )}
         {canViewDocs && (
           <>
             <span className={styles.jumpNavDivider} aria-hidden />
             {EXPORT_DETAIL_NAV_DOCS.map(({ key, short, full }) => (
-              <button key={key} type="button" className={styles.jumpNavBtn} title={full} onClick={() => onJump(key)}>
+              <button
+                key={key}
+                type="button"
+                className={jumpBtnClass(dirtySections[key] || dirtySections.siReceiveDate && key === "si")}
+                title={dirtySections[key] || (dirtySections.siReceiveDate && key === "si") ? `${full} — unsaved changes` : full}
+                onClick={() => onJump(key)}
+              >
                 {short}
               </button>
             ))}
+            {showDocComplianceNav &&
+              EXPORT_DOC_SECTION_ANCHORS.map(({ key, anchor, short, full }) => (
+                <button
+                  key={anchor}
+                  type="button"
+                  className={jumpBtnClass(dirtySections[key])}
+                  title={dirtySections[key] ? `${full} — unsaved changes` : full}
+                  onClick={() => onJumpAnchor(anchor, key)}
+                >
+                  {short}
+                </button>
+              ))}
           </>
         )}
       </nav>
@@ -3278,7 +3434,7 @@ function InvoiceSection({
     setCreating(true);
     const res = await createInvoice(data.id, {}, accessToken);
     if (isApiError(res)) toast.pushToast(res.message, "error");
-    else { toast.pushToast("Invoice created", "success"); onSaved(); }
+    else { toast.pushToast("Invoice created", "success"); onSaved({ refetch: "silent" }); }
     setCreating(false);
   };
 
@@ -3335,7 +3491,7 @@ function InvoiceCard({
   shipment: ExportBulkingShipmentDetail;
   shippingInstructions: ShippingInstruction[];
   accessToken: string;
-  onSaved: () => void;
+  onSaved: OnSavedFn;
   toast: ReturnType<typeof useToast>;
   saveTrigger?: number;
   onDirtyChange?: (dirty: boolean) => void;
@@ -3529,7 +3685,13 @@ function InvoiceCard({
     if (changeNote) body.qty_change_reason = changeNote;
     const res = await updateInvoice(shipmentId, invoice.id, body, accessToken);
     if (isApiError(res)) toast.pushToast(res.message, "error");
-    else { toast.pushToast("Invoice saved", "success"); onSaved(); }
+    else {
+      toast.pushToast("Invoice saved", "success");
+      onSaved({
+        invoices: replaceNestedItem(shipment.invoices, res.data),
+        refetch: "none",
+      });
+    }
     setSaving(false);
   };
 
@@ -3595,7 +3757,7 @@ function InvoiceCard({
     setDeleting(true);
     const res = await deleteInvoice(shipmentId, invoice.id, accessToken);
     if (isApiError(res)) toast.pushToast(res.message, "error");
-    else { toast.pushToast("Invoice deleted", "success"); onSaved(); }
+    else { toast.pushToast("Invoice deleted", "success"); onSaved({ refetch: "silent" }); }
     setDeleting(false);
     setConfirmDelete(false);
   };
@@ -4001,7 +4163,7 @@ function PackingListSection({
     };
     const res = await createPackingList(data.id, body, accessToken);
     if (isApiError(res)) toast.pushToast(res.message, "error");
-    else { toast.pushToast("Packing list created", "success"); onSaved(); }
+    else { toast.pushToast("Packing list created", "success"); onSaved({ refetch: "silent" }); }
     setCreating(false);
   };
 
@@ -4084,7 +4246,7 @@ function PackingListCard({
   shipment: ExportBulkingShipmentDetail;
   cargoLines: CargoLine[];
   accessToken: string;
-  onSaved: () => void;
+  onSaved: OnSavedFn;
   toast: ReturnType<typeof useToast>;
   saveTrigger?: number;
   onDirtyChange?: (dirty: boolean) => void;
@@ -4188,7 +4350,10 @@ function PackingListCard({
     if (isApiError(res)) toast.pushToast(res.message, "error");
     else {
       toast.pushToast("Packing list saved", "success");
-      onSaved();
+      onSaved({
+        packing_lists: replaceNestedItem(shipment.packing_lists, res.data),
+        refetch: "none",
+      });
     }
     setSaving(false);
   };
@@ -4209,7 +4374,7 @@ function PackingListCard({
     setDeleting(true);
     const res = await deletePackingList(shipmentId, packingList.id, accessToken);
     if (isApiError(res)) toast.pushToast(res.message, "error");
-    else { toast.pushToast("Packing list deleted", "success"); onSaved(); }
+    else { toast.pushToast("Packing list deleted", "success"); onSaved({ refetch: "silent" }); }
     setDeleting(false);
     setConfirmDelete(false);
   };
@@ -4425,7 +4590,7 @@ function SiReceiveDateSection({ data, accessToken, open, onToggle, onSaved, toas
         : undefined,
     }, accessToken);
     if (isApiError(res)) toast.pushToast(res.message, "error");
-    else { toast.pushToast("SI receive date saved", "success"); onSaved(); }
+    else { toast.pushToast("SI receive date saved", "success"); onSaved({ patch: listItemToDetailPatch(res.data), refetch: "none" }); }
     setSaving(false);
   }, [data.id, form, accessToken, toast, onSaved]);
 
@@ -4510,7 +4675,7 @@ function VoyageStageSection({
     }
     const res = await updateExportBulkingShipment(data.id, body, accessToken);
     if (isApiError(res)) toast.pushToast(res.message, "error");
-    else { toast.pushToast(`${title} saved`, "success"); onSaved(); }
+    else { toast.pushToast(`${title} saved`, "success"); onSaved({ patch: listItemToDetailPatch(res.data), refetch: "none" }); }
     setSaving(false);
   }, [data.id, form, fields, title, accessToken, toast, onSaved]);
 
@@ -4602,7 +4767,7 @@ function useShipmentPatchSection(
     if (isApiError(res)) toast.pushToast(res.message, "error");
     else {
       toast.pushToast(saveSuccessMessage, "success");
-      onSaved();
+      onSaved({ patch: listItemToDetailPatch(res.data), refetch: "none" });
     }
     setSaving(false);
   }, [data.id, form, toPatchBody, accessToken, toast, onSaved, saveSuccessMessage]);
@@ -4841,7 +5006,7 @@ function SentDocumentsSection(props: SectionProps & { open: boolean; onToggle: (
     if (isApiError(res)) toast.pushToast(res.message, "error");
     else {
       toast.pushToast("Sent Documents saved", "success");
-      onSaved();
+      onSaved({ patch: listItemToDetailPatch(res.data), refetch: "none" });
     }
     setSaving(false);
   }, [data.id, form, accessToken, toast, onSaved]);
@@ -5531,7 +5696,14 @@ function LoadingSection({
     ]);
     if (isApiError(shipmentRes)) toast.pushToast(shipmentRes.message, "error");
     else if (isApiError(cargoRes)) toast.pushToast(cargoRes.message, "error");
-    else { toast.pushToast("Loading operations saved", "success"); onSaved(); }
+    else {
+      toast.pushToast("Loading operations saved", "success");
+      onSaved({
+        patch: listItemToDetailPatch(shipmentRes.data),
+        cargo_lines: cargoRes.data,
+        refetch: "none",
+      });
+    }
     setSaving(false);
   }, [data.id, data.cargo_lines, form, reconciliationLines, accessToken, toast, onSaved]);
 
@@ -5721,7 +5893,7 @@ function CaseOffSection({
     const body = { td: form.td ? new Date(form.td).toISOString() : null };
     const res = await updateExportBulkingShipment(data.id, body, accessToken);
     if (isApiError(res)) toast.pushToast(res.message, "error");
-    else { toast.pushToast("Case Off saved", "success"); onSaved(); }
+    else { toast.pushToast("Case Off saved", "success"); onSaved({ patch: listItemToDetailPatch(res.data), refetch: "none" }); }
     setSaving(false);
   }, [data.id, form.td, accessToken, toast, onSaved]);
 
@@ -5955,13 +6127,15 @@ export function ExportBulkingDetail() {
   const canViewDocs = can(user, "VIEW_EXPORT_DOCUMENTATION");
   const canEditOps = canEditExportOperations(user);
   const canEditDocs = canEditExportDocumentation(user);
+  const canEditCargo = canEditExportCargo(user);
   const canUploadExportDocs = canEditDocs || can(user, "UPLOAD_DOCUMENT");
   const isDocumentationOnly = isExportDocumentationOnly(user);
   const isOperationsOnly = isExportOperationsOnly(user);
   const isFullyReadOnly = !canEditOps && !canEditDocs;
+  const forceViewMode = searchParams.get("mode") === "view";
   const opsReadOnly = !canEditOps;
   const docsReadOnly = !canEditDocs;
-  const forceViewMode = searchParams.get("mode") === "view";
+  const cargoReadOnly = !canEditCargo || forceViewMode;
   const showDocumentationTab = canViewDocs;
 
   const wantsDocumentationFocus =
@@ -5976,9 +6150,12 @@ export function ExportBulkingDetail() {
   );
 
   const [data, setData] = useState<ExportBulkingShipmentDetail | null>(null);
+  const dataRef = useRef<ExportBulkingShipmentDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [statusEvents, setStatusEvents] = useState<StatusEvent[]>([]);
+  const savingAllRef = useRef(false);
 
   const [openSections, setOpenSections] = useState<OpenSectionsState>(() =>
     wantsDocumentationFocus ? { ...DOCS_OPEN_SECTIONS } : { ...OPS_OPEN_SECTIONS },
@@ -6037,9 +6214,18 @@ export function ExportBulkingDetail() {
 
   const jumpToSection = useCallback((key: ExportDetailSectionKey) => {
     setOpenSections((prev) => ({ ...prev, [key]: true }));
-    const id = EXPORT_SECTION_ANCHORS[key];
+    const anchorId = EXPORT_SECTION_ANCHORS[key];
     window.requestAnimationFrame(() => {
-      document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+      document.getElementById(anchorId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, []);
+
+  const jumpToAnchor = useCallback((anchorId: string, sectionKey?: keyof OpenSectionsState) => {
+    if (sectionKey) {
+      setOpenSections((prev) => ({ ...prev, [sectionKey]: true }));
+    }
+    window.requestAnimationFrame(() => {
+      document.getElementById(anchorId)?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
   }, []);
 
@@ -6123,14 +6309,20 @@ export function ExportBulkingDetail() {
 
   const onDirtyChange = useCallback((key: string, dirty: boolean) => {
     setDirtySections((prev) => (prev[key] === dirty ? prev : { ...prev, [key]: dirty }));
+    if (dirty) {
+      const openKey = DIRTY_SECTION_OPEN_KEYS[key];
+      if (openKey) {
+        setOpenSections((prev) => (prev[openKey] ? prev : { ...prev, [openKey]: true }));
+      }
+    }
   }, []);
 
   const isAnyDirty = Object.values(dirtySections).some(Boolean);
 
   const handleSaveAll = useCallback(() => {
+    savingAllRef.current = true;
     setSavingAll(true);
     setSaveTrigger((t) => t + 1);
-    setTimeout(() => setSavingAll(false), 2500);
   }, []);
 
   // Unsaved navigation warning
@@ -6153,25 +6345,79 @@ export function ExportBulkingDetail() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [isAnyDirty, handleSaveAll]);
 
-  // Fetch detail + status events
-  const fetchDetail = useCallback(async () => {
+  const fetchDetail = useCallback(async (opts?: { mode?: DetailRefreshMode }) => {
     if (!id || !accessToken) return;
-    setLoading(true);
+    const mode = opts?.mode ?? (dataRef.current ? "silent" : "initial");
+    const isInitial = mode === "initial";
+    const scrollY = !isInitial ? window.scrollY : undefined;
+
+    if (isInitial) setLoading(true);
+    else setRefreshing(true);
+
     const [res, eventsRes] = await Promise.all([
       getExportBulkingShipment(id, accessToken),
       getStatusEvents(id, accessToken),
     ]);
+
     if (isApiError(res)) {
-      setError(res.message);
+      if (isInitial) setError(res.message);
+      else toast.pushToast(res.message, "error");
     } else {
       setData(res.data);
       setError(null);
     }
     if (!isApiError(eventsRes)) setStatusEvents(eventsRes.data ?? []);
-    setLoading(false);
-  }, [id, accessToken]);
 
-  useEffect(() => { fetchDetail(); }, [fetchDetail]);
+    if (isInitial) setLoading(false);
+    else {
+      setRefreshing(false);
+      if (scrollY !== undefined) {
+        requestAnimationFrame(() => window.scrollTo(0, scrollY));
+      }
+    }
+  }, [id, accessToken, toast]);
+
+  const handleSaved = useCallback<OnSavedFn>((options) => {
+    const hasPatch =
+      options?.patch != null ||
+      options?.cargo_lines !== undefined ||
+      options?.shipping_instructions !== undefined ||
+      options?.invoices !== undefined ||
+      options?.packing_lists !== undefined;
+
+    if (hasPatch) {
+      setData((prev) => (prev && options ? mergeDetailSaved(prev, options) : prev));
+    }
+
+    if (savingAllRef.current) return;
+
+    const refetch = options?.refetch ?? "none";
+    if (refetch === "silent") {
+      void fetchDetail({ mode: "silent" });
+    }
+  }, [fetchDetail]);
+
+  useEffect(() => {
+    dataRef.current = data;
+  }, [data]);
+
+  useEffect(() => { void fetchDetail({ mode: "initial" }); }, [fetchDetail]);
+
+  useEffect(() => {
+    if (!savingAll) return;
+    if (isAnyDirty) return;
+    savingAllRef.current = false;
+    void fetchDetail({ mode: "silent" }).finally(() => setSavingAll(false));
+  }, [savingAll, isAnyDirty, fetchDetail]);
+
+  useEffect(() => {
+    if (!savingAll) return;
+    const timeout = window.setTimeout(() => {
+      savingAllRef.current = false;
+      setSavingAll(false);
+    }, 12000);
+    return () => window.clearTimeout(timeout);
+  }, [savingAll]);
 
   // Advance status
   const handleAdvanceStatus = async () => {
@@ -6196,7 +6442,7 @@ export function ExportBulkingDetail() {
       toast.pushToast(res.message, "error");
     } else {
       toast.pushToast(`Status advanced to ${formatExportBulkingStatus(ns)}`, "success");
-      fetchDetail();
+      void fetchDetail({ mode: "silent" });
     }
   };
 
@@ -6221,7 +6467,7 @@ export function ExportBulkingDetail() {
   const sectionProps = {
     data,
     accessToken: accessToken!,
-    onSaved: fetchDetail,
+    onSaved: handleSaved,
     toast,
     saveTrigger,
     onDirtyChange,
@@ -6277,10 +6523,29 @@ export function ExportBulkingDetail() {
         <UnsavedBanner dirtySections={dirtySections} onSaveAll={handleSaveAll} saving={savingAll} />
       )}
 
+      {refreshing && (
+        <div className={styles.refreshingBar} role="status" aria-live="polite">
+          Syncing latest data…
+        </div>
+      )}
+
       {/* Two-column layout */}
       <div className={styles.pageLayout}>
         <div className={styles.mainContent}>
           <ShipmentOverviewStrip data={data} showDocCounts={canViewDocs} />
+
+          <SectionJumpNav
+            onJump={jumpToSection}
+            onJumpAnchor={jumpToAnchor}
+            allSectionsExpanded={allSectionsExpanded}
+            onToggleExpandCollapse={toggleAllSections}
+            onFocusOperations={focusOperationsSections}
+            onFocusDocuments={focusDocumentsSections}
+            canViewDocs={showDocumentationTab}
+            showVoyageNav={!showDocumentationTab || detailTab === "operations"}
+            showDocComplianceNav={showDocumentationTab && detailTab === "documentation"}
+            dirtySections={dirtySections}
+          />
 
           {showDocumentationTab && (
             <DetailWorkspaceTabs active={detailTab} onChange={handleDetailTabChange} />
@@ -6301,11 +6566,10 @@ export function ExportBulkingDetail() {
               icon={<ClipboardList size={16} />}
               readOnly={opsReadOnly || forceViewMode}
               completedSummary={[data.vessel_name, data.loadport_name, data.total_quantity ? `${formatNumericDisplay(data.total_quantity)} MT` : null].filter(Boolean).join(" · ")}
-              upcomingFields={["Vessel", "Voyage no.", "Shipper", "Load port", "Total quantity", "Cargo lines"]}
+              upcomingFields={["Vessel", "Voyage no.", "Shipper", "Load port", "Total quantity"]}
               onAdvance={handleAdvanceStatus}
             >
               <GeneralSection {...sectionProps} open={openSections.general} onToggle={() => toggleSection("general")} />
-              <CargoSection {...sectionProps} open={openSections.cargo} onToggle={() => toggleSection("cargo")} />
             </StageCard>
 
             {/* Nomination */}
@@ -6434,7 +6698,7 @@ export function ExportBulkingDetail() {
           )}
 
           {showDocumentationTab && detailTab === "documentation" && (
-            <div className={`${styles.stageTimeline} ${docsReadOnly || forceViewMode ? styles.readOnlyRegion : ""}`}>
+            <div className={styles.stageTimeline}>
               {docsReadOnly && canEditOps && (
                 <ExportWorkspaceBanner variant="documentation-readonly" />
               )}
@@ -6456,21 +6720,28 @@ export function ExportBulkingDetail() {
                     doneCount={step1?.doneCount ?? 0}
                     totalCount={step1?.totalCount ?? 3}
                   >
-                    <SiReceiveDateSection {...sectionProps} open={openSections.si} onToggle={() => toggleSection("si")} />
-                    <SISection {...sectionProps} open={openSections.si} onToggle={() => toggleSection("si")} />
-                    <InvoiceSection {...sectionProps} open={openSections.invoices} onToggle={() => toggleSection("invoices")} />
-                    <PackingListSection {...sectionProps} open={openSections.packing} onToggle={() => toggleSection("packing")} />
+                    <div className={cargoReadOnly ? styles.readOnlyRegion : undefined}>
+                      <CargoSection {...sectionProps} open={openSections.cargo} onToggle={() => toggleSection("cargo")} />
+                    </div>
+                    <div className={docsReadOnly || forceViewMode ? styles.readOnlyRegion : undefined}>
+                      <SiReceiveDateSection {...sectionProps} open={openSections.si} onToggle={() => toggleSection("si")} />
+                      <SISection {...sectionProps} open={openSections.si} onToggle={() => toggleSection("si")} />
+                      <InvoiceSection {...sectionProps} open={openSections.invoices} onToggle={() => toggleSection("invoices")} />
+                      <PackingListSection {...sectionProps} open={openSections.packing} onToggle={() => toggleSection("packing")} />
+                    </div>
                   </DocStepCard>
                 );
               })()}
 
               {/* Steps 2, 3, 4 */}
-              <DocumentationDetailSections
-                sectionProps={sectionProps}
-                openSections={openSections}
-                toggleSection={toggleSection}
-                billingOcrDisabled={docsReadOnly || forceViewMode}
-              />
+              <div className={docsReadOnly || forceViewMode ? styles.readOnlyRegion : undefined}>
+                <DocumentationDetailSections
+                  sectionProps={sectionProps}
+                  openSections={openSections}
+                  toggleSection={toggleSection}
+                  billingOcrDisabled={docsReadOnly || forceViewMode}
+                />
+              </div>
             </div>
           )}
         </div>

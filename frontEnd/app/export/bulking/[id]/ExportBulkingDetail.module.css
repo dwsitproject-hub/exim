@@ -144,6 +144,9 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--spacing-3, 16px);
+  position: sticky;
+  top: 0;
+  z-index: 6;
   margin: 0 var(--spacing-4, 24px) var(--spacing-3, 16px);
   padding: 10px var(--spacing-3, 16px);
   background: #fef3c7;
@@ -155,6 +158,18 @@
 .unsavedMsg {
   color: #92400e;
   font-weight: 500;
+}
+
+.refreshingBar {
+  margin: 0 var(--spacing-4, 24px) var(--spacing-2, 8px);
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #475569;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: var(--borderRadius-md, 8px);
+  text-align: center;
 }
 
 /* ── Sidebar cards ── */
@@ -1444,7 +1459,7 @@ textarea.fieldInputReadonly:focus {
 }
 
 .stageCardBody {
-  padding: 0 16px 16px;
+  padding: var(--spacing-3, 16px) 16px 16px;
   border-top: 1px solid var(--color-primitive-border-light, #e0e0e0);
 }
 
@@ -1596,6 +1611,10 @@ textarea.fieldInputReadonly:focus {
   box-shadow: 0 8px 12px -12px rgba(0, 0, 0, 0.12);
 }
 
+.page:has(.unsavedBanner) .jumpNavWrap {
+  top: 52px;
+}
+
 .jumpNav {
   display: flex;
   flex-wrap: wrap;
@@ -1624,6 +1643,12 @@ textarea.fieldInputReadonly:focus {
 .jumpNavBtn:focus-visible {
   outline: 2px solid var(--color-semantic-primary-default, #c43a31);
   outline-offset: 2px;
+}
+
+.jumpNavBtnDirty {
+  border-color: #fcd34d;
+  background: #fef3c7;
+  color: #92400e;
 }
 
 .jumpNavTools {
