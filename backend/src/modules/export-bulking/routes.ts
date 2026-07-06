@@ -50,8 +50,51 @@ exportBulkingRoutes.delete(
   ctrl.deleteCargo,
 );
 
+/* ───── SAP lines (Data SAP per SO) ───── */
+exportBulkingRoutes.get("/shipments/:id/sap-lines", authMiddleware, requirePermission(P.VIEW_EXPORT_BULKING), ctrl.listSapLines);
+exportBulkingRoutes.put(
+  "/shipments/:id/sap-lines",
+  authMiddleware,
+  requirePermission(P.UPDATE_EXPORT_DOCUMENTATION, P.UPDATE_EXPORT_BULKING),
+  ctrl.upsertSapLines,
+);
+
+/* ───── Billing lines (Billing & Levy per SO) ───── */
+exportBulkingRoutes.get(
+  "/shipments/:id/billing-lines",
+  authMiddleware,
+  requirePermission(P.VIEW_EXPORT_BULKING),
+  ctrl.listBillingLines,
+);
+exportBulkingRoutes.put(
+  "/shipments/:id/billing-lines",
+  authMiddleware,
+  requirePermission(P.UPDATE_EXPORT_DOCUMENTATION, P.UPDATE_EXPORT_BULKING),
+  ctrl.upsertBillingLines,
+);
+
+/* ───── Bills of lading (multiple per shipment) ───── */
+exportBulkingRoutes.get(
+  "/shipments/:id/bills-of-lading",
+  authMiddleware,
+  requirePermission(P.VIEW_EXPORT_BULKING),
+  ctrl.listBillsOfLading,
+);
+exportBulkingRoutes.put(
+  "/shipments/:id/bills-of-lading",
+  authMiddleware,
+  requirePermission(P.UPDATE_EXPORT_DOCUMENTATION, P.UPDATE_EXPORT_BULKING),
+  ctrl.upsertBillsOfLading,
+);
+
 /* ───── shipping instructions ───── */
 exportBulkingRoutes.get("/shipments/:id/shipping-instructions", authMiddleware, requirePermission(P.VIEW_EXPORT_BULKING), ctrl.listSIs);
+exportBulkingRoutes.put(
+  "/shipments/:id/shipping-instructions/peb-fields",
+  authMiddleware,
+  requirePermission(P.UPDATE_EXPORT_DOCUMENTATION, P.UPDATE_EXPORT_BULKING),
+  ctrl.upsertSiPebFields,
+);
 exportBulkingRoutes.post("/shipments/:id/shipping-instructions", authMiddleware, requirePermission(P.UPDATE_EXPORT_DOCUMENTATION, P.UPDATE_EXPORT_BULKING), ctrl.createSI);
 exportBulkingRoutes.patch("/shipments/:id/shipping-instructions/:siId", authMiddleware, requirePermission(P.UPDATE_EXPORT_DOCUMENTATION, P.UPDATE_EXPORT_BULKING), ctrl.updateSI);
 exportBulkingRoutes.post(
@@ -73,6 +116,42 @@ exportBulkingRoutes.post(
   ctrl.regenerateInvoiceNumber,
 );
 exportBulkingRoutes.delete("/shipments/:id/invoices/:invId", authMiddleware, requirePermission(P.UPDATE_EXPORT_DOCUMENTATION, P.UPDATE_EXPORT_BULKING), ctrl.deleteInvoice);
+exportBulkingRoutes.post(
+  "/shipments/:id/shipping-instructions/:siId/invoices/split",
+  authMiddleware,
+  requirePermission(P.UPDATE_EXPORT_DOCUMENTATION, P.UPDATE_EXPORT_BULKING),
+  ctrl.splitInvoices,
+);
+exportBulkingRoutes.get(
+  "/shipments/:id/shipping-instructions/:siId/invoice-allocation",
+  authMiddleware,
+  requirePermission(P.VIEW_EXPORT_BULKING),
+  ctrl.getSiInvoiceAllocation,
+);
+exportBulkingRoutes.post(
+  "/shipments/:id/invoices/:invId/finalize",
+  authMiddleware,
+  requirePermission(P.UPDATE_EXPORT_DOCUMENTATION, P.UPDATE_EXPORT_BULKING),
+  ctrl.finalizeInvoice,
+);
+exportBulkingRoutes.post(
+  "/shipments/:id/invoices/:invId/amend",
+  authMiddleware,
+  requirePermission(P.UPDATE_EXPORT_DOCUMENTATION, P.UPDATE_EXPORT_BULKING),
+  ctrl.amendInvoice,
+);
+exportBulkingRoutes.get(
+  "/shipments/:id/invoices/:invId/events",
+  authMiddleware,
+  requirePermission(P.VIEW_EXPORT_BULKING),
+  ctrl.listInvoiceEvents,
+);
+exportBulkingRoutes.get(
+  "/shipments/:id/invoices/:invId/diff",
+  authMiddleware,
+  requirePermission(P.VIEW_EXPORT_BULKING),
+  ctrl.getInvoiceDiff,
+);
 
 /* ───── packing lists ───── */
 exportBulkingRoutes.get("/shipments/:id/packing-lists", authMiddleware, requirePermission(P.VIEW_EXPORT_BULKING), ctrl.listPLs);

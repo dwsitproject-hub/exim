@@ -15,6 +15,10 @@ import type {
   ListExportBulkingQuery,
   ExportBulkingShipmentRow,
   CargoLineDto,
+  SapLineDto,
+  BillingLineDto,
+  BillOfLadingDto,
+  SiPebFieldsDto,
   ShippingInstructionDto,
   SiLineDto,
   InvoiceDto,
@@ -474,7 +478,7 @@ export class ExportBulkingRepository {
     const result = await this.pool.query(
       `SELECT id, shipment_id, line_order, cargo_name, quantity, unit,
               item_description, destination_port, destination_country, country_area,
-              quantity_delivered, bl_figure, ship_figure,
+              quantity_delivered, bl_figure, ship_figure, pe_no, pe_date,
               created_at, updated_at
        FROM export_bulking_cargo_lines
        WHERE shipment_id = $1
@@ -500,13 +504,16 @@ export class ExportBulkingRepository {
               line_order=$1, cargo_name=$2, quantity=$3, unit=$4,
               item_description=$5, destination_port=$6, destination_country=$7, country_area=$8,
               quantity_delivered=$9, bl_figure=$10, ship_figure=$11,
+              pe_no=$12, pe_date=$13,
               updated_at=NOW()
-             WHERE id=$12 AND shipment_id=$13
+             WHERE id=$14 AND shipment_id=$15
              RETURNING *`,
             [order, line.cargo_name, line.quantity ?? null, line.unit ?? null,
              line.item_description ?? null, line.destination_port ?? null,
              line.destination_country ?? null, line.country_area ?? null,
              line.quantity_delivered ?? null, line.bl_figure ?? null, line.ship_figure ?? null,
+             line.pe_no?.trim() || null,
+             line.pe_date ? new Date(line.pe_date) : null,
              line.id, shipmentId],
           );
           if (res.rows[0]) results.push(res.rows[0]);
@@ -515,13 +522,15 @@ export class ExportBulkingRepository {
             `INSERT INTO export_bulking_cargo_lines
               (shipment_id, line_order, cargo_name, quantity, unit,
                item_description, destination_port, destination_country, country_area,
-               quantity_delivered, bl_figure, ship_figure, created_at, updated_at)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW(),NOW())
+               quantity_delivered, bl_figure, ship_figure, pe_no, pe_date, created_at, updated_at)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW(),NOW())
              RETURNING *`,
             [shipmentId, order, line.cargo_name, line.quantity ?? null, line.unit ?? null,
              line.item_description ?? null, line.destination_port ?? null,
              line.destination_country ?? null, line.country_area ?? null,
-             line.quantity_delivered ?? null, line.bl_figure ?? null, line.ship_figure ?? null],
+             line.quantity_delivered ?? null, line.bl_figure ?? null, line.ship_figure ?? null,
+             line.pe_no?.trim() || null,
+             line.pe_date ? new Date(line.pe_date) : null],
           );
           if (res.rows[0]) results.push(res.rows[0]);
         }
@@ -542,8 +551,398 @@ export class ExportBulkingRepository {
       `DELETE FROM export_bulking_cargo_lines WHERE id = $1 AND shipment_id = $2`,
       [cargoId, shipmentId],
     );
-    if ((r.rowCount ?? 0) === 0) {
+    if (r.rowCount === 0) {
       throw new AppError("Cargo line not found", 404);
+    }
+  }
+
+  /* ───────── SAP lines (Data SAP per SO) ───────── */
+
+  async listSapLines(shipmentId: string): Promise<unknown[]> {
+    const result = await this.pool.query(
+      `SELECT id, shipment_id, so_no, line_order, quantity_spb, spb,
+              delivery_order_pgi, spr, created_at, updated_at
+       FROM export_bulking_sap_lines
+       WHERE shipment_id = $1
+       ORDER BY line_order ASC, so_no ASC, created_at ASC`,
+      [shipmentId],
+    );
+    return result.rows;
+  }
+
+  async upsertSapLines(shipmentId: string, lines: SapLineDto[]): Promise<unknown[]> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      const normalized = lines.map((line, i) => ({
+        ...line,
+        so_no: line.so_no?.trim() ?? "",
+        line_order: line.line_order ?? i + 1,
+      }));
+
+      for (const line of normalized) {
+        if (!line.so_no) {
+          throw new AppError("Each SAP row requires an SO number", 400);
+        }
+      }
+
+      const soNos = normalized.map((line) => line.so_no);
+      const uniqueSo = new Set(soNos);
+      if (uniqueSo.size !== soNos.length) {
+        throw new AppError("Duplicate SO numbers in SAP rows", 400);
+      }
+
+      if (soNos.length === 0) {
+        await client.query(`DELETE FROM export_bulking_sap_lines WHERE shipment_id = $1`, [shipmentId]);
+      } else {
+        await client.query(
+          `DELETE FROM export_bulking_sap_lines
+           WHERE shipment_id = $1 AND NOT (so_no = ANY($2::text[]))`,
+          [shipmentId, soNos],
+        );
+      }
+
+      const results: unknown[] = [];
+      for (const line of normalized) {
+        if (line.id) {
+          const res = await client.query(
+            `UPDATE export_bulking_sap_lines SET
+              so_no = $1,
+              line_order = $2,
+              quantity_spb = $3,
+              spb = $4,
+              delivery_order_pgi = $5,
+              spr = $6,
+              updated_at = NOW()
+             WHERE id = $7 AND shipment_id = $8
+             RETURNING *`,
+            [
+              line.so_no,
+              line.line_order,
+              line.quantity_spb ?? null,
+              line.spb?.trim() || null,
+              line.delivery_order_pgi?.trim() || null,
+              line.spr?.trim() || null,
+              line.id,
+              shipmentId,
+            ],
+          );
+          if (res.rows[0]) results.push(res.rows[0]);
+        } else {
+          const res = await client.query(
+            `INSERT INTO export_bulking_sap_lines
+              (shipment_id, so_no, line_order, quantity_spb, spb, delivery_order_pgi, spr, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+             ON CONFLICT (shipment_id, so_no) DO UPDATE SET
+              line_order = EXCLUDED.line_order,
+              quantity_spb = EXCLUDED.quantity_spb,
+              spb = EXCLUDED.spb,
+              delivery_order_pgi = EXCLUDED.delivery_order_pgi,
+              spr = EXCLUDED.spr,
+              updated_at = NOW()
+             RETURNING *`,
+            [
+              shipmentId,
+              line.so_no,
+              line.line_order,
+              line.quantity_spb ?? null,
+              line.spb?.trim() || null,
+              line.delivery_order_pgi?.trim() || null,
+              line.spr?.trim() || null,
+            ],
+          );
+          if (res.rows[0]) results.push(res.rows[0]);
+        }
+      }
+
+      await client.query("COMMIT");
+      return results.sort((a, b) => {
+        const ao = Number((a as { line_order?: number }).line_order ?? 0);
+        const bo = Number((b as { line_order?: number }).line_order ?? 0);
+        return ao - bo;
+      });
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
+
+  /* ───────── Billing lines (Billing & Levy per SO) ───────── */
+
+  async listBillingLines(shipmentId: string): Promise<unknown[]> {
+    const result = await this.pool.query(
+      `SELECT id, shipment_id, so_no, line_order,
+              biaya_keluar_price_usd_mt, biaya_keluar_amount_idr, biaya_keluar_billing_no,
+              levy_price_usd_mt, levy_amount_idr, levy_billing_no,
+              created_at, updated_at
+       FROM export_bulking_billing_lines
+       WHERE shipment_id = $1
+       ORDER BY line_order ASC, so_no ASC, created_at ASC`,
+      [shipmentId],
+    );
+    return result.rows;
+  }
+
+  async upsertBillingLines(shipmentId: string, lines: BillingLineDto[]): Promise<unknown[]> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      const normalized = lines.map((line, i) => ({
+        ...line,
+        so_no: line.so_no?.trim() ?? "",
+        line_order: line.line_order ?? i + 1,
+      }));
+
+      for (const line of normalized) {
+        if (!line.so_no) {
+          throw new AppError("Each billing row requires an SO number", 400);
+        }
+      }
+
+      const soNos = normalized.map((line) => line.so_no);
+      const uniqueSo = new Set(soNos);
+      if (uniqueSo.size !== soNos.length) {
+        throw new AppError("Duplicate SO numbers in billing rows", 400);
+      }
+
+      if (soNos.length === 0) {
+        await client.query(`DELETE FROM export_bulking_billing_lines WHERE shipment_id = $1`, [shipmentId]);
+      } else {
+        await client.query(
+          `DELETE FROM export_bulking_billing_lines
+           WHERE shipment_id = $1 AND NOT (so_no = ANY($2::text[]))`,
+          [shipmentId, soNos],
+        );
+      }
+
+      const results: unknown[] = [];
+      for (const line of normalized) {
+        const params = [
+          line.so_no,
+          line.line_order,
+          line.biaya_keluar_price_usd_mt ?? null,
+          line.biaya_keluar_amount_idr ?? null,
+          line.biaya_keluar_billing_no?.trim() || null,
+          line.levy_price_usd_mt ?? null,
+          line.levy_amount_idr ?? null,
+          line.levy_billing_no?.trim() || null,
+        ];
+        if (line.id) {
+          const res = await client.query(
+            `UPDATE export_bulking_billing_lines SET
+              so_no = $1,
+              line_order = $2,
+              biaya_keluar_price_usd_mt = $3,
+              biaya_keluar_amount_idr = $4,
+              biaya_keluar_billing_no = $5,
+              levy_price_usd_mt = $6,
+              levy_amount_idr = $7,
+              levy_billing_no = $8,
+              updated_at = NOW()
+             WHERE id = $9 AND shipment_id = $10
+             RETURNING *`,
+            [...params, line.id, shipmentId],
+          );
+          if (res.rows[0]) results.push(res.rows[0]);
+        } else {
+          const res = await client.query(
+            `INSERT INTO export_bulking_billing_lines
+              (shipment_id, so_no, line_order,
+               biaya_keluar_price_usd_mt, biaya_keluar_amount_idr, biaya_keluar_billing_no,
+               levy_price_usd_mt, levy_amount_idr, levy_billing_no,
+               created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+             ON CONFLICT (shipment_id, so_no) DO UPDATE SET
+              line_order = EXCLUDED.line_order,
+              biaya_keluar_price_usd_mt = EXCLUDED.biaya_keluar_price_usd_mt,
+              biaya_keluar_amount_idr = EXCLUDED.biaya_keluar_amount_idr,
+              biaya_keluar_billing_no = EXCLUDED.biaya_keluar_billing_no,
+              levy_price_usd_mt = EXCLUDED.levy_price_usd_mt,
+              levy_amount_idr = EXCLUDED.levy_amount_idr,
+              levy_billing_no = EXCLUDED.levy_billing_no,
+              updated_at = NOW()
+             RETURNING *`,
+            [shipmentId, ...params],
+          );
+          if (res.rows[0]) results.push(res.rows[0]);
+        }
+      }
+
+      await client.query("COMMIT");
+      return results.sort((a, b) => {
+        const ao = Number((a as { line_order?: number }).line_order ?? 0);
+        const bo = Number((b as { line_order?: number }).line_order ?? 0);
+        return ao - bo;
+      });
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
+
+  /* ───────── Bills of lading (multiple per shipment) ───────── */
+
+  async listBillsOfLading(shipmentId: string): Promise<unknown[]> {
+    const result = await this.pool.query(
+      `SELECT id, shipment_id, line_order, bill_of_lading_no, bill_of_lading_date, bill_of_lading_nn_obl,
+              created_at, updated_at
+       FROM export_bulking_bills_of_lading
+       WHERE shipment_id = $1
+       ORDER BY line_order ASC, created_at ASC`,
+      [shipmentId],
+    );
+    return result.rows;
+  }
+
+  private async syncShipmentBillOfLadingSnapshot(client: PoolClient, shipmentId: string): Promise<void> {
+    await client.query(
+      `UPDATE export_bulking_shipments s SET
+        bill_of_lading_no = bol.bill_of_lading_no,
+        bill_of_lading_date = bol.bill_of_lading_date,
+        bill_of_lading_nn_obl = bol.bill_of_lading_nn_obl,
+        updated_at = NOW()
+       FROM (
+         SELECT bill_of_lading_no, bill_of_lading_date, bill_of_lading_nn_obl
+         FROM export_bulking_bills_of_lading
+         WHERE shipment_id = $1
+         ORDER BY line_order ASC, created_at ASC
+         LIMIT 1
+       ) bol
+       WHERE s.id = $1`,
+      [shipmentId],
+    );
+    await client.query(
+      `UPDATE export_bulking_shipments SET
+        bill_of_lading_no = NULL,
+        bill_of_lading_date = NULL,
+        bill_of_lading_nn_obl = NULL,
+        updated_at = NOW()
+       WHERE id = $1
+         AND NOT EXISTS (SELECT 1 FROM export_bulking_bills_of_lading WHERE shipment_id = $1)`,
+      [shipmentId],
+    );
+  }
+
+  async upsertBillsOfLading(shipmentId: string, lines: BillOfLadingDto[]): Promise<unknown[]> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      const normalized = lines.map((line, i) => ({
+        ...line,
+        line_order: line.line_order ?? i + 1,
+        bill_of_lading_no: line.bill_of_lading_no?.trim() || null,
+        bill_of_lading_nn_obl: line.bill_of_lading_nn_obl?.trim() || null,
+      }));
+
+      const keepIds = normalized.map((l) => l.id).filter(Boolean) as string[];
+      if (keepIds.length === 0) {
+        await client.query(`DELETE FROM export_bulking_bills_of_lading WHERE shipment_id = $1`, [shipmentId]);
+      } else {
+        await client.query(
+          `DELETE FROM export_bulking_bills_of_lading
+           WHERE shipment_id = $1 AND NOT (id = ANY($2::uuid[]))`,
+          [shipmentId, keepIds],
+        );
+      }
+
+      const results: unknown[] = [];
+      for (const line of normalized) {
+        const params = [
+          line.line_order,
+          line.bill_of_lading_no,
+          line.bill_of_lading_date ?? null,
+          line.bill_of_lading_nn_obl,
+        ];
+        if (line.id) {
+          const res = await client.query(
+            `UPDATE export_bulking_bills_of_lading SET
+              line_order = $1,
+              bill_of_lading_no = $2,
+              bill_of_lading_date = $3,
+              bill_of_lading_nn_obl = $4,
+              updated_at = NOW()
+             WHERE id = $5 AND shipment_id = $6
+             RETURNING *`,
+            [...params, line.id, shipmentId],
+          );
+          if (res.rows[0]) results.push(res.rows[0]);
+        } else if (line.bill_of_lading_no || line.bill_of_lading_date || line.bill_of_lading_nn_obl) {
+          const res = await client.query(
+            `INSERT INTO export_bulking_bills_of_lading
+              (shipment_id, line_order, bill_of_lading_no, bill_of_lading_date, bill_of_lading_nn_obl, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+             RETURNING *`,
+            [shipmentId, ...params],
+          );
+          if (res.rows[0]) results.push(res.rows[0]);
+        }
+      }
+
+      await this.syncShipmentBillOfLadingSnapshot(client, shipmentId);
+      await client.query("COMMIT");
+      return results.sort((a, b) => {
+        const ao = Number((a as { line_order?: number }).line_order ?? 0);
+        const bo = Number((b as { line_order?: number }).line_order ?? 0);
+        return ao - bo;
+      });
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
+
+  async upsertSiPebFields(shipmentId: string, items: SiPebFieldsDto[]): Promise<unknown[]> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const results: unknown[] = [];
+      for (const item of items) {
+        const id = item.id?.trim();
+        if (!id) continue;
+        const res = await client.query(
+          `UPDATE export_bulking_shipping_instructions SET
+            peb_request_no = $1,
+            peb_no = $2,
+            peb_date = $3,
+            hs_code = $4,
+            updated_at = NOW()
+           WHERE id = $5 AND shipment_id = $6
+           RETURNING *`,
+          [
+            item.peb_request_no?.trim() || null,
+            item.peb_no?.trim() || null,
+            item.peb_date ?? null,
+            item.hs_code?.trim() || null,
+            id,
+            shipmentId,
+          ],
+        );
+        if (res.rows[0]) {
+          const si = res.rows[0] as { id: string; lines?: unknown[] };
+          const lineResult = await client.query(
+            `SELECT * FROM export_bulking_si_lines WHERE si_id = $1 ORDER BY created_at ASC`,
+            [si.id],
+          );
+          si.lines = lineResult.rows;
+          results.push(si);
+        }
+      }
+      await client.query("COMMIT");
+      return results;
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
     }
   }
 
@@ -1062,6 +1461,12 @@ export class ExportBulkingRepository {
         return null;
       }
 
+      const currentStatus = String((current as { status?: string }).status ?? "DRAFT");
+      if (currentStatus === "FINAL") {
+        await client.query("ROLLBACK");
+        throw new AppError("Finalized invoices cannot be edited. Use Amend to reopen.", 409);
+      }
+
       let nextShippingInstructionId: string | null;
       if (dto.shipping_instruction_id !== undefined) {
         nextShippingInstructionId =
@@ -1149,6 +1554,13 @@ export class ExportBulkingRepository {
   }
 
   async deleteInvoice(shipmentId: string, id: string): Promise<void> {
+    const cur = await this.getInvoiceHeader(id);
+    if (!cur || cur.shipment_id !== shipmentId) {
+      throw new AppError("Invoice not found", 404);
+    }
+    if (cur.status === "FINAL") {
+      throw new AppError("Finalized invoices cannot be deleted. Use Amend first.", 409);
+    }
     const r = await this.pool.query(
       `DELETE FROM export_bulking_invoices WHERE id = $1 AND shipment_id = $2`,
       [id, shipmentId],
@@ -1158,17 +1570,196 @@ export class ExportBulkingRepository {
     }
   }
 
-  async getInvoiceHeader(id: string): Promise<{ shipment_id: string; shipping_instruction_id: string | null } | null> {
+  async getInvoiceHeader(id: string): Promise<{ shipment_id: string; shipping_instruction_id: string | null; status?: string } | null> {
     const r = await this.pool.query(
-      `SELECT shipment_id, shipping_instruction_id FROM export_bulking_invoices WHERE id = $1`,
+      `SELECT shipment_id, shipping_instruction_id, status FROM export_bulking_invoices WHERE id = $1`,
       [id],
     );
-    const row = r.rows[0] as { shipment_id?: string; shipping_instruction_id?: string | null } | undefined;
+    const row = r.rows[0] as { shipment_id?: string; shipping_instruction_id?: string | null; status?: string } | undefined;
     if (!row?.shipment_id) return null;
     return {
       shipment_id: row.shipment_id,
       shipping_instruction_id: row.shipping_instruction_id ?? null,
+      status: row.status,
     };
+  }
+
+  async getInvoiceById(id: string): Promise<Record<string, unknown> | null> {
+    const invResult = await this.pool.query(`SELECT * FROM export_bulking_invoices WHERE id = $1`, [id]);
+    const inv = invResult.rows[0] as Record<string, unknown> | undefined;
+    if (!inv) return null;
+    const lineResult = await this.pool.query(
+      `SELECT * FROM export_bulking_invoice_lines WHERE invoice_id = $1 ORDER BY item_no ASC, created_at ASC`,
+      [id],
+    );
+    inv.lines = lineResult.rows;
+    return inv;
+  }
+
+  async insertInvoiceEvent(input: {
+    invoiceId: string;
+    eventType: string;
+    fromStatus?: string | null;
+    toStatus?: string | null;
+    changes: unknown;
+    reason?: string | null;
+    changedBy?: string | null;
+  }): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO export_bulking_invoice_events
+        (invoice_id, event_type, from_status, to_status, changes, reason, changed_by, changed_at)
+       VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,NOW())`,
+      [
+        input.invoiceId,
+        input.eventType,
+        input.fromStatus ?? null,
+        input.toStatus ?? null,
+        JSON.stringify(input.changes ?? []),
+        input.reason ?? null,
+        input.changedBy ?? null,
+      ],
+    );
+  }
+
+  async listInvoiceEvents(invoiceId: string): Promise<unknown[]> {
+    const r = await this.pool.query(
+      `SELECT id, invoice_id, event_type, from_status, to_status, changes, reason, changed_by, changed_at
+       FROM export_bulking_invoice_events
+       WHERE invoice_id = $1
+       ORDER BY changed_at ASC`,
+      [invoiceId],
+    );
+    return r.rows;
+  }
+
+  async persistInvoiceDraftSnapshot(invoiceId: string, snapshot: unknown): Promise<void> {
+    await this.pool.query(
+      `UPDATE export_bulking_invoices
+       SET draft_snapshot = $1::jsonb, last_draft_saved_at = NOW(), updated_at = NOW()
+       WHERE id = $2`,
+      [JSON.stringify(snapshot), invoiceId],
+    );
+  }
+
+  async splitInvoicesForSi(
+    shipmentId: string,
+    siId: string,
+    quantities: number[],
+    cargoLineId: string | null,
+    userId?: string | null,
+  ): Promise<unknown[]> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await assertShippingInstructionMatchesShipment(client, shipmentId, siId);
+
+      const created: unknown[] = [];
+      const { year, month } = utcYearMonthNow();
+      const holder = userId ?? null;
+
+      for (let i = 0; i < quantities.length; i++) {
+        const qty = quantities[i];
+        const serial = await this.allocateNextSerial(client, SERIES_CI_EU, year);
+        const invoiceNo = formatInvoiceDocumentNumber(year, month, serial);
+
+        const invRes = await client.query(
+          `INSERT INTO export_bulking_invoices
+            (shipment_id, shipping_instruction_id, invoice_no, status, doc_number_held_by_user_id, created_at, updated_at)
+           VALUES ($1,$2,$3,'DRAFT',$4,NOW(),NOW())
+           RETURNING *`,
+          [shipmentId, siId, invoiceNo, holder],
+        );
+        const inv = invRes.rows[0] as { id: string; lines?: unknown[] };
+        inv.lines = [];
+
+        if (qty > 0) {
+          const lineRes = await client.query(
+            `INSERT INTO export_bulking_invoice_lines
+              (invoice_id, cargo_line_id, item_no, quantity, created_at, updated_at)
+             VALUES ($1,$2,$3,$4,NOW(),NOW())
+             RETURNING *`,
+            [inv.id, cargoLineId, 1, qty],
+          );
+          if (lineRes.rows[0]) inv.lines.push(lineRes.rows[0]);
+        }
+
+        const snapshot = {
+          invoice_no: invRes.rows[0].invoice_no,
+          shipping_instruction_id: siId,
+          lines: inv.lines,
+        };
+        await client.query(
+          `UPDATE export_bulking_invoices SET draft_snapshot = $1::jsonb, last_draft_saved_at = NOW() WHERE id = $2`,
+          [JSON.stringify(snapshot), inv.id],
+        );
+
+        created.push(inv);
+      }
+
+      await client.query("COMMIT");
+      return created;
+    } catch (e) {
+      await client.query("ROLLBACK");
+      rethrowDocumentNumberConflict(e, "Invoice number");
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
+
+  async finalizeInvoiceRecord(
+    invoiceId: string,
+    input: {
+      draftSnapshot: unknown;
+      finalSnapshot: unknown;
+      userId: string;
+    },
+  ): Promise<Record<string, unknown> | null> {
+    const r = await this.pool.query(
+      `UPDATE export_bulking_invoices SET
+        status = 'FINAL',
+        draft_snapshot = $1::jsonb,
+        final_snapshot = $2::jsonb,
+        finalized_at = NOW(),
+        finalized_by = $3,
+        last_draft_saved_at = NOW(),
+        updated_at = NOW()
+       WHERE id = $4 AND status = 'DRAFT'
+       RETURNING *`,
+      [JSON.stringify(input.draftSnapshot), JSON.stringify(input.finalSnapshot), input.userId, invoiceId],
+    );
+    return (r.rows[0] as Record<string, unknown>) ?? null;
+  }
+
+  async amendInvoiceRecord(
+    invoiceId: string,
+    userId: string,
+    reason: string,
+  ): Promise<Record<string, unknown> | null> {
+    const r = await this.pool.query(
+      `UPDATE export_bulking_invoices SET
+        status = 'DRAFT',
+        revision_no = revision_no + 1,
+        finalized_at = NULL,
+        finalized_by = NULL,
+        final_snapshot = NULL,
+        updated_at = NOW()
+       WHERE id = $1 AND status = 'FINAL'
+       RETURNING *`,
+      [invoiceId],
+    );
+    const row = r.rows[0] as Record<string, unknown> | undefined;
+    if (!row) return null;
+    await this.insertInvoiceEvent({
+      invoiceId,
+      eventType: "AMENDED",
+      fromStatus: "FINAL",
+      toStatus: "DRAFT",
+      changes: [],
+      reason,
+      changedBy: userId,
+    });
+    return row;
   }
 
   /* ───────── packing lists ───────── */

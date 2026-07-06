@@ -22,6 +22,10 @@ function assert(condition: boolean, label: string) {
 assert(parseRequiredSentDocuments(["bl", "coo", "invalid"]).join(",") === "bl,coo", "parse filters invalid keys");
 assert(!isBillOfLadingSaved({ bill_of_lading_no: null }), "B/L not saved without number");
 assert(isBillOfLadingSaved({ bill_of_lading_no: "BL-001" }), "B/L saved with number");
+assert(
+  isBillOfLadingSaved({ bills_of_lading: [{ bill_of_lading_no: "BL-002" }] }),
+  "B/L saved when bills_of_lading array has a number",
+);
 
 const missing = getMissingRequiredSentDocuments({
   bill_of_lading_no: "BL-001",

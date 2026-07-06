@@ -5,7 +5,9 @@
 
 import {
   validateSiTotalsMatchCargo,
+  validateSiAllocationDoesNotExceedCargo,
   validateInvoiceTotalsMatchSi,
+  validateInvoiceAllocationDoesNotExceedSi,
   sumInvoiceQtyForSi,
   sumSiQtyForCargo,
   siTotalQuantity,
@@ -36,10 +38,17 @@ assert(
 );
 
 assert(
-  validateSiTotalsMatchCargo(cargo, [
+  validateSiAllocationDoesNotExceedCargo(cargo, [
     { id: "si1", lines: [{ cargo_line_id: "c1", quantity: 5000 }] },
+  ]).length === 0,
+  "under-allocated cargo passes draft save",
+);
+
+assert(
+  validateSiAllocationDoesNotExceedCargo(cargo, [
+    { id: "si1", lines: [{ cargo_line_id: "c1", quantity: 11000 }] },
   ]).length === 1,
-  "under-allocated cargo fails",
+  "over-allocated cargo fails draft save",
 );
 
 assert(
@@ -58,6 +67,25 @@ assert(
     { id: "inv2", shipping_instruction_id: "si1", lines: [{ quantity: 2500 }] },
   ]).length === 0,
   "invoices matching SI total pass",
+);
+
+assert(
+  validateInvoiceAllocationDoesNotExceedSi(si, [
+    { id: "inv1", shipping_instruction_id: "si1", lines: [{ quantity: 2500 }] },
+  ]).length === 0,
+  "partial draft allocation under SI total passes",
+);
+
+assert(
+  validateInvoiceAllocationDoesNotExceedSi(
+    si,
+    [
+      { id: "inv1", shipping_instruction_id: "si1", lines: [{ quantity: 3500 }] },
+      { id: "inv2", shipping_instruction_id: "si1", lines: [{ quantity: 2500 }] },
+    ],
+    { overrideInvoiceId: "inv2", overrideLines: [{ quantity: 3000 }] },
+  ).length === 1,
+  "allocation exceeding SI total fails",
 );
 
 assert(

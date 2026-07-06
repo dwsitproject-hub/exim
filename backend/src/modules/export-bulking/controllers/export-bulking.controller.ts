@@ -242,6 +242,93 @@ export async function deleteCargo(req: Request, res: Response, next: NextFunctio
   }
 }
 
+/* ───────── SAP lines ───────── */
+
+export async function listSapLines(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const data = await service.listSapLines(req.params.id);
+    sendSuccess(res, data);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function upsertSapLines(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const lines = Array.isArray(req.body) ? req.body : req.body?.lines;
+    if (!Array.isArray(lines)) {
+      sendError(res, "lines array is required", { statusCode: 400 });
+      return;
+    }
+    const data = await service.upsertSapLines(req.params.id, lines);
+    sendSuccess(res, data, { message: "SAP lines saved" });
+  } catch (e) {
+    next(e);
+  }
+}
+
+/* ───────── Billing lines ───────── */
+
+export async function listBillingLines(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const data = await service.listBillingLines(req.params.id);
+    sendSuccess(res, data);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function upsertBillingLines(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const lines = Array.isArray(req.body) ? req.body : req.body?.lines;
+    if (!Array.isArray(lines)) {
+      sendError(res, "lines array is required", { statusCode: 400 });
+      return;
+    }
+    const data = await service.upsertBillingLines(req.params.id, lines);
+    sendSuccess(res, data, { message: "Billing lines saved" });
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function listBillsOfLading(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const data = await service.listBillsOfLading(req.params.id);
+    sendSuccess(res, data);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function upsertBillsOfLading(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const lines = Array.isArray(req.body) ? req.body : req.body?.lines;
+    if (!Array.isArray(lines)) {
+      sendError(res, "lines array is required", { statusCode: 400 });
+      return;
+    }
+    const data = await service.upsertBillsOfLading(req.params.id, lines);
+    sendSuccess(res, data, { message: "Bills of lading saved" });
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function upsertSiPebFields(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const items = Array.isArray(req.body) ? req.body : req.body?.items;
+    if (!Array.isArray(items)) {
+      sendError(res, "items array is required", { statusCode: 400 });
+      return;
+    }
+    const data = await service.upsertSiPebFields(req.params.id, items);
+    sendSuccess(res, data, { message: "PEB details saved" });
+  } catch (e) {
+    next(e);
+  }
+}
+
 /* ───────── shipping instructions ───────── */
 
 export async function listSIs(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -331,6 +418,75 @@ export async function deleteInvoice(req: Request, res: Response, next: NextFunct
   try {
     await service.deleteInvoice(req.params.id, req.params.invId);
     sendSuccess(res, {}, { message: "Invoice deleted" });
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function splitInvoices(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const data = await service.splitInvoices(
+      req.params.id,
+      req.params.siId,
+      req.body,
+      userUuidFromRequest(req),
+    );
+    sendSuccess(res, data, { message: "Invoices created", statusCode: 201 });
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function finalizeInvoice(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const userId = userUuidFromRequest(req);
+    if (!userId) {
+      sendError(res, "Authentication required", { statusCode: 401 });
+      return;
+    }
+    const data = await service.finalizeInvoice(req.params.id, req.params.invId, req.body ?? {}, userId);
+    sendSuccess(res, data, { message: "Invoice finalized" });
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function amendInvoice(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const userId = userUuidFromRequest(req);
+    if (!userId) {
+      sendError(res, "Authentication required", { statusCode: 401 });
+      return;
+    }
+    const data = await service.amendInvoice(req.params.id, req.params.invId, req.body, userId);
+    sendSuccess(res, data, { message: "Invoice amended to draft" });
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function listInvoiceEvents(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const data = await service.listInvoiceEvents(req.params.id, req.params.invId);
+    sendSuccess(res, data);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function getInvoiceDiff(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const data = await service.getInvoiceFinalizeDiff(req.params.id, req.params.invId);
+    sendSuccess(res, data);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function getSiInvoiceAllocation(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const data = await service.getSiInvoiceAllocation(req.params.id, req.params.siId);
+    sendSuccess(res, data);
   } catch (e) {
     next(e);
   }

@@ -27,6 +27,7 @@ export const EXPORT_SENT_DOCUMENT_LABELS: Record<ExportSentDocumentKey, string> 
 
 export type ExportSentDocumentShipment = {
   bill_of_lading_no?: string | null;
+  bills_of_lading?: { bill_of_lading_no?: string | null }[] | null;
   required_sent_documents?: unknown;
   sent_bl?: string | null;
   sent_coo?: string | null;
@@ -63,6 +64,7 @@ export function parseRequiredSentDocuments(raw: unknown): ExportSentDocumentKey[
 }
 
 export function isBillOfLadingSaved(data: ExportSentDocumentShipment): boolean {
+  if (data.bills_of_lading?.some((b) => Boolean(b.bill_of_lading_no?.trim()))) return true;
   return Boolean(data.bill_of_lading_no?.trim());
 }
 

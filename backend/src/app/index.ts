@@ -17,6 +17,8 @@ import { dashboardRoutes } from "../modules/dashboard/routes.js";
 import { exportBulkingRoutes } from "../modules/export-bulking/routes.js";
 import { shipperRoutes } from "../modules/shippers/routes.js";
 import { agentRoutes } from "../modules/agents/routes.js";
+import { surveyorRoutes } from "../modules/surveyors/routes.js";
+import { commodityRoutes } from "../modules/commodities/routes.js";
 import { notificationRoutes } from "../modules/notifications/routes.js";
 
 function buildCorsOptions(): CorsOptions {
@@ -66,6 +68,8 @@ export function createApp(): express.Application {
   app.use("/api/v1/export/bulking", exportBulkingRoutes);
   app.use("/api/v1/shippers", shipperRoutes);
   app.use("/api/v1/agents", agentRoutes);
+  app.use("/api/v1/surveyors", surveyorRoutes);
+  app.use("/api/v1/commodities", commodityRoutes);
 
   app.use((_req, _res, next) => next(new AppError("Not found", 404)));
   app.use(errorHandler);

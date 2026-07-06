@@ -8,6 +8,10 @@ import {
   type ListExportBulkingQuery,
   type ExportBulkingShipmentRow,
   type CargoLineDto,
+  type SapLineDto,
+  type BillingLineDto,
+  type BillOfLadingDto,
+  type SiPebFieldsDto,
   type ShippingInstructionDto,
   type InvoiceDto,
   type PackingListDto,
@@ -15,13 +19,27 @@ import {
 } from "../dto/index.js";
 import { getMissingRequirementLabels } from "../utils/export-status-requirements.js";
 import {
-  validateSiTotalsMatchCargo,
+  validateSiAllocationDoesNotExceedCargo,
   validateInvoiceTotalsMatchSi,
+  validateInvoiceAllocationDoesNotExceedSi,
+  siTotalQuantity,
+  sumInvoiceQtyForSi,
   packingListLinesFromSi,
   type CargoLineQty,
   type SiWithLines,
   type InvoiceWithLines,
 } from "../utils/quantity-reconciliation.js";
+import {
+  buildInvoiceSnapshot,
+  computeInvoiceDiff,
+} from "../utils/invoice-snapshot.js";
+import {
+  invoiceRecordToSnapshot,
+  parseSplitQuantities,
+  recordInvoiceSaveAudit,
+  type InvoiceRecord,
+} from "./invoice-workflow.helpers.js";
+import type { InvoiceSplitDto, InvoiceAmendDto, InvoiceFinalizeDto } from "../dto/index.js";
 import { syncExportSentDocumentNotifications } from "./export-sent-doc-notifications.js";
 
 export class ExportBulkingService {
@@ -126,18 +144,25 @@ export class ExportBulkingService {
     shipping_instructions: unknown[];
     invoices: unknown[];
     packing_lists: unknown[];
+    sap_lines: unknown[];
+    billing_lines: unknown[];
+    bills_of_lading: unknown[];
   } | null> {
     const shipment = await this.repo.getById(id);
     if (!shipment) return null;
 
-    const [cargo_lines, shipping_instructions, invoices, packing_lists] = await Promise.all([
+    const [cargo_lines, shipping_instructions, invoices, packing_lists, sap_lines, billing_lines, bills_of_lading] =
+      await Promise.all([
       this.repo.listCargoLines(id),
       this.repo.listShippingInstructions(id),
       this.repo.listInvoices(id),
       this.repo.listPackingLists(id),
+      this.repo.listSapLines(id),
+      this.repo.listBillingLines(id),
+      this.repo.listBillsOfLading(id),
     ]);
 
-    return { shipment, cargo_lines, shipping_instructions, invoices, packing_lists };
+    return { shipment, cargo_lines, shipping_instructions, invoices, packing_lists, sap_lines, billing_lines, bills_of_lading };
   }
 
   async listDocumentationAssignees(): Promise<{ id: string; name: string; email: string }[]> {
@@ -176,6 +201,41 @@ export class ExportBulkingService {
     return this.repo.deleteCargoLine(shipmentId, cargoId);
   }
 
+  /* ───── SAP lines ───── */
+
+  async listSapLines(shipmentId: string): Promise<unknown[]> {
+    return this.repo.listSapLines(shipmentId);
+  }
+
+  async upsertSapLines(shipmentId: string, lines: SapLineDto[]): Promise<unknown[]> {
+    return this.repo.upsertSapLines(shipmentId, lines);
+  }
+
+  /* ───── Billing lines ───── */
+
+  async listBillingLines(shipmentId: string): Promise<unknown[]> {
+    return this.repo.listBillingLines(shipmentId);
+  }
+
+  async upsertBillingLines(shipmentId: string, lines: BillingLineDto[]): Promise<unknown[]> {
+    return this.repo.upsertBillingLines(shipmentId, lines);
+  }
+
+  /* ───── Bills of lading ───── */
+
+  async listBillsOfLading(shipmentId: string): Promise<unknown[]> {
+    return this.repo.listBillsOfLading(shipmentId);
+  }
+
+  async upsertBillsOfLading(shipmentId: string, lines: BillOfLadingDto[]): Promise<unknown[]> {
+    return this.repo.upsertBillsOfLading(shipmentId, lines);
+  }
+
+  async upsertSiPebFields(shipmentId: string, items: SiPebFieldsDto[]): Promise<unknown[]> {
+    if (!items.length) return this.repo.listShippingInstructions(shipmentId);
+    return this.repo.upsertSiPebFields(shipmentId, items);
+  }
+
   /* ───── shipping instructions ───── */
 
   async listShippingInstructions(shipmentId: string): Promise<unknown[]> {
@@ -188,7 +248,7 @@ export class ExportBulkingService {
     options?: { overrideSiId?: string; overrideLines?: ShippingInstructionDto["lines"] },
   ): Promise<void> {
     const cargoLines = (await this.repo.listCargoLines(shipmentId)) as CargoLineQty[];
-    const issues = validateSiTotalsMatchCargo(
+    const issues = validateSiAllocationDoesNotExceedCargo(
       cargoLines,
       shippingInstructions,
       options?.overrideSiId,
@@ -247,6 +307,30 @@ export class ExportBulkingService {
     return this.repo.listInvoices(shipmentId);
   }
 
+  private async assertInvoiceDraftAllocation(
+    shipmentId: string,
+    siId: string,
+    invoices: InvoiceWithLines[],
+    options?: {
+      excludeInvoiceId?: string;
+      overrideInvoiceId?: string;
+      overrideLines?: InvoiceDto["lines"];
+      additionalLines?: InvoiceDto["lines"];
+    },
+  ): Promise<void> {
+    const shippingInstructions = (await this.repo.listShippingInstructions(shipmentId)) as SiWithLines[];
+    const si = shippingInstructions.find((s) => s.id === siId);
+    if (!si) throw new AppError("Shipping instruction not found for this shipment", 400);
+    const issues = validateInvoiceAllocationDoesNotExceedSi(si, invoices, {
+      overrideInvoiceId: options?.overrideInvoiceId,
+      overrideLines: options?.overrideLines,
+      additionalLines: options?.additionalLines,
+    });
+    if (issues.length > 0) {
+      throw new AppError(issues.map((i) => i.message).join("; "), 400);
+    }
+  }
+
   private async assertInvoiceQuantityReconciliation(
     shipmentId: string,
     siId: string,
@@ -274,11 +358,18 @@ export class ExportBulkingService {
     const siId = (dto.shipping_instruction_id ?? "").trim();
     if (siId && dto.lines?.length) {
       const invoices = (await this.repo.listInvoices(shipmentId)) as InvoiceWithLines[];
-      await this.assertInvoiceQuantityReconciliation(shipmentId, siId, invoices, {
+      await this.assertInvoiceDraftAllocation(shipmentId, siId, invoices, {
         additionalLines: dto.lines,
       });
     }
-    return this.repo.createInvoice(shipmentId, dto, userId);
+    const created = (await this.repo.createInvoice(shipmentId, dto, userId)) as Record<string, unknown>;
+    const full = (await this.repo.getInvoiceById(String(created.id)))!;
+    await recordInvoiceSaveAudit(this.repo, {
+      before: { id: String(created.id), lines: [], draft_snapshot: null },
+      after: full as InvoiceRecord,
+      userId,
+    });
+    return full;
   }
 
   async updateInvoice(
@@ -287,24 +378,233 @@ export class ExportBulkingService {
     dto: InvoiceDto,
     actingUserId?: string | null,
   ): Promise<unknown> {
+    const before = await this.repo.getInvoiceById(id);
+    if (!before) throw new AppError("Invoice not found", 404);
+    if (before.shipment_id !== shipmentId) throw new AppError("Invoice not found", 404);
+    if (String(before.status ?? "DRAFT") === "FINAL") {
+      throw new AppError("Finalized invoices cannot be edited. Use Amend to reopen.", 409);
+    }
+
     if (dto.lines !== undefined) {
-      const cur = await this.repo.getInvoiceHeader(id);
-      if (!cur) throw new AppError("Invoice not found", 404);
-      if (cur.shipment_id !== shipmentId) throw new AppError("Invoice not found", 404);
-      const siId = (
+      const siId = String(
         dto.shipping_instruction_id !== undefined
           ? dto.shipping_instruction_id
-          : cur.shipping_instruction_id
-      )?.trim();
+          : before.shipping_instruction_id ?? "",
+      ).trim();
       if (siId) {
         const invoices = (await this.repo.listInvoices(shipmentId)) as InvoiceWithLines[];
-        await this.assertInvoiceQuantityReconciliation(shipmentId, siId, invoices, {
+        await this.assertInvoiceDraftAllocation(shipmentId, siId, invoices, {
           overrideInvoiceId: id,
           overrideLines: dto.lines,
         });
       }
     }
-    return this.repo.updateInvoice(shipmentId, id, dto, actingUserId);
+
+    const updated = await this.repo.updateInvoice(shipmentId, id, dto, actingUserId);
+    if (!updated) throw new AppError("Invoice not found", 404);
+    const after = (await this.repo.getInvoiceById(id))!;
+    await recordInvoiceSaveAudit(this.repo, {
+      before: before as InvoiceRecord,
+      after: after as InvoiceRecord,
+      userId: actingUserId,
+      reason: dto.qty_change_reason ?? null,
+    });
+    return after;
+  }
+
+  async splitInvoices(
+    shipmentId: string,
+    siId: string,
+    dto: InvoiceSplitDto,
+    userId?: string | null,
+  ): Promise<unknown[]> {
+    const shippingInstructions = (await this.repo.listShippingInstructions(shipmentId)) as SiWithLines[];
+    const si = shippingInstructions.find((s) => s.id === siId);
+    if (!si) throw new AppError("Shipping instruction not found", 404);
+
+    const siTotal = siTotalQuantity(si);
+    let quantities: number[];
+    try {
+      quantities = parseSplitQuantities(siTotal, dto.mode, dto.count, dto.quantities);
+    } catch (e) {
+      throw new AppError(e instanceof Error ? e.message : "Invalid split quantities", 400);
+    }
+
+    const sum = quantities.reduce((a, b) => a + b, 0);
+    if (siTotal > 0 && Math.abs(sum - siTotal) > 1e-6) {
+      throw new AppError(
+        `Split quantities (${sum} MT) must equal SI total (${siTotal} MT)`,
+        400,
+      );
+    }
+
+    const invoices = (await this.repo.listInvoices(shipmentId)) as InvoiceWithLines[];
+    const existing = sumInvoiceQtyForSi(siId, invoices);
+    if (existing + sum > siTotal + 1e-6) {
+      throw new AppError(
+        `Split would exceed SI total (${siTotal} MT). Already invoiced: ${existing} MT`,
+        400,
+      );
+    }
+
+    const cargoLineId = (dto.cargo_line_id ?? "").trim() || null;
+    const created = await this.repo.splitInvoicesForSi(
+      shipmentId,
+      siId,
+      quantities,
+      cargoLineId,
+      userId,
+    );
+
+    for (const inv of created) {
+      const row = inv as { id: string };
+      await this.repo.insertInvoiceEvent({
+        invoiceId: row.id,
+        eventType: "CREATED",
+        fromStatus: null,
+        toStatus: "DRAFT",
+        changes: [{ field: "Split invoice", oldValue: null, newValue: `${quantities.length} invoices` }],
+        changedBy: userId ?? null,
+      });
+    }
+
+    return (await Promise.all(
+      created.map(async (inv) => this.repo.getInvoiceById((inv as { id: string }).id)),
+    )).filter(Boolean);
+  }
+
+  async finalizeInvoice(
+    shipmentId: string,
+    invoiceId: string,
+    dto: InvoiceFinalizeDto,
+    userId: string,
+  ): Promise<unknown> {
+    const before = await this.repo.getInvoiceById(invoiceId);
+    if (!before || before.shipment_id !== shipmentId) throw new AppError("Invoice not found", 404);
+    if (String(before.status ?? "DRAFT") !== "DRAFT") {
+      throw new AppError("Only draft invoices can be finalized", 409);
+    }
+
+    const siId = String(before.shipping_instruction_id ?? "").trim();
+    if (siId) {
+      const invoices = (await this.repo.listInvoices(shipmentId)) as InvoiceWithLines[];
+      await this.assertInvoiceQuantityReconciliation(shipmentId, siId, invoices, {
+        overrideInvoiceId: invoiceId,
+        overrideLines: (before.lines as InvoiceDto["lines"]) ?? [],
+      });
+    }
+
+    if (!String(before.invoice_no ?? "").trim()) {
+      throw new AppError("Invoice number is required before finalizing", 400);
+    }
+    const lines = (before.lines as Array<{ quantity?: number | null }>) ?? [];
+    if (lines.length === 0 || lines.every((l) => l.quantity == null || Number(l.quantity) <= 0)) {
+      throw new AppError("At least one invoice line with quantity is required", 400);
+    }
+
+    const draftBaseline =
+      (before.draft_snapshot as ReturnType<typeof buildInvoiceSnapshot> | null) ??
+      invoiceRecordToSnapshot(before as InvoiceRecord);
+    const finalSnap = invoiceRecordToSnapshot(before as InvoiceRecord);
+    const finalizeDiff = computeInvoiceDiff(draftBaseline, finalSnap);
+
+    const updated = await this.repo.finalizeInvoiceRecord(invoiceId, {
+      draftSnapshot: draftBaseline,
+      finalSnapshot: finalSnap,
+      userId,
+    });
+    if (!updated) throw new AppError("Invoice could not be finalized", 409);
+
+    await this.repo.insertInvoiceEvent({
+      invoiceId,
+      eventType: "FINALIZED",
+      fromStatus: "DRAFT",
+      toStatus: "FINAL",
+      changes: finalizeDiff,
+      reason: dto.note ?? null,
+      changedBy: userId,
+    });
+
+    return this.repo.getInvoiceById(invoiceId);
+  }
+
+  async amendInvoice(
+    shipmentId: string,
+    invoiceId: string,
+    dto: InvoiceAmendDto,
+    userId: string,
+  ): Promise<unknown> {
+    const before = await this.repo.getInvoiceById(invoiceId);
+    if (!before || before.shipment_id !== shipmentId) throw new AppError("Invoice not found", 404);
+    if (String(before.status ?? "") !== "FINAL") {
+      throw new AppError("Only finalized invoices can be amended", 409);
+    }
+    const reason = dto.reason?.trim();
+    if (!reason) throw new AppError("Amend reason is required", 400);
+
+    const updated = await this.repo.amendInvoiceRecord(invoiceId, userId, reason);
+    if (!updated) throw new AppError("Invoice could not be amended", 409);
+    return this.repo.getInvoiceById(invoiceId);
+  }
+
+  async listInvoiceEvents(shipmentId: string, invoiceId: string): Promise<unknown[]> {
+    const header = await this.repo.getInvoiceHeader(invoiceId);
+    if (!header || header.shipment_id !== shipmentId) throw new AppError("Invoice not found", 404);
+    return this.repo.listInvoiceEvents(invoiceId);
+  }
+
+  async getInvoiceFinalizeDiff(shipmentId: string, invoiceId: string): Promise<unknown> {
+    const inv = await this.repo.getInvoiceById(invoiceId);
+    if (!inv || inv.shipment_id !== shipmentId) throw new AppError("Invoice not found", 404);
+
+    const draftSnap =
+      (inv.draft_snapshot as ReturnType<typeof buildInvoiceSnapshot> | null) ??
+      invoiceRecordToSnapshot(inv as InvoiceRecord);
+    const finalSnap =
+      (inv.final_snapshot as ReturnType<typeof buildInvoiceSnapshot> | null) ??
+      (String(inv.status) === "FINAL" ? invoiceRecordToSnapshot(inv as InvoiceRecord) : null);
+
+    if (!finalSnap) {
+      return {
+        status: inv.status,
+        changes: computeInvoiceDiff(draftSnap, invoiceRecordToSnapshot(inv as InvoiceRecord)),
+        draft_snapshot: draftSnap,
+        final_snapshot: null,
+      };
+    }
+
+    return {
+      status: inv.status,
+      changes: computeInvoiceDiff(draftSnap, finalSnap),
+      draft_snapshot: draftSnap,
+      final_snapshot: finalSnap,
+      finalized_at: inv.finalized_at,
+    };
+  }
+
+  async getSiInvoiceAllocation(shipmentId: string, siId: string): Promise<unknown> {
+    const shippingInstructions = (await this.repo.listShippingInstructions(shipmentId)) as SiWithLines[];
+    const si = shippingInstructions.find((s) => s.id === siId);
+    if (!si) throw new AppError("Shipping instruction not found", 404);
+    const invoices = (await this.repo.listInvoices(shipmentId)) as InvoiceWithLines[];
+    const linked = invoices.filter((inv) => (inv.shipping_instruction_id ?? "").trim() === siId);
+    const siTotal = siTotalQuantity(si);
+    const invoiced = linked.reduce((sum, inv) => {
+      return sum + (inv.lines ?? []).reduce((s, l) => s + Number(l.quantity ?? 0), 0);
+    }, 0);
+    return {
+      si_id: siId,
+      si_total: siTotal,
+      invoiced,
+      remaining: siTotal - invoiced,
+      matched: Math.abs(invoiced - siTotal) < 1e-6,
+      invoices: linked.map((inv) => ({
+        id: inv.id,
+        status: (inv as { status?: string }).status ?? "DRAFT",
+        invoice_no: (inv as { invoice_no?: string }).invoice_no ?? null,
+        quantity: (inv.lines ?? []).reduce((s, l) => s + Number(l.quantity ?? 0), 0),
+      })),
+    };
   }
 
   async regenerateInvoiceNumber(invoiceId: string, userId: string): Promise<unknown | null> {
