@@ -40,11 +40,11 @@ export const DOCUMENTATION_LIST_COLUMN_IDS = [
 
 export const DOCUMENTATION_COLUMN_LABELS: Partial<Record<string, string>> = {
   pic_documentation: "PIC documentation",
-  cargo_name: "Cargo Name",
+  cargo_name: "Commodity",
   total_qty: "Quantity",
   vessel: "Vessel Name",
   voyage: "Voyage No.",
-  si_no: "No SI",
+  si_no: "Shipping Instruction No.",
   invoice_no: "No Invoice",
   pl_no: "No Packing List",
   peb_no: "No PEB",

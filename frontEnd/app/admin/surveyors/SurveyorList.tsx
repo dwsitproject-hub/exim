@@ -4,12 +4,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { canManageExportMasterList } from "@/lib/permissions";
 import {
-  listAgents,
-  createAgent,
-  updateAgent,
-  deleteAgent,
-  type Agent,
-} from "@/services/agent-service";
+  listSurveyors,
+  createSurveyor,
+  updateSurveyor,
+  deleteSurveyor,
+  type Surveyor,
+} from "@/services/surveyor-service";
 import { isApiError } from "@/types/api";
 import type { ApiSuccess } from "@/types/api";
 import { useToast } from "@/components/providers/ToastProvider";
@@ -24,13 +24,13 @@ import {
   TableHeaderCell,
 } from "@/components/tables";
 import { Modal } from "@/components/overlays/Modal";
-import styles from "./AgentList.module.css";
+import styles from "./SurveyorList.module.css";
 
-const MANAGE_AGENTS = "MANAGE_AGENTS";
+const MANAGE_SURVEYORS = "MANAGE_SURVEYORS";
 
-export function AgentList() {
+export function SurveyorList() {
   const { user, accessToken } = useAuth();
-  const [items, setItems] = useState<Agent[]>([]);
+  const [items, setItems] = useState<Surveyor[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
@@ -42,7 +42,7 @@ export function AgentList() {
   const [nameValue, setNameValue] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const allowed = canManageExportMasterList(user, MANAGE_AGENTS);
+  const allowed = canManageExportMasterList(user, MANAGE_SURVEYORS);
 
   const fetchList = useCallback(() => {
     if (!accessToken || !allowed) {
@@ -50,16 +50,16 @@ export function AgentList() {
       return;
     }
     setLoading(true);
-    listAgents(accessToken)
+    listSurveyors(accessToken)
       .then((res) => {
         if (isApiError(res)) {
           setError(res.message);
           return;
         }
-        const success = res as ApiSuccess<Agent[]>;
+        const success = res as ApiSuccess<Surveyor[]>;
         setItems(success.data ?? []);
       })
-      .catch(() => setError("Failed to load agents"))
+      .catch(() => setError("Failed to load surveyors"))
       .finally(() => setLoading(false));
   }, [accessToken, allowed]);
 
@@ -70,7 +70,7 @@ export function AgentList() {
   const displayedItems = useMemo(() => {
     const query = filter.trim().toLowerCase();
     const filtered = query
-      ? items.filter((agent) => agent.name.toLowerCase().includes(query))
+      ? items.filter((surveyor) => surveyor.name.toLowerCase().includes(query))
       : items;
 
     return [...filtered].sort((a, b) => {
@@ -89,9 +89,9 @@ export function AgentList() {
     setModalOpen(true);
   }, []);
 
-  const openEdit = useCallback((agent: Agent) => {
-    setEditingId(agent.id);
-    setNameValue(agent.name);
+  const openEdit = useCallback((surveyor: Surveyor) => {
+    setEditingId(surveyor.id);
+    setNameValue(surveyor.name);
     setModalOpen(true);
   }, []);
 
@@ -99,36 +99,36 @@ export function AgentList() {
     if (!accessToken || !nameValue.trim()) return;
     setSaving(true);
     const res = editingId
-      ? await updateAgent(editingId, { name: nameValue.trim() }, accessToken)
-      : await createAgent({ name: nameValue.trim() }, accessToken);
+      ? await updateSurveyor(editingId, { name: nameValue.trim() }, accessToken)
+      : await createSurveyor({ name: nameValue.trim() }, accessToken);
     setSaving(false);
     if (isApiError(res)) {
       pushToast(res.message, "error");
       return;
     }
-    pushToast(editingId ? "Agent updated" : "Agent created", "success");
+    pushToast(editingId ? "Surveyor updated" : "Surveyor created", "success");
     setModalOpen(false);
     fetchList();
   }
 
-  async function handleDeleteAgent(id: string) {
+  async function handleDeleteSurveyor(id: string) {
     if (!accessToken) return;
-    const res = await deleteAgent(id, accessToken);
+    const res = await deleteSurveyor(id, accessToken);
     if (isApiError(res)) {
       pushToast(res.message, "error");
       return;
     }
-    pushToast("Agent deleted", "success");
+    pushToast("Surveyor deleted", "success");
     fetchList();
   }
 
   if (!allowed) {
     return (
       <AccessDenied
-        title="Agent"
+        title="Surveyor"
         backHref="/admin/dashboard"
         backLabel="Dashboard"
-        message="You do not have permission to manage agents."
+        message="You do not have permission to manage surveyors."
       />
     );
   }
@@ -136,9 +136,9 @@ export function AgentList() {
   return (
     <section className={styles.page}>
       <div className={styles.pageHeader}>
-        <h1 className={styles.pageTitle}>Agent</h1>
+        <h1 className={styles.pageTitle}>Surveyor</h1>
         <button type="button" className={styles.addBtn} onClick={openCreate}>
-          Add Agent
+          Add Surveyor
         </button>
       </div>
 
@@ -160,9 +160,9 @@ export function AgentList() {
                     type="button"
                     className={styles.sortBtn}
                     onClick={toggleSort}
-                    aria-label={`Sort agents ${sortDir === "asc" ? "ascending" : "descending"}`}
+                    aria-label={`Sort surveyors ${sortDir === "asc" ? "ascending" : "descending"}`}
                   >
-                    Agent
+                    Surveyor
                     <span aria-hidden>{sortDir === "asc" ? "↑" : "↓"}</span>
                   </button>
                 </TableHeaderCell>
@@ -175,8 +175,8 @@ export function AgentList() {
                     className={styles.filterInput}
                     value={filter}
                     onChange={(e) => setFilter(e.target.value)}
-                    placeholder="Filter Agent"
-                    aria-label="Filter Agent"
+                    placeholder="Filter Surveyor"
+                    aria-label="Filter Surveyor"
                   />
                 </TableHeaderCell>
               </TableRow>
@@ -185,25 +185,27 @@ export function AgentList() {
               {displayedItems.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={2} className={styles.emptyState}>
-                    {filter.trim() ? "No agents match your filter." : "No agents yet. Add your first agent."}
+                    {filter.trim()
+                      ? "No surveyors match your filter."
+                      : "No surveyors yet. Add your first surveyor."}
                   </TableCell>
                 </TableRow>
               ) : (
-                displayedItems.map((agent) => (
-                  <TableRow key={agent.id}>
-                    <TableCell>{agent.name}</TableCell>
+                displayedItems.map((surveyor) => (
+                  <TableRow key={surveyor.id}>
+                    <TableCell>{surveyor.name}</TableCell>
                     <TableCell className={styles.actionsCell}>
                       <button
                         type="button"
                         className={styles.actionBtn}
-                        onClick={() => openEdit(agent)}
+                        onClick={() => openEdit(surveyor)}
                       >
                         Edit
                       </button>
                       <button
                         type="button"
                         className={styles.actionBtn}
-                        onClick={() => handleDeleteAgent(agent.id)}
+                        onClick={() => handleDeleteSurveyor(surveyor.id)}
                       >
                         Delete
                       </button>
@@ -219,7 +221,7 @@ export function AgentList() {
       <Modal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
-        title={editingId ? "Edit Agent" : "Add Agent"}
+        title={editingId ? "Edit Surveyor" : "Add Surveyor"}
         footer={
           <div className={styles.modalActions}>
             <button type="button" className={styles.cancelBtn} onClick={() => setModalOpen(false)}>
@@ -237,9 +239,9 @@ export function AgentList() {
         }
       >
         <div className={styles.modalField}>
-          <label htmlFor="agent-name">Agent name</label>
+          <label htmlFor="surveyor-name">Surveyor name</label>
           <input
-            id="agent-name"
+            id="surveyor-name"
             type="text"
             value={nameValue}
             onChange={(e) => setNameValue(e.target.value)}

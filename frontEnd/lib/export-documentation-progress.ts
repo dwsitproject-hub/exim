@@ -12,6 +12,8 @@ import {
   isBillOfLadingSaved,
   parseRequiredSentDocuments,
 } from "@/lib/export-sent-documents";
+import { isSapDataComplete } from "@/lib/export-sap-lines";
+import { isBiayaKeluarComplete, isLevyBillingComplete } from "@/lib/export-billing-lines";
 
 export type DocStepKey = "preShipment" | "customs" | "billing" | "finalDocs";
 
@@ -67,7 +69,9 @@ export function buildDocumentationProgress(
     {
       id: "invoice",
       label: "Invoice",
-      done: d.invoices.length > 0,
+      done:
+        d.invoices.length > 0 &&
+        d.invoices.every((inv) => (inv.status ?? "DRAFT") === "FINAL"),
       step: "preShipment",
     },
     {
@@ -76,24 +80,28 @@ export function buildDocumentationProgress(
       done: d.packing_lists.length > 0,
       step: "preShipment",
     },
-
-    // ── Step 2: Customs Compliance ─────────────────────────────
     {
       id: "pe",
       label: "PE (Persetujuan Ekspor)",
-      done: Boolean(d.pe_no),
-      step: "customs",
+      done:
+        d.cargo_lines.length > 0 &&
+        d.cargo_lines.every((c) => Boolean(c.pe_no?.trim())),
+      step: "preShipment",
     },
+
+    // ── Step 2: Customs Compliance ─────────────────────────────
     {
       id: "peb",
       label: "PEB (Persetujuan Ekspor Barang)",
-      done: Boolean(d.peb_no),
+      done:
+        d.shipping_instructions.length > 0 &&
+        d.shipping_instructions.every((si) => Boolean(si.peb_no?.trim())),
       step: "customs",
     },
     {
       id: "npe_spb",
-      label: "NPE & SPB",
-      done: Boolean(d.npe_date),
+      label: "Data SAP",
+      done: isSapDataComplete(d),
       step: "customs",
     },
 
@@ -107,13 +115,13 @@ export function buildDocumentationProgress(
     {
       id: "biaya_keluar",
       label: "Biaya Keluar billing",
-      done: Boolean(d.biaya_keluar_billing_no),
+      done: isBiayaKeluarComplete(d),
       step: "billing",
     },
     {
       id: "levy",
       label: "Levy billing",
-      done: Boolean(d.levy_billing_no),
+      done: isLevyBillingComplete(d),
       step: "billing",
     },
 
@@ -121,7 +129,7 @@ export function buildDocumentationProgress(
     {
       id: "bl",
       label: "Bill of Lading",
-      done: Boolean(d.bill_of_lading_no),
+      done: isBillOfLadingSaved(d),
       step: "finalDocs",
     },
     {

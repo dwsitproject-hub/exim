@@ -4,12 +4,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { canManageExportMasterList } from "@/lib/permissions";
 import {
-  listAgents,
-  createAgent,
-  updateAgent,
-  deleteAgent,
-  type Agent,
-} from "@/services/agent-service";
+  listCommodities,
+  createCommodity,
+  updateCommodity,
+  deleteCommodity,
+  COMMODITY_TYPES,
+  type Commodity,
+  type CommodityType,
+} from "@/services/commodity-service";
 import { isApiError } from "@/types/api";
 import type { ApiSuccess } from "@/types/api";
 import { useToast } from "@/components/providers/ToastProvider";
@@ -24,13 +26,37 @@ import {
   TableHeaderCell,
 } from "@/components/tables";
 import { Modal } from "@/components/overlays/Modal";
-import styles from "./AgentList.module.css";
+import styles from "./CommodityList.module.css";
 
-const MANAGE_AGENTS = "MANAGE_AGENTS";
+const MANAGE_COMMODITIES = "MANAGE_COMMODITIES";
 
-export function AgentList() {
+type CommodityForm = {
+  short_name: string;
+  name: string;
+  commodity_type: CommodityType;
+};
+
+const EMPTY_FORM: CommodityForm = {
+  short_name: "",
+  name: "",
+  commodity_type: "Solid",
+};
+
+function formFromCommodity(commodity: Commodity): CommodityForm {
+  return {
+    short_name: commodity.short_name,
+    name: commodity.name,
+    commodity_type: commodity.commodity_type,
+  };
+}
+
+function isFormValid(form: CommodityForm): boolean {
+  return form.short_name.trim().length > 0 && form.name.trim().length > 0;
+}
+
+export function CommodityList() {
   const { user, accessToken } = useAuth();
-  const [items, setItems] = useState<Agent[]>([]);
+  const [items, setItems] = useState<Commodity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
@@ -39,10 +65,10 @@ export function AgentList() {
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [nameValue, setNameValue] = useState("");
+  const [form, setForm] = useState<CommodityForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
 
-  const allowed = canManageExportMasterList(user, MANAGE_AGENTS);
+  const allowed = canManageExportMasterList(user, MANAGE_COMMODITIES);
 
   const fetchList = useCallback(() => {
     if (!accessToken || !allowed) {
@@ -50,16 +76,16 @@ export function AgentList() {
       return;
     }
     setLoading(true);
-    listAgents(accessToken)
+    listCommodities(accessToken)
       .then((res) => {
         if (isApiError(res)) {
           setError(res.message);
           return;
         }
-        const success = res as ApiSuccess<Agent[]>;
+        const success = res as ApiSuccess<Commodity[]>;
         setItems(success.data ?? []);
       })
-      .catch(() => setError("Failed to load agents"))
+      .catch(() => setError("Failed to load commodities"))
       .finally(() => setLoading(false));
   }, [accessToken, allowed]);
 
@@ -70,11 +96,16 @@ export function AgentList() {
   const displayedItems = useMemo(() => {
     const query = filter.trim().toLowerCase();
     const filtered = query
-      ? items.filter((agent) => agent.name.toLowerCase().includes(query))
+      ? items.filter(
+          (commodity) =>
+            commodity.short_name.toLowerCase().includes(query) ||
+            commodity.name.toLowerCase().includes(query) ||
+            commodity.commodity_type.toLowerCase().includes(query),
+        )
       : items;
 
     return [...filtered].sort((a, b) => {
-      const cmp = a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+      const cmp = a.short_name.localeCompare(b.short_name, undefined, { sensitivity: "base" });
       return sortDir === "asc" ? cmp : -cmp;
     });
   }, [items, filter, sortDir]);
@@ -85,50 +116,55 @@ export function AgentList() {
 
   const openCreate = useCallback(() => {
     setEditingId(null);
-    setNameValue("");
+    setForm(EMPTY_FORM);
     setModalOpen(true);
   }, []);
 
-  const openEdit = useCallback((agent: Agent) => {
-    setEditingId(agent.id);
-    setNameValue(agent.name);
+  const openEdit = useCallback((commodity: Commodity) => {
+    setEditingId(commodity.id);
+    setForm(formFromCommodity(commodity));
     setModalOpen(true);
   }, []);
 
   async function handleSave() {
-    if (!accessToken || !nameValue.trim()) return;
+    if (!accessToken || !isFormValid(form)) return;
+    const payload = {
+      short_name: form.short_name.trim(),
+      name: form.name.trim(),
+      commodity_type: form.commodity_type,
+    };
     setSaving(true);
     const res = editingId
-      ? await updateAgent(editingId, { name: nameValue.trim() }, accessToken)
-      : await createAgent({ name: nameValue.trim() }, accessToken);
+      ? await updateCommodity(editingId, payload, accessToken)
+      : await createCommodity(payload, accessToken);
     setSaving(false);
     if (isApiError(res)) {
       pushToast(res.message, "error");
       return;
     }
-    pushToast(editingId ? "Agent updated" : "Agent created", "success");
+    pushToast(editingId ? "Commodity updated" : "Commodity created", "success");
     setModalOpen(false);
     fetchList();
   }
 
-  async function handleDeleteAgent(id: string) {
+  async function handleDeleteCommodity(id: string) {
     if (!accessToken) return;
-    const res = await deleteAgent(id, accessToken);
+    const res = await deleteCommodity(id, accessToken);
     if (isApiError(res)) {
       pushToast(res.message, "error");
       return;
     }
-    pushToast("Agent deleted", "success");
+    pushToast("Commodity deleted", "success");
     fetchList();
   }
 
   if (!allowed) {
     return (
       <AccessDenied
-        title="Agent"
+        title="Commodity"
         backHref="/admin/dashboard"
         backLabel="Dashboard"
-        message="You do not have permission to manage agents."
+        message="You do not have permission to manage commodities."
       />
     );
   }
@@ -136,9 +172,9 @@ export function AgentList() {
   return (
     <section className={styles.page}>
       <div className={styles.pageHeader}>
-        <h1 className={styles.pageTitle}>Agent</h1>
+        <h1 className={styles.pageTitle}>Commodity</h1>
         <button type="button" className={styles.addBtn} onClick={openCreate}>
-          Add Agent
+          Add Commodity
         </button>
       </div>
 
@@ -160,23 +196,25 @@ export function AgentList() {
                     type="button"
                     className={styles.sortBtn}
                     onClick={toggleSort}
-                    aria-label={`Sort agents ${sortDir === "asc" ? "ascending" : "descending"}`}
+                    aria-label={`Sort by short name ${sortDir === "asc" ? "ascending" : "descending"}`}
                   >
-                    Agent
+                    Short Commodity Name
                     <span aria-hidden>{sortDir === "asc" ? "↑" : "↓"}</span>
                   </button>
                 </TableHeaderCell>
+                <TableHeaderCell>Commodity Name</TableHeaderCell>
+                <TableHeaderCell>Type</TableHeaderCell>
                 <TableHeaderCell className={styles.actionsHeader}>Actions</TableHeaderCell>
               </TableRow>
               <TableRow className={styles.filterRow}>
-                <TableHeaderCell colSpan={2} className={styles.filterCell}>
+                <TableHeaderCell colSpan={4} className={styles.filterCell}>
                   <input
                     type="text"
                     className={styles.filterInput}
                     value={filter}
                     onChange={(e) => setFilter(e.target.value)}
-                    placeholder="Filter Agent"
-                    aria-label="Filter Agent"
+                    placeholder="Filter Commodity"
+                    aria-label="Filter Commodity"
                   />
                 </TableHeaderCell>
               </TableRow>
@@ -184,26 +222,30 @@ export function AgentList() {
             <TableBody>
               {displayedItems.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={2} className={styles.emptyState}>
-                    {filter.trim() ? "No agents match your filter." : "No agents yet. Add your first agent."}
+                  <TableCell colSpan={4} className={styles.emptyState}>
+                    {filter.trim()
+                      ? "No commodities match your filter."
+                      : "No commodities yet. Add your first commodity."}
                   </TableCell>
                 </TableRow>
               ) : (
-                displayedItems.map((agent) => (
-                  <TableRow key={agent.id}>
-                    <TableCell>{agent.name}</TableCell>
+                displayedItems.map((commodity) => (
+                  <TableRow key={commodity.id}>
+                    <TableCell>{commodity.short_name}</TableCell>
+                    <TableCell className={styles.nameCell}>{commodity.name}</TableCell>
+                    <TableCell className={styles.typeCell}>{commodity.commodity_type}</TableCell>
                     <TableCell className={styles.actionsCell}>
                       <button
                         type="button"
                         className={styles.actionBtn}
-                        onClick={() => openEdit(agent)}
+                        onClick={() => openEdit(commodity)}
                       >
                         Edit
                       </button>
                       <button
                         type="button"
                         className={styles.actionBtn}
-                        onClick={() => handleDeleteAgent(agent.id)}
+                        onClick={() => handleDeleteCommodity(commodity.id)}
                       >
                         Delete
                       </button>
@@ -219,7 +261,7 @@ export function AgentList() {
       <Modal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
-        title={editingId ? "Edit Agent" : "Add Agent"}
+        title={editingId ? "Edit Commodity" : "Add Commodity"}
         footer={
           <div className={styles.modalActions}>
             <button type="button" className={styles.cancelBtn} onClick={() => setModalOpen(false)}>
@@ -229,7 +271,7 @@ export function AgentList() {
               type="button"
               className={styles.saveBtn}
               onClick={handleSave}
-              disabled={saving || !nameValue.trim()}
+              disabled={saving || !isFormValid(form)}
             >
               {saving ? "Saving…" : "Save"}
             </button>
@@ -237,14 +279,39 @@ export function AgentList() {
         }
       >
         <div className={styles.modalField}>
-          <label htmlFor="agent-name">Agent name</label>
+          <label htmlFor="commodity-short-name">Short Commodity Name</label>
           <input
-            id="agent-name"
+            id="commodity-short-name"
             type="text"
-            value={nameValue}
-            onChange={(e) => setNameValue(e.target.value)}
+            value={form.short_name}
+            onChange={(e) => setForm((prev) => ({ ...prev, short_name: e.target.value }))}
             autoFocus
           />
+        </div>
+        <div className={styles.modalField}>
+          <label htmlFor="commodity-name">Commodity Name</label>
+          <input
+            id="commodity-name"
+            type="text"
+            value={form.name}
+            onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
+          />
+        </div>
+        <div className={styles.modalField}>
+          <label htmlFor="commodity-type">Type</label>
+          <select
+            id="commodity-type"
+            value={form.commodity_type}
+            onChange={(e) =>
+              setForm((prev) => ({ ...prev, commodity_type: e.target.value as CommodityType }))
+            }
+          >
+            {COMMODITY_TYPES.map((type) => (
+              <option key={type} value={type}>
+                {type}
+              </option>
+            ))}
+          </select>
         </div>
       </Modal>
     </section>

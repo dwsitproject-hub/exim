@@ -17,10 +17,12 @@ import {
   ChevronRight,
   Anchor,
   Briefcase,
+  ClipboardCheck,
+  Boxes,
   ScanLine,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
-import { can } from "@/lib/permissions";
+import { can, canAccessShipperMasterAdmin, canManageExportMasterList } from "@/lib/permissions";
 import styles from "./Sidebar.module.css";
 
 export interface NavItem {
@@ -48,12 +50,44 @@ const EXPORT_NAV: NavItem[] = [
   { href: "/export/bulking", label: "Bulking", icon: Ship },
 ];
 
-const ADMIN_NAV: NavItem[] = [
+const ADMIN_NAV: (NavItem & { visible?: (user: ReturnType<typeof useAuth>["user"]) => boolean })[] = [
   { href: "/admin/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/admin/users", label: "User management", icon: Users },
-  { href: "/admin/shippers", label: "Master Shipper", icon: Anchor },
-  { href: "/admin/agents", label: "Master Agent", icon: Briefcase },
-  { href: "/admin/po-pdf-ai", label: "PO PDF AI usage", icon: ScanLine },
+  {
+    href: "/admin/users",
+    label: "User management",
+    icon: Users,
+    visible: (user) => can(user, "MANAGE_USERS"),
+  },
+  {
+    href: "/admin/shippers",
+    label: "Master Shipper",
+    icon: Anchor,
+    visible: (user) => canAccessShipperMasterAdmin(user),
+  },
+  {
+    href: "/admin/agents",
+    label: "Master Agent",
+    icon: Briefcase,
+    visible: (user) => canManageExportMasterList(user, "MANAGE_AGENTS"),
+  },
+  {
+    href: "/admin/surveyors",
+    label: "Master Surveyor",
+    icon: ClipboardCheck,
+    visible: (user) => canManageExportMasterList(user, "MANAGE_SURVEYORS"),
+  },
+  {
+    href: "/admin/commodities",
+    label: "Master Commodity",
+    icon: Boxes,
+    visible: (user) => canManageExportMasterList(user, "MANAGE_COMMODITIES"),
+  },
+  {
+    href: "/admin/po-pdf-ai",
+    label: "PO PDF AI usage",
+    icon: ScanLine,
+    visible: (user) => can(user, "VIEW_PO_PDF_AI_USAGE"),
+  },
 ];
 
 const SECTION_LABELS: Record<AppSection, string> = {
@@ -115,7 +149,7 @@ export function Sidebar({
       return [...EXPORT_NAV];
     }
     if (section === "admin") {
-      return [...ADMIN_NAV];
+      return ADMIN_NAV.filter((item) => !item.visible || item.visible(user));
     }
     const items: NavItem[] = [...IMPORT_NAV];
     if (can(user, IMPORT_PO_CSV)) {

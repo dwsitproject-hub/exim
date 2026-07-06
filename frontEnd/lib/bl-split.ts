@@ -49,6 +49,27 @@ export function blSplitsCloseToTarget(
   return Math.abs(sumBlSplitQuantities(entries) - Number(target)) < QTY_EPSILON;
 }
 
+/** B/L split total must not exceed the SI line quantity field. */
+export function blSplitsExceedTarget(
+  entries: BlSplitEntry[],
+  target: number | null | undefined,
+): boolean {
+  if (entries.length === 0) return false;
+  if (target == null || Number.isNaN(Number(target))) return false;
+  return sumBlSplitQuantities(entries) - Number(target) > QTY_EPSILON;
+}
+
+/** Persisted SI line qty follows B/L splits when present, else the quantity field. */
+export function effectiveSiLineQuantityFromBlSplits(
+  lineQty: number | null | undefined,
+  entries: BlSplitEntry[],
+): number | null {
+  const splitTotal = entries.length > 0 ? sumBlSplitQuantities(entries) : null;
+  if (splitTotal != null && splitTotal > 0) return splitTotal;
+  if (lineQty == null || Number.isNaN(Number(lineQty))) return null;
+  return Number(lineQty) > 0 ? Number(lineQty) : null;
+}
+
 /** Document line: `1 X 4,994.731 MTS` */
 export function formatBlSplitDocumentLine(count: number, quantity: number): string {
   return `${count} X ${formatNumberDisplay(quantity)} MTS`;

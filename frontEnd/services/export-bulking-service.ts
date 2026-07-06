@@ -11,6 +11,13 @@ import type {
   Invoice,
   PackingList,
   StatusEvent,
+  SapLine,
+  SapLineUpsertPayload,
+  BillingLine,
+  BillingLineUpsertPayload,
+  BillOfLadingLine,
+  BillOfLadingUpsertPayload,
+  SiPebFieldsUpsertPayload,
   ExportBulkingDocumentListItem,
 } from "@/types/export-bulking";
 import { COOKIE_AUTH_SENTINEL } from "@/lib/constants";
@@ -123,6 +130,65 @@ export function deleteCargoLine(
   return apiDelete<unknown>(`${BASE}/${shipmentId}/cargos/${cargoId}`, tok(accessToken));
 }
 
+/* ───── SAP lines (Data SAP per SO) ───── */
+
+export function listSapLines(
+  shipmentId: string,
+  accessToken: string,
+): Promise<ApiResponse<SapLine[]>> {
+  return apiGet<SapLine[]>(`${BASE}/${shipmentId}/sap-lines`, tok(accessToken));
+}
+
+export function upsertSapLines(
+  shipmentId: string,
+  lines: SapLineUpsertPayload[],
+  accessToken: string,
+): Promise<ApiResponse<SapLine[]>> {
+  return apiPut<SapLine[]>(`${BASE}/${shipmentId}/sap-lines`, { lines }, tok(accessToken));
+}
+
+/* ───── Billing lines (Billing & Levy per SO) ───── */
+
+export function listBillingLines(
+  shipmentId: string,
+  accessToken: string,
+): Promise<ApiResponse<BillingLine[]>> {
+  return apiGet<BillingLine[]>(`${BASE}/${shipmentId}/billing-lines`, tok(accessToken));
+}
+
+export function upsertBillingLines(
+  shipmentId: string,
+  lines: BillingLineUpsertPayload[],
+  accessToken: string,
+): Promise<ApiResponse<BillingLine[]>> {
+  return apiPut<BillingLine[]>(`${BASE}/${shipmentId}/billing-lines`, { lines }, tok(accessToken));
+}
+
+/* ───── Bills of lading ───── */
+
+export function listBillsOfLading(
+  shipmentId: string,
+  accessToken: string,
+): Promise<ApiResponse<BillOfLadingLine[]>> {
+  return apiGet<BillOfLadingLine[]>(`${BASE}/${shipmentId}/bills-of-lading`, tok(accessToken));
+}
+
+export function upsertBillsOfLading(
+  shipmentId: string,
+  lines: BillOfLadingUpsertPayload[],
+  accessToken: string,
+): Promise<ApiResponse<BillOfLadingLine[]>> {
+  return apiPut<BillOfLadingLine[]>(`${BASE}/${shipmentId}/bills-of-lading`, { lines }, tok(accessToken));
+}
+
+export function upsertSiPebFields(
+  shipmentId: string,
+  items: SiPebFieldsUpsertPayload[],
+  accessToken: string,
+): Promise<ApiResponse<ShippingInstruction[]>> {
+  return apiPut<ShippingInstruction[]>(`${BASE}/${shipmentId}/shipping-instructions/peb-fields`, { items }, tok(accessToken));
+}
+
 /* ───── shipping instructions ───── */
 
 export function listShippingInstructions(
@@ -189,6 +255,57 @@ export function deleteInvoice(
   accessToken: string,
 ): Promise<ApiResponse<unknown>> {
   return apiDelete<unknown>(`${BASE}/${shipmentId}/invoices/${invId}`, tok(accessToken));
+}
+
+export function getSiInvoiceAllocation(
+  shipmentId: string,
+  siId: string,
+  accessToken: string,
+): Promise<ApiResponse<import("@/types/export-bulking").SiInvoiceAllocation>> {
+  return apiGet(
+    `${BASE}/${shipmentId}/shipping-instructions/${siId}/invoice-allocation`,
+    tok(accessToken),
+  );
+}
+
+export function finalizeInvoice(
+  shipmentId: string,
+  invId: string,
+  body: Record<string, unknown>,
+  accessToken: string,
+): Promise<ApiResponse<Invoice>> {
+  return apiPost<Invoice>(`${BASE}/${shipmentId}/invoices/${invId}/finalize`, body, tok(accessToken));
+}
+
+export function amendInvoice(
+  shipmentId: string,
+  invId: string,
+  body: Record<string, unknown>,
+  accessToken: string,
+): Promise<ApiResponse<Invoice>> {
+  return apiPost<Invoice>(`${BASE}/${shipmentId}/invoices/${invId}/amend`, body, tok(accessToken));
+}
+
+export function listInvoiceEvents(
+  shipmentId: string,
+  invId: string,
+  accessToken: string,
+): Promise<ApiResponse<import("@/types/export-bulking").InvoiceEvent[]>> {
+  return apiGet(`${BASE}/${shipmentId}/invoices/${invId}/events`, tok(accessToken));
+}
+
+export function getInvoiceDiff(
+  shipmentId: string,
+  invId: string,
+  accessToken: string,
+): Promise<ApiResponse<{
+  status: string;
+  changes: import("@/types/export-bulking").InvoiceFieldChange[];
+  draft_snapshot: unknown;
+  final_snapshot: unknown | null;
+  finalized_at?: string | null;
+}>> {
+  return apiGet(`${BASE}/${shipmentId}/invoices/${invId}/diff`, tok(accessToken));
 }
 
 /* ───── packing lists ───── */

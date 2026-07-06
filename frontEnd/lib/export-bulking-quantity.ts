@@ -1,6 +1,17 @@
 /**
- * Document quantity reconciliation for export bulking (Cargo → SI → Invoice).
+ * Document quantity reconciliation for export bulking (Cargo → Shipping Instruction → Invoice).
  */
+
+/** User-facing label for a shipping instruction row. */
+export function shippingInstructionDisplayLabel(
+  si: { id: string; si_number?: string | null },
+  index?: number,
+): string {
+  const num = si.si_number?.trim();
+  if (num) return num;
+  if (index != null && index >= 0) return `Shipping Instruction ${index + 1}`;
+  return `Shipping Instruction ${si.id.slice(0, 8)}…`;
+}
 
 export const QTY_EPSILON = 1e-6;
 
@@ -91,6 +102,7 @@ export type CargoAllocationSummary = {
   allocated: number;
   remaining: number;
   matched: boolean;
+  overAllocated: boolean;
 };
 
 export function cargoAllocationSummaries(
@@ -111,6 +123,7 @@ export function cargoAllocationSummaries(
         allocated,
         remaining: planned - allocated,
         matched: numbersClose(allocated, planned),
+        overAllocated: allocated - planned > QTY_EPSILON,
       };
     });
 }
@@ -137,6 +150,40 @@ export function siInvoiceSummary(
     remaining: siTotal - invoiced,
     matched: numbersClose(invoiced, siTotal),
   };
+}
+
+/** Draft save: invoiced qty must not exceed SI total. */
+export function siInvoiceAllocationOk(
+  si: SiWithLines,
+  invoices: InvoiceWithLines[],
+  overrideInvoiceId?: string,
+  overrideLineQtys?: (number | null)[],
+): { ok: boolean; siTotal: number; invoiced: number; remaining: number; message?: string } {
+  const summary = siInvoiceSummary(si, invoices, overrideInvoiceId, overrideLineQtys);
+  if (summary.invoiced - summary.siTotal > QTY_EPSILON) {
+    return {
+      ok: false,
+      siTotal: summary.siTotal,
+      invoiced: summary.invoiced,
+      remaining: summary.remaining,
+      message: `Invoice total ${summary.invoiced} MT exceeds shipping instruction total ${summary.siTotal} MT`,
+    };
+  }
+  return {
+    ok: true,
+    siTotal: summary.siTotal,
+    invoiced: summary.invoiced,
+    remaining: summary.remaining,
+  };
+}
+
+export function isInvoiceWorkflowComplete(invoices: { status?: string }[]): boolean {
+  return invoices.length > 0 && invoices.every((inv) => (inv.status ?? "DRAFT") === "FINAL");
+}
+
+export function invoiceStatusLabel(status: string | undefined): string {
+  if (status === "FINAL") return "Final";
+  return "Draft";
 }
 
 export function siQtyForCargoLine(si: SiWithLines, cargoLineId: string): number | null {

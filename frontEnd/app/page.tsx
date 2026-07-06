@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { ArrowDownLeft, ArrowUpRight, Settings } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
-import { isAdminRole } from "@/lib/permissions";
+import { canAccessAdminArea } from "@/lib/permissions";
 import { LOGIN_PATH } from "@/lib/constants";
 import styles from "./page.module.css";
 
@@ -23,7 +23,7 @@ export default function HubPage() {
     );
   }
 
-  const showAdminCard = isAdminRole(user);
+  const showAdminCard = canAccessAdminArea(user);
 
   return (
     <main className={styles.hubMain}>

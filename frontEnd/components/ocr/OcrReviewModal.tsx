@@ -158,6 +158,8 @@ export interface OcrReviewModalProps {
   /** Primary action — Apply extracted data to form. */
   onApply: () => void;
   applyLabel?: string;
+  /** When true, primary Apply action is disabled (e.g. validation failed). */
+  applyDisabled?: boolean;
 
   /** Secondary left-side actions (e.g. rescan, upload different file). */
   leftActions?: ReactNode;
@@ -178,6 +180,7 @@ export function OcrReviewModal({
   busy = false,
   onApply,
   applyLabel = "Apply to form →",
+  applyDisabled = false,
   leftActions,
 }: OcrReviewModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
@@ -276,7 +279,13 @@ export function OcrReviewModal({
             <table className={styles.reviewTable}>
               <tbody>
                 {fields.map((f, i) => (
-                  <OcrFieldRowUI key={i} label={f.label} value={f.value} />
+                  <OcrFieldRowUI
+                    key={i}
+                    label={f.label}
+                    value={f.value}
+                    editable={f.editable}
+                    onChange={f.onChange}
+                  />
                 ))}
               </tbody>
             </table>
@@ -319,7 +328,7 @@ export function OcrReviewModal({
               type="button"
               className={styles.applyBtn}
               onClick={onApply}
-              disabled={busy}
+              disabled={busy || applyDisabled}
             >
               {applyLabel}
             </button>

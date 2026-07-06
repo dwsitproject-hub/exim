@@ -1,11 +1,18 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { X } from "lucide-react";
 import { useToast } from "@/components/providers/ToastProvider";
+import { ComboboxSelect } from "@/components/forms/ComboboxSelect/ComboboxSelect";
 import { isApiError } from "@/types/api";
 import type { ApiSuccess } from "@/types/api";
+import {
+  listCommodities,
+  resolveCommodityShortName,
+  findCommodityMatch,
+  type Commodity,
+} from "@/services/commodity-service";
 import type {
   CargoLine,
   CargoLineUpsertPayload,
@@ -15,6 +22,7 @@ import type {
 } from "@/types/export-bulking";
 import type { ExportBulkingListView } from "@/lib/export-bulking-backlog";
 import { buildBulkingDetailUrl } from "@/lib/export-workspace";
+import { shippingInstructionDisplayLabel } from "@/lib/export-bulking-quantity";
 import {
   createInvoice,
   createShippingInstruction,
@@ -54,21 +62,24 @@ export async function fetchBulkingExpandDocs(
 interface CargoDraft {
   cargo_name: string;
   quantity: string;
-  item_description: string;
   destination_port: string;
+  pe_no: string;
+  pe_date: string;
 }
 
 function cargoLineToDraft(c: CargoLine): CargoDraft {
   return {
     cargo_name: c.cargo_name ?? "",
     quantity: c.quantity != null ? String(c.quantity) : "",
-    item_description: c.item_description ?? "",
     destination_port: c.destination_port ?? "",
+    pe_no: c.pe_no ?? "",
+    pe_date: c.pe_date ? c.pe_date.slice(0, 10) : "",
   };
 }
 
 function buildCargoUpsertPayload(
   cargoLines: CargoLine[],
+  commodityList: Commodity[],
   edit: { id: string; draft: CargoDraft } | { draft: CargoDraft } | null,
 ): CargoLineUpsertPayload[] {
   const rows: Array<{ id?: string; draft: CargoDraft }> = cargoLines.map((c) => ({
@@ -83,15 +94,23 @@ function buildCargoUpsertPayload(
     rows.push({ draft: edit.draft });
   }
 
-  return rows.map((r, idx) => ({
-    ...(r.id ? { id: r.id } : {}),
-    line_order: idx + 1,
-    cargo_name: r.draft.cargo_name.trim() || "Untitled",
-    quantity: r.draft.quantity.trim() ? Number(r.draft.quantity) : null,
-    unit: "MT",
-    item_description: r.draft.item_description.trim() || null,
-    destination_port: r.draft.destination_port.trim() || null,
-  }));
+  return rows.map((r, idx) => {
+    const cargoName = r.draft.cargo_name.trim()
+      ? resolveCommodityShortName(r.draft.cargo_name.trim(), commodityList)
+      : "";
+    const commodity = findCommodityMatch(cargoName, commodityList);
+    return {
+      ...(r.id ? { id: r.id } : {}),
+      line_order: idx + 1,
+      cargo_name: cargoName || "Untitled",
+      quantity: r.draft.quantity.trim() ? Number(r.draft.quantity) : null,
+      unit: "MT",
+      item_description: commodity?.name ?? null,
+      destination_port: r.draft.destination_port.trim() || null,
+      pe_no: r.draft.pe_no.trim() || null,
+      pe_date: r.draft.pe_date.trim() ? new Date(r.draft.pe_date).toISOString() : null,
+    };
+  });
 }
 
 function CargoLineManager({
@@ -115,6 +134,22 @@ function CargoLineManager({
   const [draft, setDraft] = useState<CargoDraft | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [commodityList, setCommodityList] = useState<Commodity[]>([]);
+
+  useEffect(() => {
+    listCommodities(accessToken).then((res) => {
+      if (!isApiError(res)) setCommodityList((res as ApiSuccess<Commodity[]>).data ?? []);
+    });
+  }, [accessToken]);
+
+  const commodityOptions = useMemo(
+    () =>
+      [...commodityList]
+        .map((c) => c.short_name.trim())
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" })),
+    [commodityList],
+  );
 
   const isEditing = Boolean(editingId || adding);
 
@@ -133,10 +168,11 @@ function CargoLineManager({
         ? String(Math.round(Number(totalQuantity)))
         : "";
     setDraft({
-      cargo_name: cargoLines.length === 0 ? "Cargo 1" : "",
+      cargo_name: "",
       quantity: seedQty,
-      item_description: "",
       destination_port: "",
+      pe_no: "",
+      pe_date: "",
     });
     setConfirmDeleteId(null);
   }
@@ -152,7 +188,7 @@ function CargoLineManager({
     setBusy(true);
     const editPayload =
       editingId != null ? { id: editingId, draft } : adding ? { draft } : null;
-    const payload = buildCargoUpsertPayload(cargoLines, editPayload);
+    const payload = buildCargoUpsertPayload(cargoLines, commodityList, editPayload);
     const res = await upsertCargoLines(shipmentId, payload, accessToken);
     if (isApiError(res)) pushToast(res.message, "error");
     else {
@@ -187,10 +223,11 @@ function CargoLineManager({
   return (
     <div className={styles.cargoTable}>
       <div className={styles.cargoHeader}>
-        <span>Cargo name</span>
+        <span>Commodity</span>
         <span>Qty</span>
-        <span>Description</span>
         <span>Dest</span>
+        <span>PE No</span>
+        <span>PE Date</span>
         <span aria-hidden />
       </div>
       {cargoLines.map((line) => {
@@ -200,6 +237,8 @@ function CargoLineManager({
               key={line.id}
               draft={draft}
               setDraft={setDraft}
+              commodityList={commodityList}
+              commodityOptions={commodityOptions}
               onSave={() => void saveDraft()}
               onCancel={cancelEdit}
               busy={busy}
@@ -240,11 +279,14 @@ function CargoLineManager({
             <span className={styles.cargoColQty}>
               {line.quantity != null ? line.quantity : "—"}
             </span>
-            <span className={styles.cargoColDesc} title={line.item_description ?? undefined}>
-              {line.item_description?.trim() || "—"}
-            </span>
             <span className={styles.cargoColDest} title={line.destination_port ?? undefined}>
               {line.destination_port?.trim() || "—"}
+            </span>
+            <span className={styles.cargoColPeNo} title={line.pe_no ?? undefined}>
+              {line.pe_no?.trim() || "—"}
+            </span>
+            <span className={styles.cargoColPeDate}>
+              {line.pe_date ? line.pe_date.slice(0, 10) : "—"}
             </span>
             {canEdit && (
               <span className={styles.cargoColActions}>
@@ -274,6 +316,8 @@ function CargoLineManager({
           key="new-cargo"
           draft={draft}
           setDraft={setDraft}
+          commodityList={commodityList}
+          commodityOptions={commodityOptions}
           onSave={() => void saveDraft()}
           onCancel={cancelEdit}
           busy={busy}
@@ -294,6 +338,8 @@ function CargoLineManager({
 function CargoEditBlock({
   draft,
   setDraft,
+  commodityList,
+  commodityOptions,
   onSave,
   onCancel,
   busy,
@@ -301,35 +347,29 @@ function CargoEditBlock({
 }: {
   draft: CargoDraft;
   setDraft: (d: CargoDraft) => void;
+  commodityList: Commodity[];
+  commodityOptions: string[];
   onSave: () => void;
   onCancel: () => void;
   busy: boolean;
   saveLabel: string;
 }) {
-  const nameRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    nameRef.current?.focus();
-  }, []);
-
   return (
     <div className={styles.cargoEditBlock}>
       <div className={styles.cargoFieldsRow}>
-        <input
-          ref={nameRef}
-          className={`${styles.cargoInput} ${styles.cargoInputGrow}`}
-          placeholder="Cargo name"
+        <ComboboxSelect
+          className={`${styles.cargoInputGrow}`}
+          inputClassName={styles.cargoInput}
+          options={commodityOptions}
           value={draft.cargo_name}
+          onChange={(val) =>
+            setDraft({ ...draft, cargo_name: resolveCommodityShortName(val, commodityList) })
+          }
+          placeholder="Select commodity…"
+          allowEmpty
+          emptyLabel="— Select —"
           disabled={busy}
-          onChange={(e) => setDraft({ ...draft, cargo_name: e.target.value })}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              onSave();
-            }
-            if (e.key === "Escape") onCancel();
-          }}
-          aria-label="Cargo name"
+          aria-label="Commodity"
         />
         <input
           className={styles.cargoInput}
@@ -342,20 +382,29 @@ function CargoEditBlock({
           aria-label="Quantity"
         />
         <input
-          className={`${styles.cargoInput} ${styles.cargoInputWide}`}
-          placeholder="Description"
-          value={draft.item_description}
-          disabled={busy}
-          onChange={(e) => setDraft({ ...draft, item_description: e.target.value })}
-          aria-label="Description"
-        />
-        <input
           className={styles.cargoInput}
           placeholder="Dest port"
           value={draft.destination_port}
           disabled={busy}
           onChange={(e) => setDraft({ ...draft, destination_port: e.target.value })}
           aria-label="Destination port"
+        />
+        <input
+          className={styles.cargoInput}
+          placeholder="PE No"
+          value={draft.pe_no}
+          disabled={busy}
+          onChange={(e) => setDraft({ ...draft, pe_no: e.target.value })}
+          aria-label="PE number"
+        />
+        <input
+          className={styles.cargoInput}
+          placeholder="PE Date"
+          type="date"
+          value={draft.pe_date}
+          disabled={busy}
+          onChange={(e) => setDraft({ ...draft, pe_date: e.target.value })}
+          aria-label="PE date"
         />
       </div>
       <div className={styles.cargoActionsBar}>
@@ -435,7 +484,7 @@ export function BulkingExpandDocsPanel({
         ) : (
           <>
             <DocNumberRow
-              label="SI No"
+              label="Shipping Instruction No."
               canEdit={canEditDocs}
               records={sis.map((s) => ({
                 id: s.id,
@@ -535,22 +584,22 @@ function SiInvoiceHierarchyPanel({
 
   return (
     <div className={styles.docHierarchy}>
-      <span className={styles.expandFieldLabel}>Invoices (grouped under SI)</span>
+      <span className={styles.expandFieldLabel}>Invoices (grouped under shipping instruction)</span>
       <p className={styles.docHierarchyHint}>
-        <strong>SI → Invoice → SO:</strong> Each SI can carry many invoices. Invoices are listed here under their SI (or
+        <strong>Shipping instruction → Invoice → SO:</strong> Each shipping instruction can carry many invoices. Invoices are listed here under their shipping instruction (or
         under &ldquo;Unassigned&rdquo;). <strong>Sales order (SO)</strong> numbers sit on invoice lines; use{" "}
         <strong>+ SO</strong> when one invoice references several orders.
       </p>
 
       {sis.map((si) => {
         const under = invoices.filter((inv) => inv.shipping_instruction_id === si.id);
-        const label = si.si_number?.trim() ?? `SI ${si.id.slice(0, 8)}…`;
+        const label = shippingInstructionDisplayLabel(si);
         return (
           <InvoiceGroupUnderSiBlock
             key={si.id}
             shipmentId={shipmentId}
             accessToken={accessToken}
-            heading={`Under SI: ${label}`}
+            heading={`Under shipping instruction: ${label}`}
             shippingInstructionId={si.id}
             invoices={under}
             cargoLines={cargoLines}
@@ -561,7 +610,7 @@ function SiInvoiceHierarchyPanel({
       })}
 
       {sis.length === 0 && invoices.length === 0 && (
-        <p className={styles.expandLoading}>Add shipping instructions above, then add invoices under each SI.</p>
+        <p className={styles.expandLoading}>Add shipping instructions above, then add invoices under each shipping instruction.</p>
       )}
 
       {unassigned.length > 0 && (
@@ -962,7 +1011,7 @@ function DocNumberRow({
             </div>
             <div className={styles.docChipAddingActions}>
               <button type="button" className={styles.cargoSaveBtn} onClick={() => void handleCreate()} disabled={busy}>
-                Add SI
+                Add Shipping Instruction
               </button>
               <button
                 type="button"
@@ -979,7 +1028,7 @@ function DocNumberRow({
           </div>
         ) : (
           <button type="button" className={styles.docAddBtn} onClick={() => setAdding(true)}>
-            + Add SI
+            + Add Shipping Instruction
           </button>
         ))}
       </div>
