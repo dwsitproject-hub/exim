@@ -350,7 +350,7 @@ export function ExportDashboardContent() {
 
               <StatsCard
 
-                label="Missing SI"
+                label="Missing shipping instruction"
 
                 value={docBacklog.missingSi}
 

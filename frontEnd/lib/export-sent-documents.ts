@@ -53,6 +53,7 @@ export function parseRequiredSentDocuments(raw: unknown): ExportSentDocumentKey[
 }
 
 export function isBillOfLadingSaved(data: ExportBulkingShipmentDetail): boolean {
+  if (data.bills_of_lading?.some((b) => Boolean(b.bill_of_lading_no?.trim()))) return true;
   return Boolean(data.bill_of_lading_no?.trim());
 }
 

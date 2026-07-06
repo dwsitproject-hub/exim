@@ -63,13 +63,21 @@ export function sumInvoiceQtyForSi(
 ): number {
   let total = 0;
   for (const inv of invoices) {
-    if ((inv.shipping_instruction_id ?? "").trim() !== siId) continue;
     if (excludeInvoiceId && inv.id === excludeInvoiceId) continue;
-    const lines =
-      overrideInvoiceId && inv.id === overrideInvoiceId && overrideLines !== undefined
-        ? overrideLines
-        : (inv.lines ?? []);
-    for (const line of lines) {
+
+    const isOverride =
+      overrideInvoiceId != null &&
+      inv.id === overrideInvoiceId &&
+      overrideLines !== undefined;
+
+    if (isOverride) {
+      for (const line of overrideLines) total += toQty(line.quantity);
+      continue;
+    }
+
+    if ((inv.shipping_instruction_id ?? "").trim() !== siId) continue;
+
+    for (const line of inv.lines ?? []) {
       total += toQty(line.quantity);
     }
   }
@@ -100,6 +108,66 @@ export function validateSiTotalsMatchCargo(
     }
   }
   return issues;
+}
+
+/** Draft save: SI allocation per cargo may be partial; block only over-allocation. */
+export function validateSiAllocationDoesNotExceedCargo(
+  cargoLines: CargoLineQty[],
+  shippingInstructions: SiWithLines[],
+  overrideSiId?: string,
+  overrideLines?: SiLineQty[],
+): QtyReconciliationIssue[] {
+  const issues: QtyReconciliationIssue[] = [];
+  for (const cargo of cargoLines) {
+    const planned = cargo.quantity;
+    if (planned == null || Number.isNaN(Number(planned)) || Number(planned) <= 0) continue;
+    const allocated = sumSiQtyForCargo(cargo.id, shippingInstructions, overrideSiId, overrideLines);
+    if (allocated - Number(planned) > QTY_EPSILON) {
+      const name = cargo.cargo_name?.trim() || "Cargo";
+      issues.push({
+        cargoId: cargo.id,
+        cargoName: name,
+        message: `${name}: SI total ${allocated} MT exceeds cargo qty ${Number(planned)} MT`,
+      });
+    }
+  }
+  return issues;
+}
+
+/** Draft save: allocated qty for SI must not exceed SI total. */
+export function validateInvoiceAllocationDoesNotExceedSi(
+  si: SiWithLines,
+  invoices: InvoiceWithLines[],
+  options?: {
+    excludeInvoiceId?: string;
+    overrideInvoiceId?: string;
+    overrideLines?: InvoiceLineQty[];
+    additionalLines?: InvoiceLineQty[];
+  },
+): QtyReconciliationIssue[] {
+  const siId = si.id;
+  const expected = siTotalQuantity(si);
+  if (expected <= 0) {
+    return [{ message: "Shipping instruction has no quantity to invoice" }];
+  }
+  let invoiced = sumInvoiceQtyForSi(
+    siId,
+    invoices,
+    options?.excludeInvoiceId,
+    options?.overrideInvoiceId,
+    options?.overrideLines,
+  );
+  for (const line of options?.additionalLines ?? []) {
+    invoiced += toQty(line.quantity);
+  }
+  if (invoiced - expected > QTY_EPSILON) {
+    return [
+      {
+        message: `Invoice total ${invoiced} MT exceeds SI total ${expected} MT`,
+      },
+    ];
+  }
+  return [];
 }
 
 /** Validate that invoice totals for an SI match the SI total quantity. */

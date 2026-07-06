@@ -31,6 +31,8 @@ import {
   listShippers,
   listShipperLoadports,
   createShipperLoadport,
+  findShipperMatch,
+  shipperShortNameOptions,
   type Shipper,
   type ShipperLoadport,
 } from "@/services/shipper-service";
@@ -68,6 +70,7 @@ import {
   EXPORT_DOC_COLUMN_IDS,
   buildBulkingDetailUrl,
   canEditExportBulking,
+  canEditExportCargo,
   canEditExportDocumentation,
   canEditExportOperations,
   expandRowAriaLabel,
@@ -124,7 +127,7 @@ const BASE_COLUMNS: GridColumnDef[] = [
   { id: "shipment_no", label: "Shipment No.", locked: true, width: 148, minWidth: 132 },
   { id: "progress", label: "Progress", width: 88, minWidth: 72 },
   { id: "status", label: "Status", locked: true, width: 144, minWidth: 120 },
-  { id: "cargo_name", label: "Cargo Name", width: 148, minWidth: 120, multiValue: true, defaultVisible: false, rbacGated: true },
+  { id: "cargo_name", label: "Commodity", width: 148, minWidth: 120, multiValue: true, defaultVisible: false, rbacGated: true },
   { id: "total_qty", label: "Total Qty", editable: true, dbField: "total_quantity", width: 112, minWidth: 88 },
   { id: "vessel", label: "Vessel Name", locked: true, width: 168, minWidth: 120, editable: true, dbField: "vessel_name" },
   { id: "voyage", label: "Voyage No.", editable: true, dbField: "voyage_number", width: 112, minWidth: 88 },
@@ -132,7 +135,7 @@ const BASE_COLUMNS: GridColumnDef[] = [
   { id: "shipper", label: "Shipper", editable: true, dbField: "shipper", width: 152, minWidth: 120 },
   { id: "loadport", label: "Load Port", editable: true, dbField: "loadport_name", width: 140, minWidth: 100 },
   { id: "eta", label: "ETA", width: 96, minWidth: 80 },
-  { id: "si_no", label: "No SI", width: 220, minWidth: 200, multiValue: true, defaultVisible: false, rbacGated: true },
+  { id: "si_no", label: "Shipping Instruction No.", width: 220, minWidth: 200, multiValue: true, defaultVisible: false, rbacGated: true },
   { id: "invoice_no", label: "No Invoice", width: 240, minWidth: 220, multiValue: true, defaultVisible: false, rbacGated: true },
   { id: "pl_no", label: "No Packing List", width: 240, minWidth: 220, multiValue: true, defaultVisible: false, rbacGated: true },
   { id: "peb_no", label: "No PEB", width: 160, minWidth: 120, defaultVisible: false, rbacGated: true },
@@ -329,6 +332,7 @@ export function ExportBulkingList() {
   const canViewDocs = can(user, "VIEW_EXPORT_DOCUMENTATION");
   const canEditOps = canEditExportOperations(user);
   const canEditDocs = canEditExportDocumentation(user);
+  const canEditCargo = canEditExportCargo(user);
   const canEditAny = canEditExportBulking(user);
   const canCreateShipment = can(user, "CREATE_EXPORT_BULKING");
   const canAssignDocs = can(user, "ASSIGN_EXPORT_BULKING_DOCUMENTATION");
@@ -431,7 +435,7 @@ export function ExportBulkingList() {
 
   /* ── shipper data for inline edit comboboxes ── */
   const [shipperList, setShipperList] = useState<Shipper[]>([]);
-  const shipperNameOptions = useMemo(() => shipperList.map((s) => s.name), [shipperList]);
+  const shipperNameOptions = useMemo(() => shipperShortNameOptions(shipperList), [shipperList]);
 
   useEffect(() => {
     if (!accessToken) return;
@@ -722,7 +726,7 @@ export function ExportBulkingList() {
 
     if (col.id === "loadport") {
       const shipper = row.shipper;
-      const match = shipperList.find((s) => s.name === shipper);
+      const match = findShipperMatch(shipper, shipperList);
       if (match && accessToken) {
         listShipperLoadports(match.id, accessToken).then((res) => {
           if (!isApiError(res)) {
@@ -945,7 +949,7 @@ export function ExportBulkingList() {
     if (col.id === "loadport") {
       const handleCreateLoadport = (name: string): boolean => {
         const shipper = row.shipper ?? "";
-        const match = shipperList.find((s) => s.name === shipper);
+        const match = findShipperMatch(shipper, shipperList);
         if (!match || !accessToken) return false;
         const canonical = findMatchingOption(inlineLoadportOptions, name);
         if (canonical) {
@@ -1217,7 +1221,7 @@ export function ExportBulkingList() {
             data={rowExpandedData[row.id] ?? null}
             loading={!!rowExpandLoading[row.id]}
             canViewDocs={canViewDocs}
-            canEditCargo={canEditOps}
+            canEditCargo={canEditCargo}
             canEditDocs={canEditDocs}
             listView={listView}
             onRefresh={() => refreshRowExpandedData(row.id)}
@@ -1262,7 +1266,7 @@ export function ExportBulkingList() {
               type="search"
               placeholder={
                 listView === "documentation"
-                  ? "Search shipment, cargo, SI, invoice, PL, PEB, BL…"
+                  ? "Search shipment, cargo, shipping instruction, invoice, PL, PEB, BL…"
                   : "Search shipment, vessel, shipper…"
               }
               value={searchInput}
@@ -1605,7 +1609,7 @@ function CreateShipmentModal({
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [pendingLoadportName, setPendingLoadportName] = useState<string | null>(null);
 
-  const shipperNameOptions = useMemo(() => shipperList.map((s) => s.name), [shipperList]);
+  const shipperNameOptions = useMemo(() => shipperShortNameOptions(shipperList), [shipperList]);
 
   useEffect(() => {
     if (!accessToken) return;
@@ -1630,7 +1634,7 @@ function CreateShipmentModal({
 
   function handleShipperChange(name: string) {
     setShipperName(name);
-    const match = shipperList.find((s) => s.name === name);
+    const match = findShipperMatch(name, shipperList);
     setSelectedShipperId(match?.id ?? null);
     setLoadport("");
     setLoadportOptions([]);

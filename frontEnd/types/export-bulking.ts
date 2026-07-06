@@ -143,7 +143,81 @@ export interface ExportBulkingShipmentDetail {
   shipping_instructions: ShippingInstruction[];
   invoices: Invoice[];
   packing_lists: PackingList[];
+  sap_lines: SapLine[];
+  billing_lines: BillingLine[];
+  bills_of_lading: BillOfLadingLine[];
 }
+
+export interface SapLine {
+  id: string;
+  shipment_id: string;
+  so_no: string;
+  line_order: number;
+  quantity_spb: number | null;
+  spb: string | null;
+  delivery_order_pgi: string | null;
+  spr: string | null;
+}
+
+export type SapLineUpsertPayload = {
+  id?: string;
+  so_no: string;
+  line_order: number;
+  quantity_spb?: number | null;
+  spb?: string | null;
+  delivery_order_pgi?: string | null;
+  spr?: string | null;
+};
+
+export interface BillingLine {
+  id: string;
+  shipment_id: string;
+  so_no: string;
+  line_order: number;
+  biaya_keluar_price_usd_mt: number | null;
+  biaya_keluar_amount_idr: number | null;
+  biaya_keluar_billing_no: string | null;
+  levy_price_usd_mt: number | null;
+  levy_amount_idr: number | null;
+  levy_billing_no: string | null;
+}
+
+export type BillingLineUpsertPayload = {
+  id?: string;
+  so_no: string;
+  line_order: number;
+  biaya_keluar_price_usd_mt?: number | null;
+  biaya_keluar_amount_idr?: number | null;
+  biaya_keluar_billing_no?: string | null;
+  levy_price_usd_mt?: number | null;
+  levy_amount_idr?: number | null;
+  levy_billing_no?: string | null;
+};
+
+export interface BillOfLadingLine {
+  id: string;
+  shipment_id: string;
+  line_order: number;
+  bill_of_lading_no: string | null;
+  bill_of_lading_date: string | null;
+  bill_of_lading_nn_obl: string | null;
+}
+
+export type BillOfLadingUpsertPayload = {
+  id?: string;
+  line_order: number;
+  bill_of_lading_no?: string | null;
+  bill_of_lading_date?: string | null;
+  bill_of_lading_nn_obl?: string | null;
+};
+
+export type SiPebFieldsUpsertPayload = {
+  id: string;
+  peb_request_no?: string | null;
+  peb_no?: string | null;
+  peb_date?: string | null;
+  hs_code?: string | null;
+};
 
 export interface CargoLine {
   id: string;
@@ -159,6 +233,8 @@ export interface CargoLine {
   quantity_delivered: number | null;
   bl_figure: number | null;
   ship_figure: number | null;
+  pe_no: string | null;
+  pe_date: string | null;
 }
 
 /** Body items for PUT .../cargos (full rows may include id; new rows omit id). */
@@ -175,6 +251,8 @@ export type CargoLineUpsertPayload = {
   quantity_delivered?: number | null;
   bl_figure?: number | null;
   ship_figure?: number | null;
+  pe_no?: string | null;
+  pe_date?: string | null;
 };
 
 export interface ShippingInstruction {
@@ -193,6 +271,10 @@ export interface ShippingInstruction {
   npwp: string | null;
   bl_indicated: string | null;
   status: string;
+  peb_request_no?: string | null;
+  peb_no?: string | null;
+  peb_date?: string | null;
+  hs_code?: string | null;
   lines: SiLine[];
 }
 
@@ -223,7 +305,46 @@ export interface Invoice {
   destination_snapshot: string | null;
   marks: string | null;
   status: string;
+  finalized_at?: string | null;
+  finalized_by?: string | null;
+  draft_snapshot?: unknown;
+  final_snapshot?: unknown;
+  revision_no?: number;
+  last_draft_saved_at?: string | null;
   lines: InvoiceLine[];
+}
+
+export interface InvoiceFieldChange {
+  field: string;
+  oldValue: string | null;
+  newValue: string | null;
+  lineKey?: string;
+}
+
+export interface InvoiceEvent {
+  id: string;
+  invoice_id: string;
+  event_type: string;
+  from_status: string | null;
+  to_status: string | null;
+  changes: InvoiceFieldChange[];
+  reason: string | null;
+  changed_by: string | null;
+  changed_at: string;
+}
+
+export interface SiInvoiceAllocation {
+  si_id: string;
+  si_total: number;
+  invoiced: number;
+  remaining: number;
+  matched: boolean;
+  invoices: Array<{
+    id: string;
+    status: string;
+    invoice_no: string | null;
+    quantity: number;
+  }>;
 }
 
 export interface InvoiceLine {

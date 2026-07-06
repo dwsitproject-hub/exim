@@ -1,6 +1,6 @@
 /**
- * PT / plant master data — keep in sync with `frontEnd/lib/po-create-constants.ts`.
- * Used by dashboard seed and any server-side validation that must match Create PO.
+ * PT / plant master data — keep in sync with Master Shipper seed in
+ * `091_master_shipper_entity_plants.sql` (dashboard seed only).
  */
 
 export const PT_OPTION_LABELS = [
@@ -19,6 +19,7 @@ export type PtPlantConfig =
   | { mode: "fixed"; plant: string }
   | { mode: "select"; plants: readonly string[] };
 
+/** @deprecated Runtime PT/plant options come from Master Shipper API. Seed helper only. */
 export const PT_PLANT_MAP: Record<PtOptionLabel, PtPlantConfig> = {
   "ENERGI UNGGUL PERSADA": {
     mode: "select",

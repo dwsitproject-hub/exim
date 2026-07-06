@@ -28,12 +28,14 @@ import {
   Send,
   BadgeCheck,
   Coins,
+  X,
 } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { can } from "@/lib/permissions";
 import {
   buildBulkingListReturnUrl,
+  canEditExportCargo,
   canEditExportDocumentation,
   canEditExportOperations,
   friendlyExportDetailError,
@@ -53,6 +55,7 @@ import {
   EXPORT_BULKING_STATUSES,
 } from "@/types/export-bulking";
 import type {
+  ExportBulkingListItem,
   ExportBulkingShipmentDetail,
   CargoLine,
   ShippingInstruction,
@@ -61,12 +64,42 @@ import type {
   PackingList,
   PackingListLine,
   StatusEvent,
+  SapLine,
+  BillingLine,
+  BillOfLadingLine,
 } from "@/types/export-bulking";
+import {
+  billOfLadingDraftsToPayload,
+  buildBillOfLadingDrafts,
+  type BillOfLadingDraft,
+} from "@/lib/export-bills-of-lading";
+import {
+  buildSapLineDrafts,
+  distinctSoNosFromShipment,
+  sapDraftsToUpsertPayload,
+  type SapLineDraft,
+} from "@/lib/export-sap-lines";
+import {
+  billingDraftsToUpsertPayload,
+  billingShipmentFormToPatch,
+  buildBillingLineDrafts,
+  buildBillingShipmentForm,
+  sumInvoiceQtyBySo,
+  allocatePaymentRequestAmounts,
+  countFilledBillingSos,
+  validatePaymentRequestAgainstInvoice,
+  type BillingLineDraft,
+  type BillingShipmentForm,
+} from "@/lib/export-billing-lines";
 import {
   getExportBulkingShipment,
   updateExportBulkingShipment,
   updateExportBulkingStatus,
   upsertCargoLines,
+  upsertSapLines,
+  upsertBillingLines,
+  upsertBillsOfLading,
+  upsertSiPebFields,
   deleteCargoLine,
   createShippingInstruction,
   updateShippingInstruction,
@@ -74,6 +107,8 @@ import {
   createInvoice,
   updateInvoice,
   deleteInvoice,
+  finalizeInvoice,
+  amendInvoice,
   createPackingList,
   updatePackingList,
   deletePackingList,
@@ -83,16 +118,28 @@ import {
   listShippers,
   listShipperLoadports,
   createShipperLoadport,
+  findShipperMatch,
+  shipperShortNameOptions,
   type Shipper,
   type ShipperLoadport,
 } from "@/services/shipper-service";
 import { listAgents, createAgent, type Agent } from "@/services/agent-service";
+import { listSurveyors, createSurveyor, type Surveyor } from "@/services/surveyor-service";
+import { listCommodities, resolveCommodityShortName, findCommodityMatch, type Commodity } from "@/services/commodity-service";
 import { INCOTERM_OPTIONS } from "@/lib/incoterms";
 import { getCountryOptions, getCountryArea } from "@/lib/countries";
 import { ComboboxSelectCreatable } from "@/components/forms/ComboboxSelect/ComboboxSelectCreatable";
 import { DateRangeField } from "@/components/forms/DateRangeField";
 import { Modal } from "@/components/overlays";
 import { InvoiceDocument } from "@/components/export-bulking/InvoiceDocument";
+import { InvoiceAllocationPanel } from "@/components/export-bulking/InvoiceAllocationPanel";
+import {
+  InvoiceAmendPrompt,
+  InvoiceAuditModal,
+  InvoiceDiffModal,
+  InvoiceFinalizeModal,
+} from "@/components/export-bulking/InvoiceWorkflowModals";
+import { InvoiceStatusBadge } from "@/components/export-bulking/InvoiceAllocationPanel";
 import {
   PackingListDocument,
   type PackingListDocumentPreview,
@@ -117,12 +164,17 @@ import {
 } from "@/lib/export-status-requirements";
 import { detailToCompletionInput } from "@/lib/export-bulking-completion";
 import { buildDocumentationProgress } from "@/lib/export-documentation-progress";
-import { BillingOcrUpload, type ApplyBillingOcrData } from "@/components/export-bulking/BillingOcrUpload";
+import {
+  PaymentRequestOcrUpload,
+  type ApplyPaymentRequestOcrData,
+} from "@/components/export-bulking/PaymentRequestOcrUpload";
 import {
   cargoAllocationSummaries,
   siInvoiceSummary,
+  siInvoiceAllocationOk,
   siQtyForCargoLine,
   siTotalQuantity,
+  shippingInstructionDisplayLabel,
 } from "@/lib/export-bulking-quantity";
 import {
   type BlSplitDraft,
@@ -132,6 +184,8 @@ import {
   blSplitDraftsFromLegacy,
   blSplitEntriesFromDrafts,
   blSplitsCloseToTarget,
+  blSplitsExceedTarget,
+  effectiveSiLineQuantityFromBlSplits,
   formatBlSplitDocumentText,
   newBlSplitDraft,
   sumBlSplitQuantities,
@@ -413,7 +467,7 @@ function UnsavedBanner({
     si: "Shipping Instructions",
     invoices: "Invoices",
     packing: "Packing Lists",
-    npeSpb: "NPE & SPB",
+    npeSpb: "Data SAP",
     billOfLading: "Bill of Lading",
     sentDocuments: "Sent Documents",
     pe: "PE",
@@ -481,7 +535,7 @@ function SummarySidebar({
           <div className={styles.summaryRow}>
             <span className={styles.summaryLabel}>Documents</span>
             <span className={styles.summaryValueMuted}>
-              {data.shipping_instructions.length} SI · {data.invoices.length} inv. · {data.packing_lists.length} PL
+              {data.shipping_instructions.length} shipping instruction{data.shipping_instructions.length === 1 ? "" : "s"} · {data.invoices.length} inv. · {data.packing_lists.length} PL
               <span className={styles.summaryLockHint}> (Document team)</span>
             </span>
           </div>
@@ -606,6 +660,10 @@ function DemurrageSimulationSidebar({ data }: { data: ExportBulkingShipmentDetai
   const [laytimeStart, setLaytimeStart] = useState<string>(() => toLocalDatetime(data.ata ?? data.eta));
   const [npeInput, setNpeInput] = useState<string>(() => toLocalDatetime(data.npe_date));
 
+  useEffect(() => {
+    setNpeInput(toLocalDatetime(data.npe_date));
+  }, [data.npe_date]);
+
   // These three are always read from the shipment record — not editable in the simulation.
   const qty = data.total_quantity;
   const laytimeRate = data.laytime_rate_mtph;
@@ -725,6 +783,63 @@ function DemurrageSimulationSidebar({ data }: { data: ExportBulkingShipmentDetai
   );
 }
 
+// ─── save / refresh helpers ──────────────────────────────────────────────────
+
+type DetailRefreshMode = "initial" | "silent";
+
+type DetailSavedOptions = {
+  patch?: Partial<ExportBulkingShipmentDetail>;
+  cargo_lines?: CargoLine[];
+  shipping_instructions?: ShippingInstruction[];
+  invoices?: Invoice[];
+  packing_lists?: PackingList[];
+  sap_lines?: SapLine[];
+  billing_lines?: BillingLine[];
+  bills_of_lading?: BillOfLadingLine[];
+  /** @default "none" */
+  refetch?: "none" | "silent";
+};
+
+type OnSavedFn = (options?: DetailSavedOptions) => void;
+
+function listItemToDetailPatch(item: ExportBulkingListItem): Partial<ExportBulkingShipmentDetail> {
+  const {
+    cargo_count: _cargoCount,
+    cargo_summaries: _cargoSummaries,
+    si_numbers: _siNumbers,
+    invoice_numbers: _invoiceNumbers,
+    pl_numbers: _plNumbers,
+    cargo_names: _cargoNames,
+    invoice_line_summaries: _invoiceLineSummaries,
+    documentation_assigned_to: _docAssignedTo,
+    documentation_assignee_name: _docAssigneeName,
+    documentation_assigned_at: _docAssignedAt,
+    ...shipmentFields
+  } = item;
+  return shipmentFields;
+}
+
+function mergeDetailSaved(
+  prev: ExportBulkingShipmentDetail,
+  options: DetailSavedOptions,
+): ExportBulkingShipmentDetail {
+  return {
+    ...prev,
+    ...options.patch,
+    ...(options.cargo_lines !== undefined ? { cargo_lines: options.cargo_lines } : {}),
+    ...(options.shipping_instructions !== undefined ? { shipping_instructions: options.shipping_instructions } : {}),
+    ...(options.invoices !== undefined ? { invoices: options.invoices } : {}),
+    ...(options.packing_lists !== undefined ? { packing_lists: options.packing_lists } : {}),
+    ...(options.sap_lines !== undefined ? { sap_lines: options.sap_lines } : {}),
+    ...(options.billing_lines !== undefined ? { billing_lines: options.billing_lines } : {}),
+    ...(options.bills_of_lading !== undefined ? { bills_of_lading: options.bills_of_lading } : {}),
+  };
+}
+
+function replaceNestedItem<T extends { id: string }>(items: T[], updated: T): T[] {
+  return items.map((item) => (item.id === updated.id ? updated : item));
+}
+
 // ─── shared section props ────────────────────────────────────────────────────
 
 interface SectionProps {
@@ -732,7 +847,7 @@ interface SectionProps {
   accessToken: string;
   open: boolean;
   onToggle: () => void;
-  onSaved: () => void;
+  onSaved: OnSavedFn;
   toast: ReturnType<typeof useToast>;
   saveTrigger: number;
   onDirtyChange: (key: string, dirty: boolean) => void;
@@ -852,7 +967,7 @@ function GeneralSection({ data, accessToken, open, onToggle, onSaved, toast, sav
   const [loadportOptions, setLoadportOptions] = useState<string[]>([]);
   const [pendingLoadportName, setPendingLoadportName] = useState<string | null>(null);
 
-  const shipperNameOptions = shipperList.map((s) => s.name);
+  const shipperNameOptions = shipperShortNameOptions(shipperList);
 
   useEffect(() => { setForm(getOrigForm()); }, [getOrigForm]);
 
@@ -869,8 +984,11 @@ function GeneralSection({ data, accessToken, open, onToggle, onSaved, toast, sav
       if (!isApiError(res)) {
         const list = (res as { data: Shipper[] }).data ?? [];
         setShipperList(list);
-        const match = list.find((s) => s.name.toLowerCase() === (data.shipper ?? "").toLowerCase());
-        if (match) setSelectedShipperId(match.id);
+        const match = findShipperMatch(data.shipper, list);
+        if (match) {
+          setSelectedShipperId(match.id);
+          setForm((prev) => ({ ...prev, shipper: match.short_name }));
+        }
       }
     });
   }, [accessToken, data.shipper]);
@@ -884,7 +1002,7 @@ function GeneralSection({ data, accessToken, open, onToggle, onSaved, toast, sav
 
   function handleShipperChange(name: string) {
     setForm((prev) => ({ ...prev, shipper: name, loadport_name: "" }));
-    const match = shipperList.find((s) => s.name === name);
+    const match = findShipperMatch(name, shipperList);
     setSelectedShipperId(match?.id ?? null);
     setLoadportOptions([]);
   }
@@ -957,7 +1075,10 @@ function GeneralSection({ data, accessToken, open, onToggle, onSaved, toast, sav
     }
 
     toast.pushToast("General information saved", "success");
-    onSaved();
+    onSaved({
+      patch: listItemToDetailPatch(res.data),
+      refetch: qty != null && qty > 0 ? "silent" : "none",
+    });
     setSaving(false);
   }, [data.id, data.cargo_lines, data.total_quantity, form, loadportOptions, accessToken, toast, onSaved]);
 
@@ -1171,17 +1292,29 @@ function NominationSection({ data, accessToken, open, onToggle, onSaved, toast, 
   const isDirtyRef = useRef(false);
   const [agentList, setAgentList] = useState<Agent[]>([]);
   const [pendingAgentName, setPendingAgentName] = useState<string | null>(null);
+  const [surveyorList, setSurveyorList] = useState<Surveyor[]>([]);
+  const [pendingSurveyorName, setPendingSurveyorName] = useState<string | null>(null);
 
   const refreshAgents = useCallback(async () => {
     const res = await listAgents(accessToken);
     if (!isApiError(res)) setAgentList((res as { data: Agent[] }).data ?? []);
   }, [accessToken]);
 
+  const refreshSurveyors = useCallback(async () => {
+    const res = await listSurveyors(accessToken);
+    if (!isApiError(res)) setSurveyorList((res as { data: Surveyor[] }).data ?? []);
+  }, [accessToken]);
+
   useEffect(() => {
     void refreshAgents();
   }, [refreshAgents]);
 
+  useEffect(() => {
+    void refreshSurveyors();
+  }, [refreshSurveyors]);
+
   const agentNameOptions = agentList.map((a) => a.name);
+  const surveyorNameOptions = surveyorList.map((s) => s.name);
 
   const handleCreateAgent = useCallback((name: string): boolean => {
     const canonical = findMatchingOption(agentNameOptions, name);
@@ -1211,6 +1344,37 @@ function NominationSection({ data, accessToken, open, onToggle, onSaved, toast, 
   const cancelCreateAgent = useCallback(() => {
     setPendingAgentName(null);
     setForm((prev) => ({ ...prev, agent: "" }));
+  }, []);
+
+  const handleCreateSurveyor = useCallback((name: string): boolean => {
+    const canonical = findMatchingOption(surveyorNameOptions, name);
+    if (canonical) {
+      setForm((prev) => ({ ...prev, surveyor: canonical }));
+      return true;
+    }
+    setPendingSurveyorName(name);
+    return false;
+  }, [surveyorNameOptions]);
+
+  const confirmCreateSurveyor = useCallback(async () => {
+    if (!pendingSurveyorName || !accessToken) return;
+    const res = await createSurveyor({ name: pendingSurveyorName }, accessToken);
+    if (!isApiError(res)) {
+      const created = (res as { data?: Surveyor }).data;
+      const canonicalName =
+        created?.name ?? findMatchingOption(surveyorNameOptions, pendingSurveyorName) ?? pendingSurveyorName;
+      await refreshSurveyors();
+      setForm((prev) => ({ ...prev, surveyor: canonicalName }));
+      toast.pushToast("Surveyor added to master", "success");
+    } else {
+      toast.pushToast(res.message, "error");
+    }
+    setPendingSurveyorName(null);
+  }, [pendingSurveyorName, accessToken, surveyorNameOptions, refreshSurveyors, toast]);
+
+  const cancelCreateSurveyor = useCallback(() => {
+    setPendingSurveyorName(null);
+    setForm((prev) => ({ ...prev, surveyor: "", surveyor_reason: "" }));
   }, []);
 
   useEffect(() => {
@@ -1243,7 +1407,9 @@ function NominationSection({ data, accessToken, open, onToggle, onSaved, toast, 
     body.est_cargo_readiness = form.est_cargo_readiness_date || null;
     body.est_cargo_readiness_period = form.est_cargo_readiness_period || null;
     body.incoterms = form.incoterms || null;
-    body.surveyor = form.surveyor || null;
+    body.surveyor = form.surveyor.trim()
+      ? findMatchingOption(surveyorNameOptions, form.surveyor) ?? form.surveyor.trim()
+      : null;
     body.surveyor_reason = form.surveyor.trim() ? (form.surveyor_reason.trim() || null) : null;
     body.agent = form.agent.trim()
       ? findMatchingOption(agentNameOptions, form.agent) ?? form.agent.trim()
@@ -1252,9 +1418,9 @@ function NominationSection({ data, accessToken, open, onToggle, onSaved, toast, 
     body.demurrage_rate_pdpr = parseQuantityInput(form.demurrage_rate_pdpr);
     const res = await updateExportBulkingShipment(data.id, body, accessToken);
     if (isApiError(res)) toast.pushToast(res.message, "error");
-    else { toast.pushToast("Nomination details saved", "success"); onSaved(); }
+    else { toast.pushToast("Nomination details saved", "success"); onSaved({ patch: listItemToDetailPatch(res.data), refetch: "none" }); }
     setSaving(false);
-  }, [data.id, form, agentNameOptions, accessToken, toast, onSaved]);
+  }, [data.id, form, agentNameOptions, surveyorNameOptions, accessToken, toast, onSaved]);
 
   const handleSaveRef = useRef(handleSave);
   handleSaveRef.current = handleSave;
@@ -1377,19 +1543,38 @@ function NominationSection({ data, accessToken, open, onToggle, onSaved, toast, 
               )}
             </div>
             <div className={styles.field}>
-              <label className={styles.fieldLabel}>Surveyor</label>
-              <input
-                className={styles.fieldInput}
-                value={form.surveyor}
-                onChange={(e) => {
-                  const value = e.target.value;
+              <label className={styles.fieldLabel}>{NOMINATION_FIELD_LABELS.surveyor}</label>
+              <ComboboxSelectCreatable
+                options={surveyorNameOptions}
+                value={pendingSurveyorName ?? form.surveyor}
+                onChange={(val) => {
+                  const canonical = findMatchingOption(surveyorNameOptions, val) ?? val;
                   setForm((prev) => ({
                     ...prev,
-                    surveyor: value,
-                    surveyor_reason: value.trim() ? prev.surveyor_reason : "",
+                    surveyor: canonical,
+                    surveyor_reason: canonical.trim() ? prev.surveyor_reason : "",
                   }));
                 }}
+                onCreateOption={handleCreateSurveyor}
+                placeholder="Select or type to create…"
+                externallyManaged={!!pendingSurveyorName}
+                aria-label="Surveyor"
               />
+              {pendingSurveyorName && (
+                <div className={styles.loadportConfirm}>
+                  <span>
+                    Add <strong>&ldquo;{pendingSurveyorName}&rdquo;</strong> to Master Surveyor?
+                  </span>
+                  <div className={styles.loadportConfirmActions}>
+                    <button type="button" className={styles.btnConfirmSm} onClick={confirmCreateSurveyor}>
+                      Add surveyor
+                    </button>
+                    <button type="button" className={styles.btnCancelSm} onClick={cancelCreateSurveyor}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
             {form.surveyor.trim() ? (
               <div className={styles.field}>
@@ -1425,10 +1610,11 @@ interface LocalCargoLine {
   cargo_name: string;
   quantity: string;
   unit: string;
-  item_description: string;
   destination_port: string;
   destination_country: string;
   country_area: string;
+  pe_no: string;
+  pe_date: string;
 }
 
 let cargoKeyCounter = 0;
@@ -1443,10 +1629,11 @@ function cargoToLocal(c: CargoLine): LocalCargoLine {
     cargo_name: c.cargo_name ?? "",
     quantity: formatQuantityFieldValue(c.quantity),
     unit: CARGO_UNIT_MT,
-    item_description: c.item_description ?? "",
     destination_port: c.destination_port ?? "",
     destination_country: country,
     country_area: area,
+    pe_no: c.pe_no ?? "",
+    pe_date: toLocalDate(c.pe_date),
   };
 }
 
@@ -1455,7 +1642,26 @@ function CargoSection({ data, accessToken, open, onToggle, onSaved, toast, saveT
   const [saving, setSaving] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const [confirmRemoveIdx, setConfirmRemoveIdx] = useState<number | null>(null);
+  const [commodityList, setCommodityList] = useState<Commodity[]>([]);
   const isDirtyRef = useRef(false);
+
+  const refreshCommodities = useCallback(async () => {
+    const res = await listCommodities(accessToken);
+    if (!isApiError(res)) setCommodityList((res as { data: Commodity[] }).data ?? []);
+  }, [accessToken]);
+
+  useEffect(() => {
+    void refreshCommodities();
+  }, [refreshCommodities]);
+
+  const commodityOptions = useMemo(
+    () =>
+      [...commodityList]
+        .map((c) => c.short_name.trim())
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" })),
+    [commodityList],
+  );
 
   useEffect(() => { setLines(data.cargo_lines.map(cargoToLocal)); }, [data]);
 
@@ -1478,13 +1684,14 @@ function CargoSection({ data, accessToken, open, onToggle, onSaved, toast, saveT
       {
         _key: `new-${++cargoKeyCounter}`,
         id: "",
-        cargo_name: prev.length === 0 ? "Cargo 1" : "",
+        cargo_name: "",
         quantity: prev.length === 0 ? seedQty : "",
         unit: CARGO_UNIT_MT,
-        item_description: "",
         destination_port: "",
         destination_country: "",
         country_area: "",
+        pe_no: "",
+        pe_date: "",
       },
     ]);
   };
@@ -1516,26 +1723,32 @@ function CargoSection({ data, accessToken, open, onToggle, onSaved, toast, saveT
     setSaving(true);
     const payload = lines.map((l, idx) => {
       const orig = data.cargo_lines.find((c) => c.id === l.id);
+      const cargoName = l.cargo_name.trim()
+        ? resolveCommodityShortName(l.cargo_name, commodityList)
+        : l.cargo_name;
+      const commodity = findCommodityMatch(cargoName, commodityList);
       return {
         ...(l.id ? { id: l.id } : {}),
         line_order: idx + 1,
-        cargo_name: l.cargo_name,
+        cargo_name: cargoName,
         quantity: parseQuantityInput(l.quantity),
         unit: CARGO_UNIT_MT,
-        item_description: l.item_description || null,
+        item_description: commodity?.name ?? null,
         destination_port: l.destination_port || null,
         destination_country: l.destination_country || null,
         country_area: l.destination_country?.trim() ? getCountryArea(l.destination_country) : (l.country_area || null),
         quantity_delivered: orig?.quantity_delivered ?? null,
         bl_figure: orig?.bl_figure ?? null,
         ship_figure: orig?.ship_figure ?? null,
+        pe_no: l.pe_no.trim() || null,
+        pe_date: l.pe_date ? new Date(l.pe_date).toISOString() : null,
       };
     });
     const res = await upsertCargoLines(data.id, payload, accessToken);
     if (isApiError(res)) toast.pushToast(res.message, "error");
-    else { toast.pushToast("Cargo lines saved", "success"); onSaved(); }
+    else { toast.pushToast("Cargo lines saved", "success"); onSaved({ cargo_lines: res.data, refetch: "none" }); }
     setSaving(false);
-  }, [data.id, lines, accessToken, toast, onSaved]);
+  }, [data.id, data.cargo_lines, lines, commodityList, accessToken, toast, onSaved]);
 
   const handleSaveRef = useRef(handleSave);
   handleSaveRef.current = handleSave;
@@ -1554,85 +1767,106 @@ function CargoSection({ data, accessToken, open, onToggle, onSaved, toast, saveT
       onToggle={onToggle}
       dirty={isDirty}
     >
-      <Card>
         {lines.length === 0 ? (
           <p className={styles.emptyMsg}>No cargo lines yet.</p>
         ) : (
-          <div className={styles.cargoTableWrap}>
-            <table className={styles.cargoSpreadsheet}>
-              <colgroup>
-                <col className={styles.cargoColNum} />
-                <col className={styles.cargoColEven} />
-                <col className={styles.cargoColQty} />
-                <col className={styles.cargoColUnit} />
-                <col className={styles.cargoColEven} />
-                <col className={styles.cargoColEven} />
-                <col className={styles.cargoColEven} />
-                <col className={styles.cargoColEven} />
-                <col className={styles.cargoColActions} />
-              </colgroup>
-              <thead>
-                <tr>
-                  <th scope="col">#</th>
-                  <th scope="col">Cargo Name</th>
-                  <th scope="col">Qty</th>
-                  <th scope="col">Unit</th>
-                  <th scope="col">Description of goods</th>
-                  <th scope="col">Dest Port</th>
-                  <th scope="col">Dest Country</th>
-                  <th scope="col" title="Derived from destination country (continent / region)">
-                    Area
-                  </th>
-                  <th scope="col" className={styles.cargoThActions} aria-label="Actions" />
-                </tr>
-              </thead>
-              <tbody>
-                {lines.map((line, idx) => (
-                  <tr key={line._key}>
-                    <td className={styles.cargoTdNum}>{idx + 1}</td>
-                    <td>
-                      <input
-                        className={styles.cargoCellInput}
+          <div className={styles.cargoCardList}>
+            {lines.map((line, idx) => (
+              <article key={line._key} className={`${styles.subItemCard} ${styles.cargoLineCard}`}>
+                <header className={styles.cargoLineCardHeader}>
+                  <h4 className={styles.cargoLineCardTitle}>Cargo Line #{idx + 1}</h4>
+                  {confirmRemoveIdx === idx ? (
+                    <div className={styles.cargoLineCardRemoveConfirm}>
+                      <span>Remove this line?</span>
+                      <button
+                        type="button"
+                        className={styles.cargoDeleteConfirmBtn}
+                        onClick={() => void removeRow(idx)}
+                      >
+                        Yes
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.btnSecondary}
+                        onClick={() => setConfirmRemoveIdx(null)}
+                      >
+                        No
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className={styles.cargoLineCardRemove}
+                      onClick={() => setConfirmRemoveIdx(idx)}
+                      title="Remove cargo line"
+                      aria-label={`Remove cargo line ${idx + 1}`}
+                    >
+                      <X size={16} strokeWidth={2.5} aria-hidden />
+                    </button>
+                  )}
+                </header>
+
+                <div className={styles.cargoLineCardBody}>
+                  <div className={styles.cargoLineCardRow}>
+                    <div className={styles.field}>
+                      <label className={styles.fieldLabel} htmlFor={`cargo-commodity-${line._key}`}>
+                        Commodity
+                      </label>
+                      <ComboboxSelect
+                        id={`cargo-commodity-${line._key}`}
+                        options={commodityOptions}
                         value={line.cargo_name}
-                        onChange={(e) => updateCell(idx, "cargo_name", e.target.value)}
-                        aria-label={`Cargo name row ${idx + 1}`}
+                        onChange={(val) => {
+                          const canonical = resolveCommodityShortName(val, commodityList);
+                          updateCell(idx, "cargo_name", canonical);
+                        }}
+                        placeholder="Select commodity…"
+                        allowEmpty
+                        emptyLabel="— Select —"
+                        inputClassName={styles.fieldInput}
+                        aria-label={`Commodity row ${idx + 1}`}
                       />
-                    </td>
-                    <td>
+                    </div>
+                    <div className={styles.field}>
+                      <label className={styles.fieldLabel} htmlFor={`cargo-qty-${line._key}`}>
+                        Quantity
+                      </label>
                       <input
-                        className={styles.cargoCellInput}
+                        id={`cargo-qty-${line._key}`}
+                        className={styles.fieldInput}
                         type="text"
                         inputMode="decimal"
                         value={line.quantity}
                         onChange={(e) => updateCell(idx, "quantity", e.target.value)}
-                        aria-label={`Quantity row ${idx + 1}`}
                       />
-                    </td>
-                    <td>
-                      <span className={styles.cargoCellReadonly}>{CARGO_UNIT_MT}</span>
-                    </td>
-                    <td>
+                    </div>
+                    <div className={styles.field}>
+                      <span className={styles.fieldLabel}>Unit</span>
+                      <span className={`${styles.fieldInput} ${styles.fieldInputReadonly}`}>{CARGO_UNIT_MT}</span>
+                    </div>
+                  </div>
+
+                  <div className={styles.cargoLineCardRow}>
+                    <div className={styles.field}>
+                      <label className={styles.fieldLabel} htmlFor={`cargo-port-${line._key}`}>
+                        Dest Port
+                      </label>
                       <input
-                        className={styles.cargoCellInput}
-                        value={line.item_description}
-                        onChange={(e) => updateCell(idx, "item_description", e.target.value)}
-                        aria-label={`Description row ${idx + 1}`}
-                      />
-                    </td>
-                    <td>
-                      <input
-                        className={styles.cargoCellInput}
+                        id={`cargo-port-${line._key}`}
+                        className={styles.fieldInput}
                         value={line.destination_port}
                         onChange={(e) => updateCell(idx, "destination_port", e.target.value)}
-                        aria-label={`Destination port row ${idx + 1}`}
                       />
-                    </td>
-                    <td>
+                    </div>
+                    <div className={styles.field}>
+                      <label className={styles.fieldLabel} htmlFor={`cargo-country-${line._key}`}>
+                        Dest Country
+                      </label>
                       <select
-                        className={`${styles.cargoCellInput} ${styles.cargoCellSelect}`}
+                        id={`cargo-country-${line._key}`}
+                        className={styles.fieldInput}
                         value={line.destination_country}
                         onChange={(e) => updateDestinationCountry(idx, e.target.value)}
-                        aria-label={`Destination country row ${idx + 1}`}
                       >
                         {getCountryOptions(line.destination_country).map((name) => (
                           <option key={name || "__empty"} value={name}>
@@ -1640,49 +1874,40 @@ function CargoSection({ data, accessToken, open, onToggle, onSaved, toast, saveT
                           </option>
                         ))}
                       </select>
-                    </td>
-                    <td>
-                      <span className={styles.cargoCellReadonly} title={line.country_area.trim() || undefined}>
+                    </div>
+                    <div className={styles.field}>
+                      <span className={styles.fieldLabel}>Area</span>
+                      <span
+                        className={`${styles.fieldInput} ${styles.fieldInputReadonly}`}
+                        title={line.country_area.trim() || undefined}
+                      >
                         {line.country_area.trim() ? line.country_area : "—"}
                       </span>
-                    </td>
-                    <td className={styles.cargoTdActions}>
-                      {confirmRemoveIdx === idx ? (
-                        <div className={styles.cargoRowConfirmInline}>
-                          <span className={styles.cargoRowConfirmMsg}>Remove row?</span>
-                          <button
-                            type="button"
-                            className={styles.cargoDeleteConfirmBtn}
-                            onClick={() => void removeRow(idx)}
-                            aria-label={`Confirm remove row ${idx + 1}`}
-                          >
-                            Yes
-                          </button>
-                          <button
-                            type="button"
-                            className={styles.btnSecondary}
-                            onClick={() => setConfirmRemoveIdx(null)}
-                            aria-label={`Cancel remove row ${idx + 1}`}
-                          >
-                            No
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          className={styles.cargoRowRemove}
-                          onClick={() => setConfirmRemoveIdx(idx)}
-                          title="Remove row"
-                          aria-label={`Remove row ${idx + 1}`}
-                        >
-                          ✕
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    </div>
+                    <div className={styles.field}>
+                      <span className={styles.fieldLabel}>PE No / Date</span>
+                      <div className={styles.cargoPeSplit}>
+                        <input
+                          className={styles.fieldInput}
+                          type="text"
+                          placeholder="PE No"
+                          value={line.pe_no}
+                          onChange={(e) => updateCell(idx, "pe_no", e.target.value)}
+                          aria-label={`PE number row ${idx + 1}`}
+                        />
+                        <input
+                          className={styles.fieldInput}
+                          type="date"
+                          value={line.pe_date}
+                          onChange={(e) => updateCell(idx, "pe_date", e.target.value)}
+                          aria-label={`PE date row ${idx + 1}`}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </article>
+            ))}
           </div>
         )}
         <div className={styles.cargoTableFooter}>
@@ -1695,7 +1920,6 @@ function CargoSection({ data, accessToken, open, onToggle, onSaved, toast, saveT
             {saving ? "Saving…" : "Save Cargo Lines"}
           </button>
         </div>
-      </Card>
     </SectionShell>
   );
 }
@@ -1726,9 +1950,14 @@ function cargoLabelFromId(cargoLines: CargoLine[], id: string): string {
   return match ? cargoOptionLabel(match) : "";
 }
 
+/** Saved cargo rows on the shipment (Cargo section), excluding unsaved drafts. */
+function registeredCargoLines(cargoLines: CargoLine[]): CargoLine[] {
+  return cargoLines.filter((c) => (c.id ?? "").trim() !== "");
+}
+
 function nextUnusedCargoLine(cargoLines: CargoLine[], usedIds: Iterable<string>): CargoLine | undefined {
   const used = usedIds instanceof Set ? usedIds : new Set(usedIds);
-  return cargoLines.find((c) => !used.has(c.id)) ?? cargoLines[0];
+  return registeredCargoLines(cargoLines).find((c) => !used.has(c.id));
 }
 
 function cargoOptionLabelsForRow(
@@ -1743,7 +1972,7 @@ function cargoOptionLabelsForRow(
     if (id) usedIds.add(id);
   });
   const currentId = (rows[rowIndex]?.cargo_line_id ?? "").trim();
-  return cargoLines
+  return registeredCargoLines(cargoLines)
     .filter((c) => !usedIds.has(c.id) || c.id === currentId)
     .map(cargoOptionLabel);
 }
@@ -1841,6 +2070,18 @@ function buildSiLineRows(si: ShippingInstruction, cargoLines: CargoLine[]): SiLi
   });
 }
 
+function siLineOverrideFromRows(lineRows: SiLineRow[]): { cargo_line_id: string; quantity: number | null }[] {
+  return lineRows
+    .filter((r) => r.cargo_line_id.trim())
+    .map((r) => ({
+      cargo_line_id: r.cargo_line_id,
+      quantity: effectiveSiLineQuantityFromBlSplits(
+        parseQuantityInput(r.quantity),
+        blSplitEntriesFromDrafts(r.bl_splits),
+      ),
+    }));
+}
+
 function SISection({
   data,
   accessToken,
@@ -1858,7 +2099,7 @@ function SISection({
     setCreating(true);
     const res = await createShippingInstruction(data.id, {}, accessToken);
     if (isApiError(res)) toast.pushToast(res.message, "error");
-    else { toast.pushToast("Shipping instruction created", "success"); onSaved(); }
+    else { toast.pushToast("Shipping instruction created", "success"); onSaved({ refetch: "silent" }); }
     setCreating(false);
   };
 
@@ -1871,7 +2112,7 @@ function SISection({
       onToggle={onToggle}
       actions={
         <button className={styles.btnSecondary} onClick={handleCreate} disabled={creating}>
-          {creating ? "Creating…" : "+ Add SI"}
+          {creating ? "Creating…" : "+ Add Shipping Instruction"}
         </button>
       }
     >
@@ -1912,7 +2153,7 @@ function SICard({
   shipmentId: string;
   shipment: ExportBulkingShipmentDetail;
   accessToken: string;
-  onSaved: () => void;
+  onSaved: OnSavedFn;
   toast: ReturnType<typeof useToast>;
   saveTrigger?: number;
   onDirtyChange?: (dirty: boolean) => void;
@@ -2017,10 +2258,10 @@ function SICard({
           : {
               ...row,
               cargo_line_id: cargoLineId,
-              description_of_goods: c?.item_description ?? row.description_of_goods,
-              quantity: formatQuantityFieldValue(c?.quantity),
-              bl_splits: c?.quantity != null ? [newBlSplitDraft(c.quantity)] : row.bl_splits,
-              destination_port: c?.destination_port ?? row.destination_port,
+              description_of_goods: c?.item_description ?? "",
+              quantity: c ? formatQuantityFieldValue(c.quantity) : "",
+              bl_splits: c?.quantity != null ? [newBlSplitDraft(c.quantity)] : [newBlSplitDraft()],
+              destination_port: c?.destination_port ?? "",
             },
       ),
     );
@@ -2069,17 +2310,15 @@ function SICard({
   }
 
   function addSiLineRow() {
-    const usedIds = new Set(lineRows.map((r) => r.cargo_line_id).filter(Boolean));
-    const nextCargo = nextUnusedCargoLine(shipment.cargo_lines, usedIds);
     setLineRows((prev) => [
       ...prev,
       {
         rowKey: `new-${Date.now()}`,
-        cargo_line_id: nextCargo?.id ?? "",
-        description_of_goods: nextCargo?.item_description ?? "",
-        quantity: formatQuantityFieldValue(nextCargo?.quantity),
-        bl_splits: [newBlSplitDraft(nextCargo?.quantity)],
-        destination_port: nextCargo?.destination_port ?? "",
+        cargo_line_id: "",
+        description_of_goods: "",
+        quantity: "",
+        bl_splits: [newBlSplitDraft()],
+        destination_port: "",
       },
     ]);
   }
@@ -2101,46 +2340,56 @@ function SICard({
   }, [lineRows]);
 
   const siAllocationSummaries = useMemo(() => {
-    const overrideLines = lineRows
-      .filter((r) => r.cargo_line_id.trim())
-      .map((r) => ({
-        cargo_line_id: r.cargo_line_id,
-        quantity: parseQuantityInput(r.quantity),
-      }));
     return cargoAllocationSummaries(
       shipment.cargo_lines,
       shipment.shipping_instructions,
       si.id,
-      overrideLines,
+      siLineOverrideFromRows(lineRows),
     );
   }, [lineRows, shipment.cargo_lines, shipment.shipping_instructions, si.id]);
 
-  const siQtyMatched = siAllocationSummaries.every((s) => s.matched);
+  const siQtyOverAllocated = siAllocationSummaries.some((s) => s.overAllocated);
 
   const handleSave = async () => {
     if (siNumberError) {
       toast.pushToast(siNumberError, "error");
       return;
     }
-    if (!siQtyMatched) {
+    const rowMissingCargo = lineRows.find((r) => !r.cargo_line_id.trim());
+    if (rowMissingCargo) {
+      toast.pushToast("Select cargo for each cargo line row", "error");
+      return;
+    }
+    if (siQtyOverAllocated) {
       toast.pushToast(
         siAllocationSummaries
-          .filter((s) => !s.matched)
-          .map((s) => `${s.cargoName}: allocated ${s.allocated} MT, planned ${s.planned} MT`)
+          .filter((s) => s.overAllocated)
+          .map((s) => `${s.cargoName}: allocated ${s.allocated} MT exceeds planned ${s.planned} MT`)
           .join("; "),
         "error",
       );
       return;
     }
-    const blSplitMismatch = lineRows
+    const blSplitExceeds = lineRows
       .filter((r) => r.cargo_line_id.trim())
       .find((r) => {
         const qty = parseQuantityInput(r.quantity);
         const entries = blSplitEntriesFromDrafts(r.bl_splits);
-        return entries.length === 0 || !blSplitsCloseToTarget(entries, qty);
+        return blSplitsExceedTarget(entries, qty);
       });
-    if (blSplitMismatch) {
-      toast.pushToast("B/L split quantities must total the cargo line quantity", "error");
+    if (blSplitExceeds) {
+      toast.pushToast("B/L split total cannot exceed the line quantity", "error");
+      return;
+    }
+    const rowMissingQty = lineRows
+      .filter((r) => r.cargo_line_id.trim())
+      .find((r) => {
+        const entries = blSplitEntriesFromDrafts(r.bl_splits);
+        const qty = effectiveSiLineQuantityFromBlSplits(parseQuantityInput(r.quantity), entries);
+        return qty == null || qty <= 0;
+      });
+    if (rowMissingQty) {
+      toast.pushToast("Enter a quantity or B/L split for each cargo line row", "error");
       return;
     }
     setSaving(true);
@@ -2148,8 +2397,8 @@ function SICard({
       .filter((r) => r.cargo_line_id)
       .map((r) => {
         const c = cargoById.get(r.cargo_line_id);
-        const qty = parseQuantityInput(r.quantity);
         const blEntries = blSplitEntriesFromDrafts(r.bl_splits);
+        const qty = effectiveSiLineQuantityFromBlSplits(parseQuantityInput(r.quantity), blEntries);
         const blSum = blEntries.length > 0 ? sumBlSplitQuantities(blEntries) : qty;
         return {
           cargo_line_id: r.cargo_line_id,
@@ -2181,7 +2430,10 @@ function SICard({
     if (isApiError(res)) toast.pushToast(res.message, "error");
     else {
       toast.pushToast("Shipping instruction saved", "success");
-      onSaved();
+      onSaved({
+        shipping_instructions: replaceNestedItem(shipment.shipping_instructions, res.data),
+        refetch: "none",
+      });
     }
     setSaving(false);
   };
@@ -2203,7 +2455,7 @@ function SICard({
     if (isApiError(res)) toast.pushToast(res.message, "error");
     else {
       toast.pushToast("Shipping instruction deleted", "success");
-      onSaved();
+      onSaved({ refetch: "silent" });
     }
     setDeleting(false);
     setConfirmDelete(false);
@@ -2214,8 +2466,10 @@ function SICard({
       <div className={styles.subItemHeader} onClick={() => setExpanded((p) => !p)}>
         <ChevronIcon open={expanded} />
         <div className={styles.subItemHeaderText}>
-          <h3 className={styles.subItemTitle}>SI: {si.si_number || "(untitled)"}</h3>
-          <p className={styles.siCargoLinkLine} title="Cargo lines linked to this SI">
+          <h3 className={styles.subItemTitle}>
+            Shipping Instruction: {si.si_number || "(untitled)"}
+          </h3>
+          <p className={styles.siCargoLinkLine} title="Cargo lines linked to this shipping instruction">
             <span className={styles.siCargoLinkLabel}>Cargo (container) linkage:</span>{" "}
             <span className={styles.siCargoLinkEm}>{linkedCargoSummary}</span>
           </p>
@@ -2227,7 +2481,7 @@ function SICard({
           <Card>
             <div className={styles.fieldGrid}>
               <div className={styles.field}>
-                <label className={styles.fieldLabel}>SI Number</label>
+                <label className={styles.fieldLabel}>Shipping Instruction Number</label>
                 <input
                   className={`${styles.fieldInput} ${siNumberError ? styles.fieldInputInvalid : ""}`}
                   value={form.si_number}
@@ -2302,7 +2556,7 @@ function SICard({
                 <input
                   className={`${styles.fieldInput} ${styles.fieldInputReadonly}`}
                   readOnly
-                  title="Synced from General Information when you save this SI."
+                  title="Synced from General Information when you save this shipping instruction."
                   value={shipment.shipper ?? ""}
                 />
               </div>
@@ -2310,9 +2564,15 @@ function SICard({
                 <label className={styles.fieldLabel}>NPWP</label>
                 <input className={styles.fieldInput} value={form.npwp} onChange={setFormField("npwp")} />
               </div>
-              <div className={styles.field}>
+              <div className={`${styles.field} ${styles.fieldFullRow}`}>
                 <label className={styles.fieldLabel}>B/L Indicated</label>
-                <input className={styles.fieldInput} value={form.bl_indicated} onChange={setFormField("bl_indicated")} />
+                <textarea
+                  className={`${styles.fieldInput} ${styles.textareaInput}`}
+                  value={form.bl_indicated}
+                  onChange={setFormField("bl_indicated")}
+                  rows={3}
+                  aria-label="B/L indicated"
+                />
               </div>
             </div>
 
@@ -2342,7 +2602,7 @@ function SICard({
                         allowEmpty
                         emptyLabel="— Select cargo —"
                         aria-label={`Cargo line ${idx + 1}`}
-                        disabled={shipment.cargo_lines.length === 0}
+                        disabled={registeredCargoLines(shipment.cargo_lines).length === 0}
                       />
                     </div>
                     <div className={styles.field}>
@@ -2437,11 +2697,24 @@ function SICard({
                           const entries = blSplitEntriesFromDrafts(row.bl_splits);
                           const splitTotal = sumBlSplitQuantities(entries);
                           const matched = blSplitsCloseToTarget(entries, lineQty);
-                          if (lineQty == null) return null;
+                          const exceeds = blSplitsExceedTarget(entries, lineQty);
+                          if (entries.length === 0 && lineQty == null) return null;
+                          if (entries.length === 0 && lineQty != null) {
+                            return (
+                              <span className={styles.fieldMuted}>
+                                Line quantity: {formatNumericDisplay(lineQty)} MT
+                              </span>
+                            );
+                          }
                           return (
                             <span className={styles.fieldMuted}>
-                              B/L split total: {formatNumericDisplay(splitTotal)} / {formatNumericDisplay(lineQty)} MT
-                              {!matched && " — must match line quantity"}
+                              B/L split total: {formatNumericDisplay(splitTotal)} MT
+                              {lineQty != null && !matched && !exceeds && (
+                                <> — saved quantity follows B/L splits ({formatNumericDisplay(lineQty)} MT in field)</>
+                              )}
+                              {exceeds && lineQty != null && (
+                                <> — cannot exceed line quantity ({formatNumericDisplay(lineQty)} MT)</>
+                              )}
                             </span>
                           );
                         })()}
@@ -2469,7 +2742,12 @@ function SICard({
             )}
 
             <div className={styles.siLineToolbar}>
-              <button type="button" className={styles.btnSecondary} onClick={addSiLineRow} disabled={shipment.cargo_lines.length === 0}>
+              <button
+                type="button"
+                className={styles.btnSecondary}
+                onClick={addSiLineRow}
+                disabled={registeredCargoLines(shipment.cargo_lines).length === 0}
+              >
                 + Add cargo line
               </button>
               {shipment.cargo_lines.length === 0 && (
@@ -2492,7 +2770,7 @@ function SICard({
 
             <div className={styles.actions}>
               <button type="button" className={styles.btnPrimary} onClick={handleSave} disabled={saving || Boolean(siNumberError)}>
-                {saving ? "Saving…" : "Save SI"}
+                {saving ? "Saving…" : "Save Shipping Instruction"}
               </button>
               {confirmDelete ? (
                 <div className={styles.inlineConfirm}>
@@ -2503,7 +2781,7 @@ function SICard({
                   <button type="button" className={styles.btnSecondary} onClick={() => setConfirmDelete(false)}>Cancel</button>
                 </div>
               ) : (
-                <button type="button" className={styles.btnDanger} onClick={() => setConfirmDelete(true)}>Delete SI</button>
+                <button type="button" className={styles.btnDanger} onClick={() => setConfirmDelete(true)}>Delete Shipping Instruction</button>
               )}
             </div>
           </Card>
@@ -2540,17 +2818,7 @@ function vesselVoyageFromGeneral(s: ExportBulkingShipmentDetail): string {
   return vessel || voyage;
 }
 
-/** Distinct SO numbers already used on any invoice line for this shipment (for dropdown options). */
-function distinctSoNosFromShipment(shipment: ExportBulkingShipmentDetail): string[] {
-  const seen = new Set<string>();
-  for (const inv of shipment.invoices) {
-    for (const ln of inv.lines ?? []) {
-      const t = ln.so_no?.trim();
-      if (t) seen.add(t);
-    }
-  }
-  return [...seen].sort((a, b) => a.localeCompare(b));
-}
+/** Distinct SO numbers — see @/lib/export-sap-lines */
 
 function parseOptionalNumberInput(raw: string): number | null {
   const t = raw.trim().replace(/,/g, "");
@@ -2596,10 +2864,17 @@ function newInvoiceLineDraft(
   shipment: ExportBulkingShipmentDetail,
   si: ShippingInstruction | null | undefined,
   usedIds: Iterable<string> = [],
+  preferredQty?: number | null,
 ): InvoiceLineDraft {
   const next = nextUnusedCargoLine(shipment.cargo_lines, usedIds);
-  const qty =
-    next && si ? siQtyForCargoLine(si, next.id) : next?.quantity ?? null;
+  let qty: number | null = null;
+  if (preferredQty != null && preferredQty > 0) {
+    qty = preferredQty;
+  } else if (next && si) {
+    qty = siQtyForCargoLine(si, next.id);
+  } else {
+    qty = next?.quantity ?? null;
+  }
   return {
     rowKey: `new-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     cargo_line_id: next?.id ?? "",
@@ -2608,6 +2883,40 @@ function newInvoiceLineDraft(
     quantity: formatQuantityFieldValue(qty),
     unit_price: "",
   };
+}
+
+function remainingSiQtyForInvoice(
+  si: ShippingInstruction,
+  invoices: Invoice[],
+  invoiceId: string,
+  lineDrafts: InvoiceLineDraft[],
+): number {
+  const overrideLineQtys = lineDrafts.map((d) => parseOptionalNumberInput(d.quantity));
+  const summary = siInvoiceSummary(si, invoices, invoiceId, overrideLineQtys);
+  return Math.max(0, summary.remaining);
+}
+
+function buildDraftsFromSiForInvoice(
+  si: ShippingInstruction,
+  shipment: ExportBulkingShipmentDetail,
+  invoiceId: string,
+): InvoiceLineDraft[] {
+  const remaining = remainingSiQtyForInvoice(si, shipment.invoices, invoiceId, []);
+  if (si.lines.length === 1) {
+    const sl = si.lines[0];
+    const qty = remaining > 0 ? remaining : sl.quantity;
+    return [
+      {
+        rowKey: `si-${sl.id}`,
+        cargo_line_id: sl.cargo_line_id ?? "",
+        contract_no: "",
+        so_no: "",
+        quantity: formatQuantityFieldValue(qty),
+        unit_price: "",
+      },
+    ];
+  }
+  return buildDraftsFromSi(si);
 }
 
 /** Editable row state when the invoice has no saved lines yet — seed from SI lines + cargo qty. */
@@ -2973,16 +3282,31 @@ const EXPORT_SECTION_ANCHORS: Record<
   packing: "export-section-packing",
 };
 
+const EXPORT_VOYAGE_SECTION_ANCHORS = [
+  { anchor: "export-section-arrival", short: "Arrival", full: "Arrival Times" },
+  { anchor: "export-section-at-berth", short: "Berth", full: "At Berth" },
+  { anchor: "export-section-loading", short: "Loading", full: "Loading Operations" },
+  { anchor: "export-section-case-off", short: "Case Off", full: "Case Off — Departure" },
+] as const;
+
+const EXPORT_DOC_SECTION_ANCHORS = [
+  { key: "npeSpb" as const, anchor: "export-section-npe-spb", short: "SAP", full: "Data SAP" },
+  { key: "billOfLading" as const, anchor: "export-section-bill-of-lading", short: "B/L", full: "Bill of Lading" },
+  { key: "sentDocuments" as const, anchor: "export-section-sent-documents", short: "Sent", full: "Sent Documents" },
+  { key: "peb" as const, anchor: "export-section-peb", short: "PEB", full: "PEB" },
+  { key: "billingLevy" as const, anchor: "export-section-billing-levy", short: "Billing", full: "Billing & Levy" },
+];
+
 type ExportDetailSectionKey = keyof typeof EXPORT_SECTION_ANCHORS;
 
 const EXPORT_DETAIL_NAV_OPS: { key: ExportDetailSectionKey; short: string; full: string }[] = [
   { key: "general", short: "General", full: "General Information" },
   { key: "nomination", short: "Nomination", full: "Nomination" },
-  { key: "cargo", short: "Cargo", full: "Cargo Lines" },
 ];
 
 const EXPORT_DETAIL_NAV_DOCS: { key: ExportDetailSectionKey; short: string; full: string }[] = [
-  { key: "si", short: "SI", full: "Shipping Instructions" },
+  { key: "cargo", short: "Cargo", full: "Cargo Lines" },
+  { key: "si", short: "Ship. Inst.", full: "Shipping Instructions" },
   { key: "invoices", short: "Invoices", full: "Invoices" },
   { key: "packing", short: "Packing", full: "Packing Lists" },
 ];
@@ -2991,6 +3315,7 @@ type OpenSectionsState = {
   general: boolean;
   nomination: boolean;
   cargo: boolean;
+  siReceiveDate: boolean;
   si: boolean;
   invoices: boolean;
   packing: boolean;
@@ -3005,7 +3330,8 @@ type OpenSectionsState = {
 const OPS_OPEN_SECTIONS: OpenSectionsState = {
   general: true,
   nomination: true,
-  cargo: true,
+  cargo: false,
+  siReceiveDate: false,
   si: false,
   invoices: false,
   packing: false,
@@ -3020,7 +3346,8 @@ const OPS_OPEN_SECTIONS: OpenSectionsState = {
 const DOCS_OPEN_SECTIONS: OpenSectionsState = {
   general: false,
   nomination: false,
-  cargo: false,
+  cargo: true,
+  siReceiveDate: true,
   si: true,
   invoices: true,
   packing: true,
@@ -3032,6 +3359,22 @@ const DOCS_OPEN_SECTIONS: OpenSectionsState = {
   billingLevy: true,
 };
 
+const DIRTY_SECTION_OPEN_KEYS: Partial<Record<string, keyof OpenSectionsState>> = {
+  general: "general",
+  nomination: "nomination",
+  cargo: "cargo",
+  siReceiveDate: "siReceiveDate",
+  si: "si",
+  invoices: "invoices",
+  packing: "packing",
+  npeSpb: "npeSpb",
+  billOfLading: "billOfLading",
+  sentDocuments: "sentDocuments",
+  pe: "pe",
+  peb: "peb",
+  billingLevy: "billingLevy",
+};
+
 function ExportWorkspaceBanner({
   variant,
 }: {
@@ -3041,7 +3384,7 @@ function ExportWorkspaceBanner({
     return (
       <div className={styles.workspaceBanner} role="status">
         <strong>Documentation workspace</strong>
-        <span>Operational fields are read-only — use the Documentation tab for SI, invoices, packing lists, B/L, and export documents.</span>
+        <span>Operational fields are read-only — use the Documentation tab for cargo lines, shipping instructions, invoices, packing lists, B/L, and export documents.</span>
       </div>
     );
   }
@@ -3057,7 +3400,7 @@ function ExportWorkspaceBanner({
     return (
       <div className={styles.workspaceBanner} role="status">
         <strong>Documentation (view only)</strong>
-        <span>Shipping instructions, invoices, packing lists, and uploads are read-only in your role.</span>
+        <span>Cargo lines, shipping instructions, invoices, packing lists, and uploads are read-only in your role.</span>
       </div>
     );
   }
@@ -3184,7 +3527,8 @@ function ShipmentOverviewStrip({
         {showDocCounts ? (
           <>
             <span className={styles.overviewChip}>
-              SI <strong>{data.shipping_instructions.length}</strong>
+              Shipping instruction{data.shipping_instructions.length === 1 ? "" : "s"}{" "}
+              <strong>{data.shipping_instructions.length}</strong>
             </span>
             <span className={styles.overviewChip}>
               Inv. <strong>{data.invoices.length}</strong>
@@ -3206,35 +3550,94 @@ function ShipmentOverviewStrip({
 
 function SectionJumpNav({
   onJump,
+  onJumpAnchor,
   allSectionsExpanded,
   onToggleExpandCollapse,
   onFocusOperations,
   onFocusDocuments,
   canViewDocs = true,
+  showVoyageNav = false,
+  showDocComplianceNav = false,
+  dirtySections = {},
 }: {
   onJump: (key: ExportDetailSectionKey) => void;
+  onJumpAnchor: (anchorId: string, sectionKey?: keyof OpenSectionsState) => void;
   allSectionsExpanded: boolean;
   onToggleExpandCollapse: () => void;
   onFocusOperations: () => void;
   onFocusDocuments: () => void;
   canViewDocs?: boolean;
+  showVoyageNav?: boolean;
+  showDocComplianceNav?: boolean;
+  dirtySections?: Record<string, boolean>;
 }) {
+  const jumpBtnClass = (dirty?: boolean) =>
+    `${styles.jumpNavBtn}${dirty ? ` ${styles.jumpNavBtnDirty}` : ""}`;
+
   return (
     <div className={styles.jumpNavWrap}>
       <nav className={styles.jumpNav} aria-label="Jump to section">
         {EXPORT_DETAIL_NAV_OPS.map(({ key, short, full }) => (
-          <button key={key} type="button" className={styles.jumpNavBtn} title={full} onClick={() => onJump(key)}>
+          <button
+            key={key}
+            type="button"
+            className={jumpBtnClass(dirtySections[key])}
+            title={dirtySections[key] ? `${full} — unsaved changes` : full}
+            onClick={() => onJump(key)}
+          >
             {short}
           </button>
         ))}
+        {showVoyageNav && (
+          <>
+            <span className={styles.jumpNavDivider} aria-hidden />
+            {EXPORT_VOYAGE_SECTION_ANCHORS.map(({ anchor, short, full }) => (
+              <button
+                key={anchor}
+                type="button"
+                className={jumpBtnClass(
+                  (anchor === "export-section-loading" && dirtySections.loading) ||
+                    (anchor === "export-section-case-off" && dirtySections.caseOff),
+                )}
+                title={
+                  (anchor === "export-section-loading" && dirtySections.loading) ||
+                  (anchor === "export-section-case-off" && dirtySections.caseOff)
+                    ? `${full} — unsaved changes`
+                    : full
+                }
+                onClick={() => onJumpAnchor(anchor)}
+              >
+                {short}
+              </button>
+            ))}
+          </>
+        )}
         {canViewDocs && (
           <>
             <span className={styles.jumpNavDivider} aria-hidden />
             {EXPORT_DETAIL_NAV_DOCS.map(({ key, short, full }) => (
-              <button key={key} type="button" className={styles.jumpNavBtn} title={full} onClick={() => onJump(key)}>
+              <button
+                key={key}
+                type="button"
+                className={jumpBtnClass(dirtySections[key] || dirtySections.siReceiveDate && key === "si")}
+                title={dirtySections[key] || (dirtySections.siReceiveDate && key === "si") ? `${full} — unsaved changes` : full}
+                onClick={() => onJump(key)}
+              >
                 {short}
               </button>
             ))}
+            {showDocComplianceNav &&
+              EXPORT_DOC_SECTION_ANCHORS.map(({ key, anchor, short, full }) => (
+                <button
+                  key={anchor}
+                  type="button"
+                  className={jumpBtnClass(dirtySections[key])}
+                  title={dirtySections[key] ? `${full} — unsaved changes` : full}
+                  onClick={() => onJumpAnchor(anchor, key)}
+                >
+                  {short}
+                </button>
+              ))}
           </>
         )}
       </nav>
@@ -3274,11 +3677,20 @@ function InvoiceSection({
   const { setCardDirty, registerSave } = useAggregatedSectionSave("invoices", saveTrigger, onDirtyChange);
   const [creating, setCreating] = useState(false);
 
-  const handleCreate = async () => {
+  const unassignedInvoices = useMemo(
+    () => data.invoices.filter((inv) => !inv.shipping_instruction_id?.trim()),
+    [data.invoices],
+  );
+
+  const handleCreate = async (shippingInstructionId?: string) => {
     setCreating(true);
-    const res = await createInvoice(data.id, {}, accessToken);
+    const body = shippingInstructionId ? { shipping_instruction_id: shippingInstructionId } : {};
+    const res = await createInvoice(data.id, body, accessToken);
     if (isApiError(res)) toast.pushToast(res.message, "error");
-    else { toast.pushToast("Invoice created", "success"); onSaved(); }
+    else {
+      toast.pushToast("Invoice created", "success");
+      onSaved({ refetch: "silent" });
+    }
     setCreating(false);
   };
 
@@ -3290,30 +3702,65 @@ function InvoiceSection({
       open={open}
       onToggle={onToggle}
       actions={
-        <button className={styles.btnSecondary} onClick={handleCreate} disabled={creating}>
+        <button className={styles.btnSecondary} onClick={() => void handleCreate()} disabled={creating}>
           {creating ? "Creating…" : "+ Add Invoice"}
         </button>
       }
     >
-      {data.invoices.length === 0 ? (
-        <p className={styles.emptyMsg}>No invoices.</p>
+      {data.shipping_instructions.length === 0 && data.invoices.length === 0 ? (
+        <p className={styles.emptyMsg}>Add a shipping instruction first, then create invoices under it.</p>
       ) : (
-        data.invoices.map((inv) => (
-          <InvoiceCard
-            key={inv.id}
-            invoice={inv}
-            shipmentId={data.id}
-            shipment={data}
-            shippingInstructions={data.shipping_instructions}
-            accessToken={accessToken}
-            onSaved={onSaved}
-            toast={toast}
-            saveTrigger={saveTrigger}
-            onDirtyChange={(dirty) => setCardDirty(inv.id, dirty)}
-            registerSave={(fn) => registerSave(inv.id, fn)}
-          />
-        ))
+        <>
+          {data.shipping_instructions.map((si) => (
+            <div key={si.id} className={styles.docSiGroup}>
+              <InvoiceAllocationPanel
+                si={si}
+                shipment={data}
+                onAddInvoice={() => void handleCreate(si.id)}
+                adding={creating}
+              />
+              {data.invoices
+                .filter((inv) => inv.shipping_instruction_id === si.id)
+                .map((inv) => (
+                  <InvoiceCard
+                    key={inv.id}
+                    invoice={inv}
+                    shipmentId={data.id}
+                    shipment={data}
+                    shippingInstructions={data.shipping_instructions}
+                    accessToken={accessToken}
+                    onSaved={onSaved}
+                    toast={toast}
+                    saveTrigger={saveTrigger}
+                    onDirtyChange={(dirty) => setCardDirty(inv.id, dirty)}
+                    registerSave={(fn) => registerSave(inv.id, fn)}
+                  />
+                ))}
+            </div>
+          ))}
+          {unassignedInvoices.length > 0 && (
+            <>
+              <p className={styles.fieldMuted}>Unassigned invoices (no shipping instruction linked)</p>
+              {unassignedInvoices.map((inv) => (
+                <InvoiceCard
+                  key={inv.id}
+                  invoice={inv}
+                  shipmentId={data.id}
+                  shipment={data}
+                  shippingInstructions={data.shipping_instructions}
+                  accessToken={accessToken}
+                  onSaved={onSaved}
+                  toast={toast}
+                  saveTrigger={saveTrigger}
+                  onDirtyChange={(dirty) => setCardDirty(inv.id, dirty)}
+                  registerSave={(fn) => registerSave(inv.id, fn)}
+                />
+              ))}
+            </>
+          )}
+        </>
       )}
+
     </SectionShell>
   );
 }
@@ -3335,7 +3782,7 @@ function InvoiceCard({
   shipment: ExportBulkingShipmentDetail;
   shippingInstructions: ShippingInstruction[];
   accessToken: string;
-  onSaved: () => void;
+  onSaved: OnSavedFn;
   toast: ReturnType<typeof useToast>;
   saveTrigger?: number;
   onDirtyChange?: (dirty: boolean) => void;
@@ -3346,8 +3793,14 @@ function InvoiceCard({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [showDocumentPreview, setShowDocumentPreview] = useState(false);
+  const [showFinalize, setShowFinalize] = useState(false);
+  const [showAmend, setShowAmend] = useState(false);
+  const [showDiff, setShowDiff] = useState(false);
+  const [showAudit, setShowAudit] = useState(false);
+  const [finalizing, setFinalizing] = useState(false);
+  const [amending, setAmending] = useState(false);
 
-  // Qty change audit trail — prompt user for reason when a saved line quantity changes.
+  const isReadOnly = (invoice.status ?? "DRAFT") === "FINAL";
   const [qtyChangeReason, setQtyChangeReason] = useState("");
   const [pendingQtyChanges, setPendingQtyChanges] = useState<
     Array<{ lineIdx: number; cargo: string; oldQty: string; newQty: string }>
@@ -3404,16 +3857,16 @@ function InvoiceCard({
     if (invoice.lines.length > 0) return;
     const si = shippingInstructions.find((s) => s.id === form.shipping_instruction_id.trim());
     if (si?.lines?.length) {
-      setLineDrafts(buildDraftsFromSi(si));
+      setLineDrafts(buildDraftsFromSiForInvoice(si, shipment, invoice.id));
     } else {
       setLineDrafts([]);
     }
-  }, [form.shipping_instruction_id, invoice.lines.length, shippingInstructions, shipment]);
+  }, [form.shipping_instruction_id, invoice.lines.length, invoice.id, shippingInstructions, shipment]);
 
   const baselineDraftsFromSi = useMemo(() => {
     if (invoice.lines.length > 0 || !selectedShippingInstruction?.lines.length) return null;
-    return buildDraftsFromSi(selectedShippingInstruction);
-  }, [invoice.lines.length, selectedShippingInstruction]);
+    return buildDraftsFromSiForInvoice(selectedShippingInstruction, shipment, invoice.id);
+  }, [invoice.lines.length, invoice.id, selectedShippingInstruction, shipment]);
 
   const headerDirty = useMemo(() => {
     const si = invoice.shipping_instruction_id ?? "";
@@ -3471,6 +3924,25 @@ function InvoiceCard({
     return siInvoiceSummary(selectedShippingInstruction, shipment.invoices, invoice.id, overrideLineQtys);
   }, [selectedShippingInstruction, lineDrafts, shipment.invoices, invoice.id]);
 
+  const invoiceAllocation = useMemo(() => {
+    if (!selectedShippingInstruction) return null;
+    const overrideLineQtys = lineDrafts.map((d) => resolveInvoiceLineQuantity(d, selectedShippingInstruction));
+    return siInvoiceAllocationOk(
+      selectedShippingInstruction,
+      shipment.invoices,
+      invoice.id,
+      overrideLineQtys,
+    );
+  }, [selectedShippingInstruction, lineDrafts, shipment.invoices, invoice.id]);
+
+  const canFinalize = useMemo(() => {
+    if (isReadOnly) return false;
+    if (!form.invoice_no.trim()) return false;
+    if (lineDrafts.length === 0) return false;
+    if (selectedShippingInstruction && invoiceQtySummary && !invoiceQtySummary.matched) return false;
+    return !invoiceDirty;
+  }, [isReadOnly, form.invoice_no, lineDrafts.length, selectedShippingInstruction, invoiceQtySummary, invoiceDirty]);
+
   const previewInvoice = useMemo(
     () => buildInvoicePreviewFromDraft(invoice, form, lineDrafts, shipment, shippingInstructions),
     [invoice, form, lineDrafts, shipment, shippingInstructions],
@@ -3494,7 +3966,11 @@ function InvoiceCard({
   function addInvoiceLine() {
     setLineDrafts((prev) => {
       const usedIds = new Set(prev.map((r) => r.cargo_line_id).filter(Boolean));
-      return [...prev, newInvoiceLineDraft(shipment, selectedShippingInstruction, usedIds)];
+      const remaining =
+        selectedShippingInstruction != null
+          ? remainingSiQtyForInvoice(selectedShippingInstruction, shipment.invoices, invoice.id, prev)
+          : null;
+      return [...prev, newInvoiceLineDraft(shipment, selectedShippingInstruction, usedIds, remaining)];
     });
   }
 
@@ -3529,20 +4005,24 @@ function InvoiceCard({
     if (changeNote) body.qty_change_reason = changeNote;
     const res = await updateInvoice(shipmentId, invoice.id, body, accessToken);
     if (isApiError(res)) toast.pushToast(res.message, "error");
-    else { toast.pushToast("Invoice saved", "success"); onSaved(); }
+    else {
+      toast.pushToast("Invoice saved", "success");
+      onSaved({
+        invoices: replaceNestedItem(shipment.invoices, res.data),
+        refetch: "none",
+      });
+    }
     setSaving(false);
   };
 
   const handleSave = async () => {
+    if (isReadOnly) return;
     if (invoiceNumberError) {
       toast.pushToast(invoiceNumberError, "error");
       return;
     }
-    if (selectedShippingInstruction && invoiceQtySummary && !invoiceQtySummary.matched) {
-      toast.pushToast(
-        `Invoice total ${formatNumericDisplay(invoiceQtySummary.invoiced)} MT must match SI total ${formatNumericDisplay(invoiceQtySummary.siTotal)} MT`,
-        "error",
-      );
+    if (selectedShippingInstruction && invoiceAllocation && !invoiceAllocation.ok) {
+      toast.pushToast(invoiceAllocation.message ?? "Invoice quantity exceeds shipping instruction total", "error");
       return;
     }
 
@@ -3592,12 +4072,46 @@ function InvoiceCard({
   }, [saveTrigger]);
 
   const handleDelete = async () => {
+    if (isReadOnly) return;
     setDeleting(true);
     const res = await deleteInvoice(shipmentId, invoice.id, accessToken);
     if (isApiError(res)) toast.pushToast(res.message, "error");
-    else { toast.pushToast("Invoice deleted", "success"); onSaved(); }
+    else { toast.pushToast("Invoice deleted", "success"); onSaved({ refetch: "silent" }); }
     setDeleting(false);
     setConfirmDelete(false);
+  };
+
+  const handleFinalize = async (note: string) => {
+    if (invoiceDirty) {
+      await doSave();
+    }
+    setFinalizing(true);
+    const res = await finalizeInvoice(shipmentId, invoice.id, { note: note || undefined }, accessToken);
+    if (isApiError(res)) toast.pushToast(res.message, "error");
+    else {
+      toast.pushToast("Invoice finalized", "success");
+      onSaved({
+        invoices: replaceNestedItem(shipment.invoices, res.data),
+        refetch: "none",
+      });
+      setShowFinalize(false);
+    }
+    setFinalizing(false);
+  };
+
+  const handleAmend = async (reason: string) => {
+    setAmending(true);
+    const res = await amendInvoice(shipmentId, invoice.id, { reason }, accessToken);
+    if (isApiError(res)) toast.pushToast(res.message, "error");
+    else {
+      toast.pushToast("Invoice reopened for editing", "success");
+      onSaved({
+        invoices: replaceNestedItem(shipment.invoices, res.data),
+        refetch: "none",
+      });
+      setShowAmend(false);
+    }
+    setAmending(false);
   };
 
   return (
@@ -3605,9 +4119,10 @@ function InvoiceCard({
       <div className={styles.subItemHeader} onClick={() => setExpanded((p) => !p)}>
         <ChevronIcon open={expanded} />
         <h3 className={styles.subItemTitle}>Invoice: {invoice.invoice_no || "(untitled)"}</h3>
-        <span className={styles.docStatusBadge}>{invoice.status}</span>
+        <InvoiceStatusBadge status={invoice.status} />
       </div>
       {expanded && (
+        <div className={isReadOnly ? styles.readOnlyRegion : undefined}>
         <div className={styles.subItemBody}>
           <div className={styles.fieldGrid}>
             <div className={styles.field}>
@@ -3616,6 +4131,8 @@ function InvoiceCard({
                 className={`${styles.fieldInput} ${invoiceNumberError ? styles.fieldInputInvalid : ""}`}
                 value={form.invoice_no}
                 onChange={set("invoice_no")}
+                readOnly={isReadOnly}
+                disabled={isReadOnly}
                 aria-invalid={Boolean(invoiceNumberError)}
                 aria-describedby={invoiceNumberError ? `invoice-no-error-${invoice.id}` : undefined}
               />
@@ -3628,16 +4145,16 @@ function InvoiceCard({
               )}
             </div>
             <div className={styles.field}><label className={styles.fieldLabel}>Shipping instruction</label>
-              <select className={styles.fieldInput} value={form.shipping_instruction_id} onChange={set("shipping_instruction_id")} aria-label="Shipping instruction">
+              <select className={styles.fieldInput} value={form.shipping_instruction_id} onChange={set("shipping_instruction_id")} aria-label="Shipping instruction" disabled={isReadOnly}>
                 <option value="">— None —</option>
                 {shippingInstructions.map((si) => (
                   <option key={si.id} value={si.id}>
-                    {si.si_number?.trim() || `SI ${si.id.slice(0, 8)}…`}
+                    {shippingInstructionDisplayLabel(si)}
                   </option>
                 ))}
               </select>
             </div>
-            <div className={styles.field}><label className={styles.fieldLabel}>Invoice Date</label><input className={styles.fieldInput} type="date" value={form.invoice_date} onChange={set("invoice_date")} /></div>
+            <div className={styles.field}><label className={styles.fieldLabel}>Invoice Date</label><input className={styles.fieldInput} type="date" value={form.invoice_date} onChange={set("invoice_date")} readOnly={isReadOnly} disabled={isReadOnly} /></div>
             <div className={`${styles.field} ${styles.fieldFullRow}`}>
               <label className={styles.fieldLabel}>Messrs</label>
               <textarea
@@ -3646,6 +4163,8 @@ function InvoiceCard({
                 onChange={set("messrs")}
                 rows={3}
                 aria-label="Messrs"
+                readOnly={isReadOnly}
+                disabled={isReadOnly}
               /></div>
             <div className={styles.field}>
               <label className={styles.fieldLabel}>Vessel / Voyage</label>
@@ -3674,7 +4193,7 @@ function InvoiceCard({
                 title="From destination port / country on Cargo Lines"
               />
             </div>
-            <div className={styles.field}><label className={styles.fieldLabel}>Marks</label><input className={styles.fieldInput} value={form.marks} onChange={set("marks")} /></div>
+            <div className={styles.field}><label className={styles.fieldLabel}>Marks</label><input className={styles.fieldInput} value={form.marks} onChange={set("marks")} readOnly={isReadOnly} disabled={isReadOnly} /></div>
           </div>
           {!siSelected ? (
             <p className={styles.emptyMsg}>
@@ -3686,7 +4205,7 @@ function InvoiceCard({
               <div className={styles.sectionGroupLabel}>Invoice lines</div>
               {invoiceQtySummary && (
                 <p className={styles.fieldMuted} role="status">
-                  SI total: {formatNumericDisplay(invoiceQtySummary.siTotal)} MT — invoiced:{" "}
+                  Shipping instruction total: {formatNumericDisplay(invoiceQtySummary.siTotal)} MT — invoiced:{" "}
                   {formatNumericDisplay(invoiceQtySummary.invoiced)} MT
                   {!invoiceQtySummary.matched &&
                     ` (${formatNumericDisplay(invoiceQtySummary.remaining)} MT remaining)`}
@@ -3694,7 +4213,7 @@ function InvoiceCard({
               )}
               {lineDrafts.length === 0 ? (
                 <p className={styles.emptyMsg}>
-                  No invoice lines yet. Use <strong>+ Add line</strong> below, or add cargo lines on the linked SI
+                  No invoice lines yet. Use <strong>+ Add line</strong> below, or add cargo lines on the linked shipping instruction
                   first.
                 </p>
               ) : (
@@ -3711,7 +4230,7 @@ function InvoiceCard({
                   const qtyDisplay = d?.quantity ?? "";
                   const qtyTitle =
                     siLineQty != null
-                      ? `SI line qty: ${formatNumericDisplay(siLineQty)}`
+                      ? `Shipping instruction line qty: ${formatNumericDisplay(siLineQty)}`
                       : undefined;
                   return (
                     <div key={d.rowKey} className={styles.siCargoRow}>
@@ -3761,6 +4280,8 @@ function InvoiceCard({
                             onChange={(e) => updateLineDraft(idx, { quantity: e.target.value })}
                             aria-label={`Quantity, invoice line ${idx + 1}`}
                             title={qtyTitle}
+                            readOnly={isReadOnly}
+                            disabled={isReadOnly}
                           />
                         </div>
                         <div className={styles.field}>
@@ -3784,6 +4305,8 @@ function InvoiceCard({
                             value={d?.unit_price ?? ""}
                             onChange={(e) => updateLineDraft(idx, { unit_price: e.target.value })}
                             aria-label={`Unit price, invoice line ${idx + 1}`}
+                            readOnly={isReadOnly}
+                            disabled={isReadOnly}
                           />
                         </div>
                         <div className={styles.field}>
@@ -3816,6 +4339,7 @@ function InvoiceCard({
                             inputClassName={styles.fieldInput}
                           />
                         </div>
+                        {!isReadOnly && (
                         <div className={styles.field}>
                           <button
                             type="button"
@@ -3826,11 +4350,13 @@ function InvoiceCard({
                             Remove line
                           </button>
                         </div>
+                        )}
                       </div>
                     </div>
                   );
                 })
               )}
+              {!isReadOnly && (
               <div className={styles.siLineToolbar}>
                 <button
                   type="button"
@@ -3844,6 +4370,7 @@ function InvoiceCard({
                   <span className={styles.fieldMuted}>Add cargo in section C first.</span>
                 )}
               </div>
+              )}
             </>
           )}
 
@@ -3862,10 +4389,47 @@ function InvoiceCard({
           </div>
 
           <div className={styles.actions}>
-            <button className={styles.btnPrimary} onClick={handleSave} disabled={saving || !invoiceDirty || Boolean(invoiceNumberError)}>
-              {saving ? "Saving…" : "Save Invoice"}
-            </button>
-            {confirmDelete ? (
+            {!isReadOnly && (
+              <button className={styles.btnPrimary} onClick={handleSave} disabled={saving || !invoiceDirty || Boolean(invoiceNumberError)}>
+                {saving ? "Saving…" : "Save draft"}
+              </button>
+            )}
+            {!isReadOnly && (
+              <button
+                type="button"
+                className={styles.btnSecondary}
+                onClick={() => setShowFinalize(true)}
+                disabled={!canFinalize || finalizing}
+                title={
+                  selectedShippingInstruction && invoiceQtySummary && !invoiceQtySummary.matched
+                    ? "Shipping instruction must be fully allocated across all invoices before finalizing"
+                    : invoiceDirty
+                      ? "Save draft first"
+                      : undefined
+                }
+              >
+                Finalize…
+              </button>
+            )}
+            {isReadOnly && (
+              <>
+                <button type="button" className={styles.btnSecondary} onClick={() => setShowDiff(true)}>
+                  Draft → final changes
+                </button>
+                <button type="button" className={styles.btnSecondary} onClick={() => setShowAudit(true)}>
+                  Audit trail
+                </button>
+                <button type="button" className={styles.btnSecondary} onClick={() => setShowAmend(true)}>
+                  Amend…
+                </button>
+              </>
+            )}
+            {!isReadOnly && (
+              <button type="button" className={styles.btnSecondary} onClick={() => setShowAudit(true)}>
+                History
+              </button>
+            )}
+            {!isReadOnly && (confirmDelete ? (
               <div className={styles.inlineConfirm}>
                 <span>Delete this invoice?</span>
                 <button className={styles.btnDanger} onClick={handleDelete} disabled={deleting}>
@@ -3875,8 +4439,9 @@ function InvoiceCard({
               </div>
             ) : (
               <button className={styles.btnDanger} onClick={() => setConfirmDelete(true)}>Delete Invoice</button>
-            )}
+            ))}
           </div>
+        </div>
         </div>
       )}
 
@@ -3893,6 +4458,37 @@ function InvoiceCard({
       >
         <InvoiceDocument shipment={shipment} invoice={previewInvoice} />
       </Modal>
+
+      <InvoiceFinalizeModal
+        open={showFinalize}
+        shipmentId={shipmentId}
+        invoice={{ ...invoice, ...form, lines: previewInvoice.lines }}
+        accessToken={accessToken}
+        onClose={() => setShowFinalize(false)}
+        onConfirm={(note) => void handleFinalize(note)}
+        busy={finalizing}
+      />
+      <InvoiceAmendPrompt
+        open={showAmend}
+        onClose={() => setShowAmend(false)}
+        onConfirm={(reason) => void handleAmend(reason)}
+        busy={amending}
+      />
+      <InvoiceDiffModal
+        open={showDiff}
+        shipmentId={shipmentId}
+        invoiceId={invoice.id}
+        accessToken={accessToken}
+        title="Draft → final changes"
+        onClose={() => setShowDiff(false)}
+      />
+      <InvoiceAuditModal
+        open={showAudit}
+        shipmentId={shipmentId}
+        invoiceId={invoice.id}
+        accessToken={accessToken}
+        onClose={() => setShowAudit(false)}
+      />
 
       {/* Qty change audit trail — reason prompt before saving */}
       {showQtyReasonPrompt && (
@@ -4001,7 +4597,7 @@ function PackingListSection({
     };
     const res = await createPackingList(data.id, body, accessToken);
     if (isApiError(res)) toast.pushToast(res.message, "error");
-    else { toast.pushToast("Packing list created", "success"); onSaved(); }
+    else { toast.pushToast("Packing list created", "success"); onSaved({ refetch: "silent" }); }
     setCreating(false);
   };
 
@@ -4031,13 +4627,13 @@ function PackingListSection({
     >
       {data.packing_lists.length === 0 ? (
         <p className={styles.emptyMsg}>
-          No packing lists. Add one per shipping instruction — quantity follows the linked SI.
+          No packing lists. Add one per shipping instruction — quantity follows the linked shipping instruction.
         </p>
       ) : (
         <>
           {maxPackingLists > 0 && (
             <p className={styles.fieldMuted}>
-              {data.packing_lists.length} of {maxPackingLists} packing list{maxPackingLists === 1 ? "" : "s"} (one per SI).
+              {data.packing_lists.length} of {maxPackingLists} packing list{maxPackingLists === 1 ? "" : "s"} (one per shipping instruction).
             </p>
           )}
           {data.packing_lists.map((pl) => (
@@ -4084,7 +4680,7 @@ function PackingListCard({
   shipment: ExportBulkingShipmentDetail;
   cargoLines: CargoLine[];
   accessToken: string;
-  onSaved: () => void;
+  onSaved: OnSavedFn;
   toast: ReturnType<typeof useToast>;
   saveTrigger?: number;
   onDirtyChange?: (dirty: boolean) => void;
@@ -4188,7 +4784,10 @@ function PackingListCard({
     if (isApiError(res)) toast.pushToast(res.message, "error");
     else {
       toast.pushToast("Packing list saved", "success");
-      onSaved();
+      onSaved({
+        packing_lists: replaceNestedItem(shipment.packing_lists, res.data),
+        refetch: "none",
+      });
     }
     setSaving(false);
   };
@@ -4209,7 +4808,7 @@ function PackingListCard({
     setDeleting(true);
     const res = await deletePackingList(shipmentId, packingList.id, accessToken);
     if (isApiError(res)) toast.pushToast(res.message, "error");
-    else { toast.pushToast("Packing list deleted", "success"); onSaved(); }
+    else { toast.pushToast("Packing list deleted", "success"); onSaved({ refetch: "silent" }); }
     setDeleting(false);
     setConfirmDelete(false);
   };
@@ -4220,7 +4819,7 @@ function PackingListCard({
         <ChevronIcon open={expanded} />
         <h3 className={styles.subItemTitle}>
           Packing List: {packingList.packing_list_number || "(untitled)"}
-          {siHeaderLabel ? ` — SI ${siHeaderLabel}` : ""}
+          {siHeaderLabel ? ` — ${siHeaderLabel}` : ""}
         </h3>
         <span className={styles.docStatusBadge}>{packingList.status}</span>
       </div>
@@ -4252,12 +4851,12 @@ function PackingListCard({
                 onChange={(e) => setSiId(e.target.value)}
                 aria-label="Shipping instruction for packing list"
               >
-                <option value="">— Select SI —</option>
+                <option value="">— Select shipping instruction —</option>
                 {shippingInstructions.map((si) => {
                   const used = otherUsedSiIds.has(si.id) && si.id !== siId.trim();
                   return (
                     <option key={si.id} value={si.id} disabled={used}>
-                      {si.si_number?.trim() || `SI ${si.id.slice(0, 8)}…`}
+                      {shippingInstructionDisplayLabel(si)}
                       {used ? " (already has PL)" : ""}
                     </option>
                   );
@@ -4276,7 +4875,7 @@ function PackingListCard({
             </div>
             {linkedSi && (
               <div className={styles.field}>
-                <label className={styles.fieldLabel}>SI total qty</label>
+                <label className={styles.fieldLabel}>Shipping instruction total qty</label>
                 <input
                   className={`${styles.fieldInput} ${styles.fieldInputReadonly}`}
                   readOnly
@@ -4286,11 +4885,11 @@ function PackingListCard({
               </div>
             )}
           </div>
-          <div className={styles.sectionGroupLabel}>Lines (from SI)</div>
+          <div className={styles.sectionGroupLabel}>Lines (from shipping instruction)</div>
           {!siId.trim() ? (
             <p className={styles.emptyMsg}>Select a shipping instruction above.</p>
           ) : !linkedSi?.lines?.length ? (
-            <p className={styles.emptyMsg}>Linked SI has no cargo lines.</p>
+            <p className={styles.emptyMsg}>Linked shipping instruction has no cargo lines.</p>
           ) : (
             <div className={styles.cargoTableWrap}>
               <table className={styles.cargoSpreadsheet}>
@@ -4304,7 +4903,7 @@ function PackingListCard({
                 <thead>
                   <tr>
                     <th scope="col">Description of goods</th>
-                    <th scope="col">Qty (SI)</th>
+                    <th scope="col">Qty (shipping instruction)</th>
                     <th scope="col">Load port</th>
                     <th scope="col">Destination</th>
                     <th scope="col">Packing</th>
@@ -4400,7 +4999,7 @@ function PackingListCard({
   );
 }
 
-// ─── SI Receive date section ──────────────────────────────────────────────────
+// ─── Shipping Instruction receipt date ────────────────────────────────────────
 
 function SiReceiveDateSection({ data, accessToken, open, onToggle, onSaved, toast, saveTrigger, onDirtyChange }: SectionProps) {
   const getOrig = useCallback(() => ({ received_shipping_instruction: toLocalDate(data.received_shipping_instruction) }), [data]);
@@ -4425,7 +5024,7 @@ function SiReceiveDateSection({ data, accessToken, open, onToggle, onSaved, toas
         : undefined,
     }, accessToken);
     if (isApiError(res)) toast.pushToast(res.message, "error");
-    else { toast.pushToast("SI receive date saved", "success"); onSaved(); }
+    else { toast.pushToast("Shipping instruction receipt date saved", "success"); onSaved({ patch: listItemToDetailPatch(res.data), refetch: "none" }); }
     setSaving(false);
   }, [data.id, form, accessToken, toast, onSaved]);
 
@@ -4438,14 +5037,14 @@ function SiReceiveDateSection({ data, accessToken, open, onToggle, onSaved, toas
 
   return (
     <SectionShell
-      title="SI Receipt Date"
+      title="Shipping Instruction Receipt Date"
       titleIcon={<CalendarCheck size={18} strokeWidth={2} />}
       open={open}
       onToggle={onToggle}
       dirty={isDirty}
       anchorId="export-section-si-receive-date"
     >
-      <Card>
+      <div className={styles.docSectionPanel}>
         <div className={styles.fieldGrid}>
           <div className={styles.field}>
             <label className={styles.fieldLabel}>Received Shipping Instruction</label>
@@ -4458,11 +5057,11 @@ function SiReceiveDateSection({ data, accessToken, open, onToggle, onSaved, toas
           </div>
         </div>
         <div className={styles.actions}>
-          <button className={styles.btnPrimary} onClick={handleSave} disabled={saving || !isDirty}>
+          <button type="button" className={styles.btnPrimary} onClick={() => void handleSave()} disabled={saving || !isDirty}>
             {saving ? "Saving…" : "Save"}
           </button>
         </div>
-      </Card>
+      </div>
     </SectionShell>
   );
 }
@@ -4510,7 +5109,7 @@ function VoyageStageSection({
     }
     const res = await updateExportBulkingShipment(data.id, body, accessToken);
     if (isApiError(res)) toast.pushToast(res.message, "error");
-    else { toast.pushToast(`${title} saved`, "success"); onSaved(); }
+    else { toast.pushToast(`${title} saved`, "success"); onSaved({ patch: listItemToDetailPatch(res.data), refetch: "none" }); }
     setSaving(false);
   }, [data.id, form, fields, title, accessToken, toast, onSaved]);
 
@@ -4602,7 +5201,7 @@ function useShipmentPatchSection(
     if (isApiError(res)) toast.pushToast(res.message, "error");
     else {
       toast.pushToast(saveSuccessMessage, "success");
-      onSaved();
+      onSaved({ patch: listItemToDetailPatch(res.data), refetch: "none" });
     }
     setSaving(false);
   }, [data.id, form, toPatchBody, accessToken, toast, onSaved, saveSuccessMessage]);
@@ -4620,70 +5219,143 @@ function useShipmentPatchSection(
   return { form, set, setForm, saving, isDirty, handleSave };
 }
 
-function NpeSpbSection(props: SectionProps & { open: boolean; onToggle: () => void }) {
-  const getOrigForm = useCallback(
-    (d: ExportBulkingShipmentDetail): ShipmentPatchForm => ({
-      npe_date: toLocalDatetime(d.npe_date),
-      quantity_spb: formatQuantityFieldValue(d.quantity_spb),
-      spb: d.spb ?? "",
-      delivery_order_pgi: d.delivery_order_pgi ?? "",
-      spr: d.spr ?? "",
-    }),
-    [],
+function DataSapSection(props: SectionProps & { open: boolean; onToggle: () => void }) {
+  const sectionKey = "npeSpb";
+  const { data, accessToken, onSaved, toast, saveTrigger, onDirtyChange, open, onToggle } = props;
+
+  const getOrigLines = useCallback(
+    () => buildSapLineDrafts(data, formatQuantityFieldValue),
+    [data],
   );
-  const toPatchBody = useCallback(
-    (form: ShipmentPatchForm) => ({
-      npe_date: form.npe_date ? new Date(form.npe_date).toISOString() : null,
-      quantity_spb: parseQuantityInput(form.quantity_spb),
-      spb: form.spb.trim() || null,
-      delivery_order_pgi: form.delivery_order_pgi.trim() || null,
-      spr: form.spr.trim() || null,
-    }),
-    [],
-  );
-  const { form, set, saving, isDirty, handleSave } = useShipmentPatchSection(
-    "npeSpb",
-    props,
-    getOrigForm,
-    toPatchBody,
-    "NPE & SPB saved",
-  );
+
+  const [lines, setLines] = useState<SapLineDraft[]>(getOrigLines);
+  const [saving, setSaving] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
+  const isDirtyRef = useRef(false);
+
+  const invoiceSos = useMemo(() => distinctSoNosFromShipment(data), [data]);
+
+  useEffect(() => {
+    setLines(getOrigLines());
+  }, [getOrigLines]);
+
+  useEffect(() => {
+    const dirty = JSON.stringify(lines) !== JSON.stringify(getOrigLines());
+    isDirtyRef.current = dirty;
+    setIsDirty(dirty);
+    onDirtyChange(sectionKey, dirty);
+  }, [lines, getOrigLines, onDirtyChange]);
+
+  const updateLine = (idx: number, patch: Partial<SapLineDraft>) =>
+    setLines((prev) => prev.map((row, i) => (i === idx ? { ...row, ...patch } : row)));
+
+  const handleSave = useCallback(async () => {
+    setSaving(true);
+    const payload = sapDraftsToUpsertPayload(lines, parseQuantityInput);
+    const res = await upsertSapLines(data.id, payload, accessToken);
+    if (isApiError(res)) toast.pushToast(res.message, "error");
+    else {
+      toast.pushToast("Data SAP saved", "success");
+      onSaved({ sap_lines: res.data, refetch: "none" });
+    }
+    setSaving(false);
+  }, [data.id, lines, accessToken, toast, onSaved]);
+
+  const handleSaveRef = useRef(handleSave);
+  handleSaveRef.current = handleSave;
+  useEffect(() => {
+    if (saveTrigger === 0) return;
+    if (isDirtyRef.current) handleSaveRef.current();
+  }, [saveTrigger]);
 
   return (
     <SectionShell
-      title="NPE & SPB"
+      title="Data SAP"
       titleIcon={<ClipboardCheck size={18} strokeWidth={2} />}
-      open={props.open}
-      onToggle={props.onToggle}
+      open={open}
+      onToggle={onToggle}
       dirty={isDirty}
       anchorId="export-section-npe-spb"
     >
       <Card>
-        <div className={styles.fieldGrid}>
-          <div className={styles.field}>
-            <label className={styles.fieldLabel}>NPE Date</label>
-            <input className={styles.fieldInput} type="datetime-local" value={form.npe_date} onChange={set("npe_date")} />
+        <p className={styles.fieldMuted} style={{ marginTop: 0, marginBottom: 12 }}>
+          One row per sales order (SO) from invoice lines. Add SO numbers on invoices in Step 1 first.
+        </p>
+        {invoiceSos.length === 0 ? (
+          <p className={styles.emptyMsg}>
+            No sales orders yet. Enter SO numbers on invoice lines under Pre-shipment Documents.
+          </p>
+        ) : (
+          <div className={styles.sapTableWrap}>
+            <table className={styles.sapTable}>
+              <thead>
+                <tr>
+                  <th scope="col">SO No</th>
+                  <th scope="col">Quantity SPB</th>
+                  <th scope="col">SPB</th>
+                  <th scope="col">Delivery Order PGI</th>
+                  <th scope="col">SPR</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lines.map((row, idx) => (
+                  <tr key={row.rowKey}>
+                    <td className={styles.sapSoCell}>
+                      <span className={styles.sapSoLabel} title={row.so_no}>
+                        {row.so_no}
+                      </span>
+                    </td>
+                    <td>
+                      <input
+                        className={styles.sapInput}
+                        type="text"
+                        inputMode="decimal"
+                        value={row.quantity_spb}
+                        onChange={(e) => updateLine(idx, { quantity_spb: e.target.value })}
+                        aria-label={`Quantity SPB for SO ${row.so_no}`}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        className={styles.sapInput}
+                        type="text"
+                        value={row.spb}
+                        onChange={(e) => updateLine(idx, { spb: e.target.value })}
+                        aria-label={`SPB for SO ${row.so_no}`}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        className={styles.sapInput}
+                        type="text"
+                        value={row.delivery_order_pgi}
+                        onChange={(e) => updateLine(idx, { delivery_order_pgi: e.target.value })}
+                        aria-label={`Delivery Order PGI for SO ${row.so_no}`}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        className={styles.sapInput}
+                        type="text"
+                        value={row.spr}
+                        onChange={(e) => updateLine(idx, { spr: e.target.value })}
+                        aria-label={`SPR for SO ${row.so_no}`}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          <div className={styles.field}>
-            <label className={styles.fieldLabel}>Quantity SPB</label>
-            <input className={styles.fieldInput} type="text" inputMode="decimal" value={form.quantity_spb} onChange={set("quantity_spb")} />
-          </div>
-          <div className={styles.field}>
-            <label className={styles.fieldLabel}>SPB</label>
-            <input className={styles.fieldInput} type="text" value={form.spb} onChange={set("spb")} />
-          </div>
-          <div className={styles.field}>
-            <label className={styles.fieldLabel}>Delivery Order PGI</label>
-            <input className={styles.fieldInput} type="text" value={form.delivery_order_pgi} onChange={set("delivery_order_pgi")} />
-          </div>
-          <div className={styles.field}>
-            <label className={styles.fieldLabel}>SPR</label>
-            <input className={styles.fieldInput} type="text" value={form.spr} onChange={set("spr")} />
-          </div>
-        </div>
+        )}
         <div className={styles.actions}>
-          <button className={styles.btnPrimary} onClick={handleSave} disabled={saving || !isDirty}>
-            {saving ? "Saving…" : "Save NPE & SPB"}
+          <button
+            type="button"
+            className={styles.btnPrimary}
+            onClick={() => void handleSave()}
+            disabled={saving || !isDirty || invoiceSos.length === 0}
+          >
+            {saving ? "Saving…" : "Save Data SAP"}
           </button>
         </div>
       </Card>
@@ -4692,61 +5364,139 @@ function NpeSpbSection(props: SectionProps & { open: boolean; onToggle: () => vo
 }
 
 function BillOfLadingSection(props: SectionProps & { open: boolean; onToggle: () => void }) {
-  const getOrigForm = useCallback(
-    (d: ExportBulkingShipmentDetail): ShipmentPatchForm => ({
-      bill_of_lading_no: d.bill_of_lading_no ?? "",
-      bill_of_lading_date: toLocalDate(d.bill_of_lading_date),
-      bill_of_lading_nn_obl: d.bill_of_lading_nn_obl ?? "",
-    }),
-    [],
-  );
-  const toPatchBody = useCallback(
-    (form: ShipmentPatchForm) => ({
-      bill_of_lading_no: form.bill_of_lading_no.trim() || null,
-      bill_of_lading_date: form.bill_of_lading_date ? new Date(form.bill_of_lading_date).toISOString() : null,
-      bill_of_lading_nn_obl: form.bill_of_lading_nn_obl || null,
-    }),
-    [],
-  );
-  const { form, set, saving, isDirty, handleSave } = useShipmentPatchSection(
-    "billOfLading",
-    props,
-    getOrigForm,
-    toPatchBody,
-    "Bill of Lading saved — configure required sent documents next",
-  );
+  const sectionKey = "billOfLading";
+  const { data, accessToken, onSaved, toast, saveTrigger, onDirtyChange, open, onToggle } = props;
+
+  const getOrig = useCallback(() => buildBillOfLadingDrafts(data), [data]);
+  const [rows, setRows] = useState<BillOfLadingDraft[]>(getOrig);
+  const [saving, setSaving] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
+  const isDirtyRef = useRef(false);
+
+  useEffect(() => { setRows(getOrig()); }, [getOrig]);
+  useEffect(() => {
+    const dirty = JSON.stringify(rows) !== JSON.stringify(getOrig());
+    isDirtyRef.current = dirty;
+    setIsDirty(dirty);
+    onDirtyChange(sectionKey, dirty);
+  }, [rows, getOrig, onDirtyChange]);
+
+  const updateRow = (idx: number, patch: Partial<BillOfLadingDraft>) =>
+    setRows((prev) => prev.map((row, i) => (i === idx ? { ...row, ...patch } : row)));
+
+  const addRow = () => {
+    setRows((prev) => [
+      ...prev,
+      {
+        rowKey: `new-bl-${Date.now()}`,
+        bill_of_lading_no: "",
+        bill_of_lading_date: "",
+        bill_of_lading_nn_obl: "",
+      },
+    ]);
+  };
+
+  const removeRow = (idx: number) => {
+    setRows((prev) => (prev.length <= 1 ? prev : prev.filter((_, i) => i !== idx)));
+  };
+
+  const handleSave = useCallback(async () => {
+    setSaving(true);
+    const payload = billOfLadingDraftsToPayload(rows);
+    const res = await upsertBillsOfLading(data.id, payload, accessToken);
+    if (isApiError(res)) toast.pushToast(res.message, "error");
+    else {
+      toast.pushToast("Bill of Lading saved — configure required sent documents next", "success");
+      const first = res.data[0];
+      onSaved({
+        bills_of_lading: res.data,
+        patch: first
+          ? {
+              bill_of_lading_no: first.bill_of_lading_no,
+              bill_of_lading_date: first.bill_of_lading_date,
+              bill_of_lading_nn_obl: first.bill_of_lading_nn_obl,
+            }
+          : {
+              bill_of_lading_no: null,
+              bill_of_lading_date: null,
+              bill_of_lading_nn_obl: null,
+            },
+        refetch: "none",
+      });
+    }
+    setSaving(false);
+  }, [data.id, rows, accessToken, toast, onSaved]);
+
+  const handleSaveRef = useRef(handleSave);
+  handleSaveRef.current = handleSave;
+  useEffect(() => {
+    if (saveTrigger === 0) return;
+    if (isDirtyRef.current) handleSaveRef.current();
+  }, [saveTrigger]);
 
   return (
     <SectionShell
       title="Bill of Lading"
       titleIcon={<FileSignature size={18} strokeWidth={2} />}
-      open={props.open}
-      onToggle={props.onToggle}
+      open={open}
+      onToggle={onToggle}
       dirty={isDirty}
       anchorId="export-section-bill-of-lading"
     >
       <Card>
-        <div className={styles.fieldGrid}>
-          <div className={styles.field}>
-            <label className={styles.fieldLabel}>Bill of Lading No.</label>
-            <input className={styles.fieldInput} type="text" value={form.bill_of_lading_no} onChange={set("bill_of_lading_no")} />
+        <p className={styles.fieldMuted} style={{ marginTop: 0, marginBottom: 12 }}>
+          Add one or more Bill of Lading records for this shipment.
+        </p>
+        {rows.map((row, idx) => (
+          <div key={row.rowKey} className={styles.pebSiBlock}>
+            <div className={styles.pebSiBlockHeader}>
+              <strong>Bill of Lading {idx + 1}</strong>
+              {rows.length > 1 && (
+                <button type="button" className={styles.btnGhostSm} onClick={() => removeRow(idx)}>
+                  Remove
+                </button>
+              )}
+            </div>
+            <div className={styles.fieldGrid}>
+              <div className={styles.field}>
+                <label className={styles.fieldLabel}>Bill of Lading No.</label>
+                <input
+                  className={styles.fieldInput}
+                  type="text"
+                  value={row.bill_of_lading_no}
+                  onChange={(e) => updateRow(idx, { bill_of_lading_no: e.target.value })}
+                />
+              </div>
+              <div className={styles.field}>
+                <label className={styles.fieldLabel}>Bill of Lading Date</label>
+                <input
+                  className={styles.fieldInput}
+                  type="date"
+                  value={row.bill_of_lading_date}
+                  onChange={(e) => updateRow(idx, { bill_of_lading_date: e.target.value })}
+                />
+              </div>
+              <div className={styles.field}>
+                <label className={styles.fieldLabel}>Bill of Lading NN / OBL</label>
+                <select
+                  className={styles.fieldInput}
+                  value={row.bill_of_lading_nn_obl}
+                  onChange={(e) => updateRow(idx, { bill_of_lading_nn_obl: e.target.value })}
+                >
+                  <option value="">— Select —</option>
+                  {BL_NN_OBL_OPTIONS.map((opt) => (
+                    <option key={opt} value={opt}>{opt}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
           </div>
-          <div className={styles.field}>
-            <label className={styles.fieldLabel}>Bill of Lading Date</label>
-            <input className={styles.fieldInput} type="date" value={form.bill_of_lading_date} onChange={set("bill_of_lading_date")} />
-          </div>
-          <div className={styles.field}>
-            <label className={styles.fieldLabel}>Bill of Lading NN / OBL</label>
-            <select className={styles.fieldInput} value={form.bill_of_lading_nn_obl} onChange={set("bill_of_lading_nn_obl")}>
-              <option value="">— Select —</option>
-              {BL_NN_OBL_OPTIONS.map((opt) => (
-                <option key={opt} value={opt}>{opt}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-        <div className={styles.actions}>
-          <button className={styles.btnPrimary} onClick={handleSave} disabled={saving || !isDirty}>
+        ))}
+        <div className={styles.actions} style={{ marginTop: 8 }}>
+          <button type="button" className={styles.btnSecondary} onClick={addRow}>
+            + Add Bill of Lading
+          </button>
+          <button type="button" className={styles.btnPrimary} onClick={() => void handleSave()} disabled={saving || !isDirty}>
             {saving ? "Saving…" : "Save Bill of Lading"}
           </button>
         </div>
@@ -4841,7 +5591,7 @@ function SentDocumentsSection(props: SectionProps & { open: boolean; onToggle: (
     if (isApiError(res)) toast.pushToast(res.message, "error");
     else {
       toast.pushToast("Sent Documents saved", "success");
-      onSaved();
+      onSaved({ patch: listItemToDetailPatch(res.data), refetch: "none" });
     }
     setSaving(false);
   }, [data.id, form, accessToken, toast, onSaved]);
@@ -4920,110 +5670,159 @@ function SentDocumentsSection(props: SectionProps & { open: boolean; onToggle: (
   );
 }
 
-function PeSection(props: SectionProps & { open: boolean; onToggle: () => void }) {
-  const getOrigForm = useCallback(
-    (d: ExportBulkingShipmentDetail): ShipmentPatchForm => ({
-      pe_no: d.pe_no ?? "",
-      pe_date: toLocalDate(d.pe_date),
-    }),
-    [],
-  );
-  const toPatchBody = useCallback(
-    (form: ShipmentPatchForm) => ({
-      pe_no: form.pe_no.trim() || null,
-      pe_date: form.pe_date ? new Date(form.pe_date).toISOString() : null,
-    }),
-    [],
-  );
-  const { form, set, saving, isDirty, handleSave } = useShipmentPatchSection(
-    "pe",
-    props,
-    getOrigForm,
-    toPatchBody,
-    "PE saved",
-  );
+type SiPebDraft = {
+  si_id: string;
+  si_label: string;
+  peb_request_no: string;
+  peb_no: string;
+  peb_date: string;
+  hs_code: string;
+};
 
-  return (
-    <SectionShell
-      title="PE"
-      titleIcon={<BadgeCheck size={18} strokeWidth={2} />}
-      open={props.open}
-      onToggle={props.onToggle}
-      dirty={isDirty}
-      anchorId="export-section-pe"
-    >
-      <Card>
-        <div className={styles.fieldGrid}>
-          <div className={styles.field}>
-            <label className={styles.fieldLabel}>PE No</label>
-            <input className={styles.fieldInput} type="text" value={form.pe_no} onChange={set("pe_no")} />
-          </div>
-          <div className={styles.field}>
-            <label className={styles.fieldLabel}>PE Date</label>
-            <input className={styles.fieldInput} type="date" value={form.pe_date} onChange={set("pe_date")} />
-          </div>
-        </div>
-        <div className={styles.actions}>
-          <button className={styles.btnPrimary} onClick={handleSave} disabled={saving || !isDirty}>
-            {saving ? "Saving…" : "Save PE"}
-          </button>
-        </div>
-      </Card>
-    </SectionShell>
-  );
+function buildSiPebDrafts(data: ExportBulkingShipmentDetail): SiPebDraft[] {
+  return data.shipping_instructions.map((si, idx) => ({
+    si_id: si.id,
+    si_label: si.si_number?.trim() || `Shipping Instruction ${idx + 1}`,
+    peb_request_no: si.peb_request_no ?? (idx === 0 ? data.peb_request_no ?? "" : ""),
+    peb_no: si.peb_no ?? (idx === 0 ? data.peb_no ?? "" : ""),
+    peb_date: toLocalDate(si.peb_date ?? (idx === 0 ? data.peb_date ?? null : null)),
+    hs_code: si.hs_code ?? (idx === 0 ? data.hs_code ?? "" : ""),
+  }));
+}
+
+function mergeSiPebUpdates(prev: ShippingInstruction[], updated: ShippingInstruction[]): ShippingInstruction[] {
+  const byId = new Map(updated.map((si) => [si.id, si]));
+  return prev.map((si) => byId.get(si.id) ?? si);
 }
 
 function PebSection(props: SectionProps & { open: boolean; onToggle: () => void }) {
-  const getOrigForm = useCallback(
-    (d: ExportBulkingShipmentDetail): ShipmentPatchForm => ({
-      peb_request_no: d.peb_request_no ?? "",
-      peb_no: d.peb_no ?? "",
-      peb_date: toLocalDate(d.peb_date),
-    }),
-    [],
-  );
-  const toPatchBody = useCallback(
-    (form: ShipmentPatchForm) => ({
-      peb_request_no: form.peb_request_no.trim() || null,
-      peb_no: form.peb_no.trim() || null,
-      peb_date: form.peb_date ? new Date(form.peb_date).toISOString() : null,
-    }),
-    [],
-  );
-  const { form, set, saving, isDirty, handleSave } = useShipmentPatchSection(
-    "peb",
-    props,
-    getOrigForm,
-    toPatchBody,
-    "PEB saved",
-  );
+  const sectionKey = "peb";
+  const { data, accessToken, onSaved, toast, saveTrigger, onDirtyChange, open, onToggle } = props;
+
+  const getOrig = useCallback(() => buildSiPebDrafts(data), [data]);
+  const [rows, setRows] = useState<SiPebDraft[]>(getOrig);
+  const [saving, setSaving] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
+  const isDirtyRef = useRef(false);
+
+  useEffect(() => { setRows(getOrig()); }, [getOrig]);
+  useEffect(() => {
+    const dirty = JSON.stringify(rows) !== JSON.stringify(getOrig());
+    isDirtyRef.current = dirty;
+    setIsDirty(dirty);
+    onDirtyChange(sectionKey, dirty);
+  }, [rows, getOrig, onDirtyChange]);
+
+  const updateRow = (idx: number, patch: Partial<SiPebDraft>) =>
+    setRows((prev) => prev.map((row, i) => (i === idx ? { ...row, ...patch } : row)));
+
+  const handleSave = useCallback(async () => {
+    if (rows.length === 0) {
+      toast.pushToast("Create at least one Shipping Instruction before saving PEB details.", "error");
+      return;
+    }
+    setSaving(true);
+    const items = rows.map((row) => ({
+      id: row.si_id,
+      peb_request_no: row.peb_request_no.trim() || null,
+      peb_no: row.peb_no.trim() || null,
+      peb_date: row.peb_date ? new Date(`${row.peb_date}T00:00:00`).toISOString() : null,
+      hs_code: row.hs_code.trim() || null,
+    }));
+    const res = await upsertSiPebFields(data.id, items, accessToken);
+    if (isApiError(res)) toast.pushToast(res.message, "error");
+    else {
+      toast.pushToast("PEB saved", "success");
+      onSaved({
+        shipping_instructions: mergeSiPebUpdates(data.shipping_instructions, res.data),
+        refetch: "none",
+      });
+    }
+    setSaving(false);
+  }, [data.id, data.shipping_instructions, rows, accessToken, toast, onSaved]);
+
+  const handleSaveRef = useRef(handleSave);
+  handleSaveRef.current = handleSave;
+  useEffect(() => {
+    if (saveTrigger === 0) return;
+    if (isDirtyRef.current) handleSaveRef.current();
+  }, [saveTrigger]);
 
   return (
     <SectionShell
       title="PEB"
       titleIcon={<BadgeCheck size={18} strokeWidth={2} />}
-      open={props.open}
-      onToggle={props.onToggle}
+      open={open}
+      onToggle={onToggle}
       dirty={isDirty}
       anchorId="export-section-peb"
     >
       <Card>
-        <div className={styles.fieldGrid}>
-          <div className={styles.field}>
-            <label className={styles.fieldLabel}>PEB Request No</label>
-            <input className={styles.fieldInput} type="text" value={form.peb_request_no} onChange={set("peb_request_no")} />
-          </div>
-          <div className={styles.field}>
-            <label className={styles.fieldLabel}>PEB No</label>
-            <input className={styles.fieldInput} type="text" value={form.peb_no} onChange={set("peb_no")} />
-          </div>
-          <div className={styles.field}>
-            <label className={styles.fieldLabel}>PEB Date</label>
-            <input className={styles.fieldInput} type="date" value={form.peb_date} onChange={set("peb_date")} />
-          </div>
-        </div>
+        {rows.length === 0 ? (
+          <p className={styles.fieldMuted}>Add a shipping instruction first — each shipping instruction needs its own PEB details.</p>
+        ) : (
+          <>
+            <p className={styles.fieldMuted} style={{ marginTop: 0, marginBottom: 12 }}>
+              PEB details are recorded per shipping instruction ({rows.length} shipping instruction{rows.length === 1 ? "" : "s"}).
+            </p>
+            {rows.map((row, idx) => (
+              <div key={row.si_id} className={styles.pebSiBlock}>
+                <div className={styles.pebSiBlockHeader}>
+                  <strong>{row.si_label}</strong>
+                </div>
+                <div className={styles.fieldGrid}>
+                  <div className={styles.field}>
+                    <label className={styles.fieldLabel}>PEB Request No</label>
+                    <input
+                      className={styles.fieldInput}
+                      type="text"
+                      value={row.peb_request_no}
+                      onChange={(e) => updateRow(idx, { peb_request_no: e.target.value })}
+                    />
+                  </div>
+                  <div className={styles.field}>
+                    <label className={styles.fieldLabel}>PEB No</label>
+                    <input
+                      className={styles.fieldInput}
+                      type="text"
+                      value={row.peb_no}
+                      onChange={(e) => updateRow(idx, { peb_no: e.target.value })}
+                    />
+                  </div>
+                  <div className={styles.field}>
+                    <label className={styles.fieldLabel}>PEB Date</label>
+                    <input
+                      className={styles.fieldInput}
+                      type="date"
+                      value={row.peb_date}
+                      onChange={(e) => updateRow(idx, { peb_date: e.target.value })}
+                    />
+                  </div>
+                  <div className={styles.field}>
+                    <label className={styles.fieldLabel} htmlFor={`peb-hs-code-${row.si_id}`}>
+                      HS Code
+                    </label>
+                    <input
+                      id={`peb-hs-code-${row.si_id}`}
+                      className={styles.fieldInput}
+                      type="text"
+                      value={row.hs_code}
+                      onChange={(e) => updateRow(idx, { hs_code: e.target.value })}
+                      placeholder="Optional"
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </>
+        )}
         <div className={styles.actions}>
-          <button className={styles.btnPrimary} onClick={handleSave} disabled={saving || !isDirty}>
+          <button
+            type="button"
+            className={styles.btnPrimary}
+            onClick={() => void handleSave()}
+            disabled={saving || !isDirty || rows.length === 0}
+          >
             {saving ? "Saving…" : "Save PEB"}
           </button>
         </div>
@@ -5035,190 +5834,368 @@ function PebSection(props: SectionProps & { open: boolean; onToggle: () => void 
 function BillingLevySection(
   props: SectionProps & { open: boolean; onToggle: () => void; ocrDisabled?: boolean },
 ) {
-  const { data, accessToken, ocrDisabled = false } = props;
-  const getOrigForm = useCallback(
-    (d: ExportBulkingShipmentDetail): ShipmentPatchForm => ({
-      hs_code: d.hs_code ?? "",
-      currency_tax: formatNumericFieldValue(d.currency_tax, 6),
-      biaya_keluar_price_usd_mt: formatNumericFieldValue(d.biaya_keluar_price_usd_mt, 4),
-      biaya_keluar_billing_no: d.biaya_keluar_billing_no ?? "",
-      // Direct IDR amount — set by OCR or manually; no formula
-      biaya_keluar_amount_idr_ocr: d.biaya_keluar_amount_idr != null
-        ? String(d.biaya_keluar_amount_idr)
-        : "",
-      levy_price_usd_mt: formatNumericFieldValue(d.levy_price_usd_mt, 4),
-      levy_billing_no: d.levy_billing_no ?? "",
-      levy_amount_idr_ocr: d.levy_amount_idr != null ? String(d.levy_amount_idr) : "",
-      billing_to_gl: toLocalDate(d.billing_to_gl),
-    }),
-    [],
+  const sectionKey = "billingLevy";
+  const { data, accessToken, onSaved, toast, saveTrigger, onDirtyChange, open, onToggle, ocrDisabled = false } = props;
+
+  const getOrigShipmentForm = useCallback(
+    () => buildBillingShipmentForm(data, formatNumericFieldValue),
+    [data],
   );
-  const toPatchBody = useCallback(
-    (form: ShipmentPatchForm) => {
-      const tax = parseQuantityInput(form.currency_tax);
-      const biayaPrice = parseQuantityInput(form.biaya_keluar_price_usd_mt);
-      const levyPrice = parseQuantityInput(form.levy_price_usd_mt);
-      // Amount IDR is stored directly — no formula
-      const biayaKeluarAmount = form.biaya_keluar_amount_idr_ocr
-        ? parseInt(form.biaya_keluar_amount_idr_ocr, 10) || null
-        : null;
-      const levyAmount = form.levy_amount_idr_ocr
-        ? parseInt(form.levy_amount_idr_ocr, 10) || null
-        : null;
-      return {
-        hs_code: form.hs_code.trim() || null,
-        currency_tax: tax,
-        biaya_keluar_price_usd_mt: biayaPrice,
-        biaya_keluar_amount_idr: biayaKeluarAmount,
-        biaya_keluar_billing_no: form.biaya_keluar_billing_no.trim() || null,
-        levy_price_usd_mt: levyPrice,
-        levy_amount_idr: levyAmount,
-        levy_billing_no: form.levy_billing_no.trim() || null,
-        billing_to_gl: form.billing_to_gl ? new Date(form.billing_to_gl).toISOString() : null,
-      };
+  const getOrigBillingLines = useCallback(
+    () => buildBillingLineDrafts(data, formatQuantityFieldValue),
+    [data],
+  );
+
+  const [shipmentForm, setShipmentForm] = useState<BillingShipmentForm>(getOrigShipmentForm);
+  const [billingLines, setBillingLines] = useState<BillingLineDraft[]>(getOrigBillingLines);
+  const [saving, setSaving] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
+  const isDirtyRef = useRef(false);
+
+  const invoiceSos = useMemo(() => distinctSoNosFromShipment(data), [data]);
+  const qtyBySo = useMemo(() => sumInvoiceQtyBySo(data.invoices), [data.invoices]);
+
+  useEffect(() => {
+    setShipmentForm(getOrigShipmentForm());
+    setBillingLines(getOrigBillingLines());
+  }, [getOrigShipmentForm, getOrigBillingLines]);
+
+  useEffect(() => {
+    const dirty =
+      JSON.stringify(shipmentForm) !== JSON.stringify(getOrigShipmentForm()) ||
+      JSON.stringify(billingLines) !== JSON.stringify(getOrigBillingLines());
+    isDirtyRef.current = dirty;
+    setIsDirty(dirty);
+    onDirtyChange(sectionKey, dirty);
+  }, [shipmentForm, billingLines, getOrigShipmentForm, getOrigBillingLines, onDirtyChange]);
+
+  const updateBillingLine = (idx: number, patch: Partial<BillingLineDraft>) =>
+    setBillingLines((prev) => prev.map((row, i) => (i === idx ? { ...row, ...patch } : row)));
+
+  const handleApplyPaymentRequestOcr = useCallback(
+    (d: ApplyPaymentRequestOcrData) => {
+      const validation = validatePaymentRequestAgainstInvoice(invoiceSos, d.lines);
+      if (!validation.canApply) {
+        toast.pushToast(validation.blockReason ?? "Cannot apply Payment of Request.", "error");
+        return;
+      }
+
+      const matchedLines = d.lines.filter((l) => validation.matched.includes(l.so_no));
+      const scopeInput = matchedLines.map((l) => ({
+        so_no: l.so_no,
+        qty_mt: l.qty_mt ?? null,
+        biaya_keluar_amount_idr: l.biaya_keluar_amount_idr,
+        levy_amount_idr: l.levy_amount_idr,
+      }));
+
+      const amountsBySo = allocatePaymentRequestAmounts(
+        scopeInput,
+        d.duty_usd_mt,
+        d.levy_usd_mt,
+        d.currency_tax,
+        qtyBySo,
+      );
+
+      const matchedSet = new Set(validation.matched);
+
+      if (d.currency_tax != null) {
+        setShipmentForm((p) => {
+          const existing = p.currency_tax.trim();
+          if (existing && existing !== String(d.currency_tax)) {
+            toast.pushToast(
+              `Currency tax updated from ${existing} to ${d.currency_tax} (from PR).`,
+              "error",
+            );
+          }
+          return { ...p, currency_tax: String(d.currency_tax) };
+        });
+      }
+
+      setBillingLines((prev) =>
+        prev.map((row) => {
+          if (!matchedSet.has(row.so_no)) return row;
+
+          const ocr = matchedLines.find((l) => l.so_no === row.so_no);
+          const allocated = amountsBySo.get(row.so_no);
+          if (!ocr) return row;
+
+          return {
+            ...row,
+            biaya_keluar_price_usd_mt:
+              d.duty_usd_mt != null ? String(d.duty_usd_mt) : row.biaya_keluar_price_usd_mt,
+            levy_price_usd_mt:
+              d.levy_usd_mt != null ? String(d.levy_usd_mt) : row.levy_price_usd_mt,
+            biaya_keluar_billing_no:
+              ocr.biaya_keluar_billing_no ?? row.biaya_keluar_billing_no,
+            levy_billing_no: ocr.levy_billing_no ?? row.levy_billing_no,
+            biaya_keluar_amount_idr:
+              allocated?.biaya_keluar_amount_idr != null
+                ? String(allocated.biaya_keluar_amount_idr)
+                : ocr.biaya_keluar_amount_idr != null
+                  ? String(ocr.biaya_keluar_amount_idr)
+                  : row.biaya_keluar_amount_idr,
+            levy_amount_idr:
+              allocated?.levy_amount_idr != null
+                ? String(allocated.levy_amount_idr)
+                : ocr.levy_amount_idr != null
+                  ? String(ocr.levy_amount_idr)
+                  : row.levy_amount_idr,
+          };
+        }),
+      );
+
+      const applied = validation.matched.join(", ");
+      const pending =
+        validation.missingFromDocument.length > 0
+          ? ` Pending invoice SO(s): ${validation.missingFromDocument.join(", ")} — upload another PR.`
+          : "";
+      toast.pushToast(`Applied PR to SO ${applied}.${pending}`, "success");
     },
-    [],
-  );
-  const totalQtyDelivered = useMemo(() => sumQtyDelivered(data.cargo_lines), [data.cargo_lines]);
-  const { form, set, setForm: setBillingForm, saving, isDirty, handleSave } = useShipmentPatchSection(
-    "billingLevy",
-    props,
-    getOrigForm,
-    toPatchBody,
-    "Billing & Levy saved",
+    [invoiceSos, qtyBySo, toast],
   );
 
-  const handleApplyBiayaOcr = useCallback((d: ApplyBillingOcrData) => {
-    setBillingForm((prev) => ({
-      ...prev,
-      biaya_keluar_billing_no: d.billing_no ?? prev.biaya_keluar_billing_no,
-      biaya_keluar_amount_idr_ocr: d.amount_idr != null
-        ? String(d.amount_idr)
-        : prev.biaya_keluar_amount_idr_ocr,
-    }));
-  }, [setBillingForm]);
+  const billingFillStatus = useMemo(
+    () => countFilledBillingSos(billingLines),
+    [billingLines],
+  );
 
-  const handleApplyLevyOcr = useCallback((d: ApplyBillingOcrData) => {
-    setBillingForm((prev) => ({
-      ...prev,
-      levy_billing_no: d.billing_no ?? prev.levy_billing_no,
-      levy_amount_idr_ocr: d.amount_idr != null
-        ? String(d.amount_idr)
-        : prev.levy_amount_idr_ocr,
-    }));
-  }, [setBillingForm]);
+  const handleSave = useCallback(async () => {
+    setSaving(true);
+    const shipmentPatch = billingShipmentFormToPatch(shipmentForm, parseQuantityInput);
+    const billingPayload = billingDraftsToUpsertPayload(billingLines, parseQuantityInput);
+    const [shipRes, billRes] = await Promise.all([
+      updateExportBulkingShipment(data.id, shipmentPatch, accessToken),
+      upsertBillingLines(data.id, billingPayload, accessToken),
+    ]);
+    if (isApiError(shipRes)) toast.pushToast(shipRes.message, "error");
+    else if (isApiError(billRes)) toast.pushToast(billRes.message, "error");
+    else {
+      toast.pushToast("Billing & Levy saved", "success");
+      onSaved({
+        patch: listItemToDetailPatch(shipRes.data),
+        billing_lines: billRes.data,
+        refetch: "none",
+      });
+    }
+    setSaving(false);
+  }, [data.id, shipmentForm, billingLines, accessToken, toast, onSaved]);
+
+  const handleSaveRef = useRef(handleSave);
+  handleSaveRef.current = handleSave;
+  useEffect(() => {
+    if (saveTrigger === 0) return;
+    if (isDirtyRef.current) handleSaveRef.current();
+  }, [saveTrigger]);
+
+  const formatIdrDisplay = (raw: string) => {
+    if (!raw.trim()) return "";
+    const n = parseInt(raw.replace(/,/g, ""), 10);
+    return Number.isNaN(n) ? raw : n.toLocaleString("en-US", { maximumFractionDigits: 0 });
+  };
+
+  const billingTotals = useMemo(() => {
+    let bkTotal = 0;
+    let levyTotal = 0;
+    for (const row of billingLines) {
+      const bk = parseInt(row.biaya_keluar_amount_idr.replace(/,/g, ""), 10);
+      const levy = parseInt(row.levy_amount_idr.replace(/,/g, ""), 10);
+      if (!Number.isNaN(bk)) bkTotal += bk;
+      if (!Number.isNaN(levy)) levyTotal += levy;
+    }
+    return { bkTotal, levyTotal, grandTotal: bkTotal + levyTotal };
+  }, [billingLines]);
+
+  const formatIdrSummary = (n: number) =>
+    n.toLocaleString("en-US", { maximumFractionDigits: 0 });
 
   return (
     <SectionShell
       title="Billing & Levy"
       titleIcon={<Coins size={18} strokeWidth={2} />}
-      open={props.open}
-      onToggle={props.onToggle}
+      open={open}
+      onToggle={onToggle}
       dirty={isDirty}
       anchorId="export-section-billing-levy"
     >
       <Card>
-        {/* OCR upload panels — pre-fill fields from BK/Levy PDF scans */}
+        <p className={styles.fieldMuted} style={{ marginTop: 0, marginBottom: 12 }}>
+          Upload a Payment of Request PDF to auto-fill billing per SO. You can upload multiple PR documents over time —
+          each apply updates only the SO rows found in that document that match invoice lines.
+          {invoiceSos.length > 0 && billingFillStatus.total > 0 && (
+            <>
+              {" "}
+              Billing filled: {billingFillStatus.filled}/{billingFillStatus.total} SO
+              {billingFillStatus.filled < billingFillStatus.total ? " (upload another PR for remaining SOs)" : ""}.
+            </>
+          )}
+        </p>
+
         <div className={styles.billingOcrRow}>
-          <div className={styles.billingOcrCol}>
-            <p className={styles.billingOcrLabel}>Biaya Keluar — upload PDF to auto-fill</p>
-            <BillingOcrUpload
-              docType="biaya_keluar"
+          <div className={styles.billingOcrColFull}>
+            <p className={styles.billingOcrLabel}>
+              Payment of Request — Levy or Duty Taxes
+            </p>
+            <PaymentRequestOcrUpload
               accessToken={accessToken}
-              onApply={handleApplyBiayaOcr}
-              disabled={ocrDisabled}
-            />
-          </div>
-          <div className={styles.billingOcrCol}>
-            <p className={styles.billingOcrLabel}>Levy — upload PDF to auto-fill</p>
-            <BillingOcrUpload
-              docType="levy"
-              accessToken={accessToken}
-              onApply={handleApplyLevyOcr}
-              disabled={ocrDisabled}
+              invoiceSos={invoiceSos}
+              onApply={handleApplyPaymentRequestOcr}
+              disabled={ocrDisabled || invoiceSos.length === 0}
             />
           </div>
         </div>
 
         <div className={styles.fieldGrid}>
           <div className={styles.field}>
-            <label className={styles.fieldLabel}>Total Qty Delivered (MT)</label>
+            <label className={styles.fieldLabel} htmlFor="billing-currency-tax">
+              Currency Tax
+            </label>
             <input
+              id="billing-currency-tax"
               className={styles.fieldInput}
               type="text"
-              readOnly
-              value={totalQtyDelivered > 0 ? formatNumericDisplay(totalQtyDelivered) : "—"}
-              style={{ background: "var(--surface-2, #f3f4f6)", color: "var(--text-secondary, #6b7280)", cursor: "default" }}
-              title="Sum of Quantity Delivered from all cargo lines (Loading section)"
+              inputMode="decimal"
+              value={shipmentForm.currency_tax}
+              onChange={(e) => setShipmentForm((p) => ({ ...p, currency_tax: e.target.value }))}
             />
           </div>
           <div className={styles.field}>
-            <label className={styles.fieldLabel}>HS Code</label>
-            <input className={styles.fieldInput} type="text" value={form.hs_code} onChange={set("hs_code")} />
-          </div>
-          <div className={styles.field}>
-            <label className={styles.fieldLabel}>Currency Tax</label>
-            <input className={styles.fieldInput} type="text" inputMode="decimal" value={form.currency_tax} onChange={set("currency_tax")} />
-          </div>
-          <div className={styles.field}>
-            <label className={styles.fieldLabel}>Biaya Keluar Price ($USD/MT)</label>
-            <input className={styles.fieldInput} type="text" inputMode="decimal" value={form.biaya_keluar_price_usd_mt} onChange={set("biaya_keluar_price_usd_mt")} />
-          </div>
-          <div className={styles.field}>
-            <label className={styles.fieldLabel}>Biaya Keluar Amount (IDR)</label>
+            <label className={styles.fieldLabel} htmlFor="billing-to-gl">
+              Billing to GL
+            </label>
             <input
+              id="billing-to-gl"
               className={styles.fieldInput}
-              type="text"
-              inputMode="numeric"
-
-              value={
-                form.biaya_keluar_amount_idr_ocr
-                  ? Number(form.biaya_keluar_amount_idr_ocr).toLocaleString("en-US", { maximumFractionDigits: 0 })
-                  : ""
-              }
-              onChange={(e) => {
-                const raw = e.target.value.replace(/,/g, "");
-                setBillingForm((p) => ({ ...p, biaya_keluar_amount_idr_ocr: raw }));
-              }}
+              type="date"
+              value={shipmentForm.billing_to_gl}
+              onChange={(e) => setShipmentForm((p) => ({ ...p, billing_to_gl: e.target.value }))}
             />
-          </div>
-          <div className={styles.field}>
-            <label className={styles.fieldLabel}>Biaya Keluar Billing No</label>
-            <input className={styles.fieldInput} type="text" value={form.biaya_keluar_billing_no} onChange={set("biaya_keluar_billing_no")} />
-          </div>
-          <div className={styles.field}>
-            <label className={styles.fieldLabel}>Levy Price ($USD/MT)</label>
-            <input className={styles.fieldInput} type="text" inputMode="decimal" value={form.levy_price_usd_mt} onChange={set("levy_price_usd_mt")} />
-          </div>
-          <div className={styles.field}>
-            <label className={styles.fieldLabel}>Levy Amount (IDR)</label>
-            <input
-              className={styles.fieldInput}
-              type="text"
-              inputMode="numeric"
-
-              value={
-                form.levy_amount_idr_ocr
-                  ? Number(form.levy_amount_idr_ocr).toLocaleString("en-US", { maximumFractionDigits: 0 })
-                  : ""
-              }
-              onChange={(e) => {
-                const raw = e.target.value.replace(/,/g, "");
-                setBillingForm((p) => ({ ...p, levy_amount_idr_ocr: raw }));
-              }}
-            />
-          </div>
-          <div className={styles.field}>
-            <label className={styles.fieldLabel}>Levy Billing No</label>
-            <input className={styles.fieldInput} type="text" value={form.levy_billing_no} onChange={set("levy_billing_no")} />
-          </div>
-          <div className={styles.field}>
-            <label className={styles.fieldLabel}>Billing to GL</label>
-            <input className={styles.fieldInput} type="date" value={form.billing_to_gl} onChange={set("billing_to_gl")} />
           </div>
         </div>
+
+        {invoiceSos.length === 0 ? (
+          <p className={styles.emptyMsg}>
+            No sales orders yet. Enter SO numbers on invoice lines under Pre-shipment Documents.
+          </p>
+        ) : (
+          <div className={`${styles.sapTableWrap} ${styles.billingTableWrap}`}>
+            <table className={styles.sapTable}>
+              <thead>
+                <tr>
+                  <th scope="col">SO No</th>
+                  <th scope="col">Invoice Qty (MT)</th>
+                  <th scope="col">BK Price ($/MT)</th>
+                  <th scope="col">BK Amount (IDR)</th>
+                  <th scope="col">BK Billing No</th>
+                  <th scope="col">Levy Price ($/MT)</th>
+                  <th scope="col">Levy Amount (IDR)</th>
+                  <th scope="col">Levy Billing No</th>
+                </tr>
+              </thead>
+              <tbody>
+                {billingLines.map((row, idx) => {
+                  const invQty = qtyBySo.get(row.so_no);
+                  return (
+                    <tr key={row.rowKey}>
+                      <td className={styles.sapSoCell}>
+                        <span className={styles.sapSoLabel} title={row.so_no}>
+                          {row.so_no}
+                        </span>
+                      </td>
+                      <td className={styles.billingQtyCell}>
+                        {invQty != null && invQty > 0 ? formatNumericDisplay(invQty) : "—"}
+                      </td>
+                      <td>
+                        <input
+                          className={styles.sapInput}
+                          type="text"
+                          inputMode="decimal"
+                          value={row.biaya_keluar_price_usd_mt}
+                          onChange={(e) => updateBillingLine(idx, { biaya_keluar_price_usd_mt: e.target.value })}
+                          aria-label={`Biaya Keluar price for SO ${row.so_no}`}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          className={styles.sapInput}
+                          type="text"
+                          inputMode="numeric"
+                          value={formatIdrDisplay(row.biaya_keluar_amount_idr)}
+                          onChange={(e) =>
+                            updateBillingLine(idx, { biaya_keluar_amount_idr: e.target.value.replace(/,/g, "") })
+                          }
+                          aria-label={`Biaya Keluar amount for SO ${row.so_no}`}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          className={styles.sapInput}
+                          type="text"
+                          value={row.biaya_keluar_billing_no}
+                          onChange={(e) => updateBillingLine(idx, { biaya_keluar_billing_no: e.target.value })}
+                          aria-label={`Biaya Keluar billing no for SO ${row.so_no}`}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          className={styles.sapInput}
+                          type="text"
+                          inputMode="decimal"
+                          value={row.levy_price_usd_mt}
+                          onChange={(e) => updateBillingLine(idx, { levy_price_usd_mt: e.target.value })}
+                          aria-label={`Levy price for SO ${row.so_no}`}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          className={styles.sapInput}
+                          type="text"
+                          inputMode="numeric"
+                          value={formatIdrDisplay(row.levy_amount_idr)}
+                          onChange={(e) =>
+                            updateBillingLine(idx, { levy_amount_idr: e.target.value.replace(/,/g, "") })
+                          }
+                          aria-label={`Levy amount for SO ${row.so_no}`}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          className={styles.sapInput}
+                          type="text"
+                          value={row.levy_billing_no}
+                          onChange={(e) => updateBillingLine(idx, { levy_billing_no: e.target.value })}
+                          aria-label={`Levy billing no for SO ${row.so_no}`}
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <div className={styles.billingSummary}>
+          <div className={styles.billingSummaryItem}>
+            <span className={styles.billingSummaryLabel}>BK Amount Total</span>
+            <strong className={styles.billingSummaryValue}>{formatIdrSummary(billingTotals.bkTotal)} IDR</strong>
+          </div>
+          <div className={styles.billingSummaryItem}>
+            <span className={styles.billingSummaryLabel}>Levy Amount Total</span>
+            <strong className={styles.billingSummaryValue}>{formatIdrSummary(billingTotals.levyTotal)} IDR</strong>
+          </div>
+          <div className={`${styles.billingSummaryItem} ${styles.billingSummaryItemTotal}`}>
+            <span className={styles.billingSummaryLabel}>Total Amount</span>
+            <strong className={styles.billingSummaryValue}>{formatIdrSummary(billingTotals.grandTotal)} IDR</strong>
+          </div>
+        </div>
+
         <div className={styles.actions}>
-          <button className={styles.btnPrimary} onClick={handleSave} disabled={saving || !isDirty}>
+          <button
+            type="button"
+            className={styles.btnPrimary}
+            onClick={() => void handleSave()}
+            disabled={saving || !isDirty}
+          >
             {saving ? "Saving…" : "Save Billing & Levy"}
           </button>
         </div>
@@ -5315,16 +6292,15 @@ function DocumentationDetailSections({
 
   return (
     <>
-      {/* Step 2 — Customs Compliance (PE + PEB + NPE/SPB) */}
+      {/* Step 2 — Customs Compliance (PEB + Data SAP) */}
       <DocStepCard
         stepNumber={2}
         title="Customs Compliance"
         doneCount={stepMap.customs?.doneCount ?? 0}
-        totalCount={stepMap.customs?.totalCount ?? 3}
+        totalCount={stepMap.customs?.totalCount ?? 2}
       >
-        <PeSection {...sectionProps} open={openSections.pe} onToggle={() => toggleSection("pe")} />
         <PebSection {...sectionProps} open={openSections.peb} onToggle={() => toggleSection("peb")} />
-        <NpeSpbSection {...sectionProps} open={openSections.npeSpb} onToggle={() => toggleSection("npeSpb")} />
+        <DataSapSection {...sectionProps} open={openSections.npeSpb} onToggle={() => toggleSection("npeSpb")} />
       </DocStepCard>
 
       {/* Step 3 — Billing & Levy */}
@@ -5473,6 +6449,7 @@ function LoadingSection({
     etc: toLocalDatetime(data.etc),
     atc: toLocalDatetime(data.atc),
     hose_off: toLocalDatetime(data.hose_off),
+    npe_date: toLocalDatetime(data.npe_date),
   }), [data]);
 
   const getOrigReconciliation = useCallback(
@@ -5507,6 +6484,7 @@ function LoadingSection({
       etc: form.etc ? new Date(form.etc).toISOString() : null,
       atc: form.atc ? new Date(form.atc).toISOString() : null,
       hose_off: form.hose_off ? new Date(form.hose_off).toISOString() : null,
+      npe_date: form.npe_date ? new Date(form.npe_date).toISOString() : null,
     };
     const cargoPayload = reconciliationLines.map((row, idx) => {
       const orig = data.cargo_lines.find((c) => c.id === row.id);
@@ -5520,6 +6498,8 @@ function LoadingSection({
         destination_port: orig?.destination_port ?? null,
         destination_country: orig?.destination_country ?? null,
         country_area: orig?.country_area ?? null,
+        pe_no: orig?.pe_no ?? null,
+        pe_date: orig?.pe_date ?? null,
         quantity_delivered: parseQuantityInput(row.quantity_delivered),
         bl_figure: parseQuantityInput(row.bl_figure),
         ship_figure: parseQuantityInput(row.ship_figure),
@@ -5531,7 +6511,14 @@ function LoadingSection({
     ]);
     if (isApiError(shipmentRes)) toast.pushToast(shipmentRes.message, "error");
     else if (isApiError(cargoRes)) toast.pushToast(cargoRes.message, "error");
-    else { toast.pushToast("Loading operations saved", "success"); onSaved(); }
+    else {
+      toast.pushToast("Loading operations saved", "success");
+      onSaved({
+        patch: listItemToDetailPatch(shipmentRes.data),
+        cargo_lines: cargoRes.data,
+        refetch: "none",
+      });
+    }
     setSaving(false);
   }, [data.id, data.cargo_lines, form, reconciliationLines, accessToken, toast, onSaved]);
 
@@ -5565,6 +6552,10 @@ function LoadingSection({
             <label className={styles.fieldLabel}>Hose Off</label>
             <input className={styles.fieldInput} type="datetime-local" value={form.hose_off} onChange={set("hose_off")} />
           </div>
+          <div className={styles.field}>
+            <label className={styles.fieldLabel}>NPE Date</label>
+            <input className={styles.fieldInput} type="datetime-local" value={form.npe_date} onChange={set("npe_date")} />
+          </div>
         </div>
 
         <div className={styles.sectionGroupLabel}>Quantity Reconciliation</div>
@@ -5576,8 +6567,8 @@ function LoadingSection({
               <thead>
                 <tr>
                   <th scope="col">Cargo</th>
-                  <th scope="col">Qty Delivered (MT)</th>
                   <th scope="col">B/L Figure (MT)</th>
+                  <th scope="col">Shore Figure (MT)</th>
                   <th scope="col">Ship Figure (MT)</th>
                   <th scope="col">Diff (MT)</th>
                   <th scope="col">Diff %</th>
@@ -5602,6 +6593,7 @@ function LoadingSection({
                           inputMode="decimal"
                           value={row.quantity_delivered}
                           onChange={(e) => updateReconciliation(idx, "quantity_delivered", e.target.value)}
+                          aria-label={`B/L Figure for ${row.cargo_name || `cargo ${idx + 1}`}`}
                         />
                       </td>
                       <td>
@@ -5611,6 +6603,7 @@ function LoadingSection({
                           inputMode="decimal"
                           value={row.bl_figure}
                           onChange={(e) => updateReconciliation(idx, "bl_figure", e.target.value)}
+                          aria-label={`Shore Figure for ${row.cargo_name || `cargo ${idx + 1}`}`}
                         />
                       </td>
                       <td>
@@ -5620,6 +6613,7 @@ function LoadingSection({
                           inputMode="decimal"
                           value={row.ship_figure}
                           onChange={(e) => updateReconciliation(idx, "ship_figure", e.target.value)}
+                          aria-label={`Ship Figure for ${row.cargo_name || `cargo ${idx + 1}`}`}
                         />
                       </td>
                       <td>
@@ -5721,7 +6715,7 @@ function CaseOffSection({
     const body = { td: form.td ? new Date(form.td).toISOString() : null };
     const res = await updateExportBulkingShipment(data.id, body, accessToken);
     if (isApiError(res)) toast.pushToast(res.message, "error");
-    else { toast.pushToast("Case Off saved", "success"); onSaved(); }
+    else { toast.pushToast("Case Off saved", "success"); onSaved({ patch: listItemToDetailPatch(res.data), refetch: "none" }); }
     setSaving(false);
   }, [data.id, form.td, accessToken, toast, onSaved]);
 
@@ -5955,13 +6949,15 @@ export function ExportBulkingDetail() {
   const canViewDocs = can(user, "VIEW_EXPORT_DOCUMENTATION");
   const canEditOps = canEditExportOperations(user);
   const canEditDocs = canEditExportDocumentation(user);
+  const canEditCargo = canEditExportCargo(user);
   const canUploadExportDocs = canEditDocs || can(user, "UPLOAD_DOCUMENT");
   const isDocumentationOnly = isExportDocumentationOnly(user);
   const isOperationsOnly = isExportOperationsOnly(user);
   const isFullyReadOnly = !canEditOps && !canEditDocs;
+  const forceViewMode = searchParams.get("mode") === "view";
   const opsReadOnly = !canEditOps;
   const docsReadOnly = !canEditDocs;
-  const forceViewMode = searchParams.get("mode") === "view";
+  const cargoReadOnly = !canEditCargo || forceViewMode;
   const showDocumentationTab = canViewDocs;
 
   const wantsDocumentationFocus =
@@ -5976,9 +6972,12 @@ export function ExportBulkingDetail() {
   );
 
   const [data, setData] = useState<ExportBulkingShipmentDetail | null>(null);
+  const dataRef = useRef<ExportBulkingShipmentDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [statusEvents, setStatusEvents] = useState<StatusEvent[]>([]);
+  const savingAllRef = useRef(false);
 
   const [openSections, setOpenSections] = useState<OpenSectionsState>(() =>
     wantsDocumentationFocus ? { ...DOCS_OPEN_SECTIONS } : { ...OPS_OPEN_SECTIONS },
@@ -6037,9 +7036,18 @@ export function ExportBulkingDetail() {
 
   const jumpToSection = useCallback((key: ExportDetailSectionKey) => {
     setOpenSections((prev) => ({ ...prev, [key]: true }));
-    const id = EXPORT_SECTION_ANCHORS[key];
+    const anchorId = EXPORT_SECTION_ANCHORS[key];
     window.requestAnimationFrame(() => {
-      document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+      document.getElementById(anchorId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, []);
+
+  const jumpToAnchor = useCallback((anchorId: string, sectionKey?: keyof OpenSectionsState) => {
+    if (sectionKey) {
+      setOpenSections((prev) => ({ ...prev, [sectionKey]: true }));
+    }
+    window.requestAnimationFrame(() => {
+      document.getElementById(anchorId)?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
   }, []);
 
@@ -6048,6 +7056,7 @@ export function ExportBulkingDetail() {
       openSections.general &&
       openSections.nomination &&
       openSections.cargo &&
+      openSections.siReceiveDate &&
       openSections.si &&
       openSections.invoices &&
       openSections.packing &&
@@ -6066,6 +7075,7 @@ export function ExportBulkingDetail() {
         prev.general &&
         prev.nomination &&
         prev.cargo &&
+        prev.siReceiveDate &&
         prev.si &&
         prev.invoices &&
         prev.packing &&
@@ -6080,6 +7090,7 @@ export function ExportBulkingDetail() {
           general: false,
           nomination: false,
           cargo: false,
+          siReceiveDate: false,
           si: false,
           invoices: false,
           packing: false,
@@ -6095,6 +7106,7 @@ export function ExportBulkingDetail() {
         general: true,
         nomination: true,
         cargo: true,
+        siReceiveDate: true,
         si: true,
         invoices: true,
         packing: true,
@@ -6123,14 +7135,20 @@ export function ExportBulkingDetail() {
 
   const onDirtyChange = useCallback((key: string, dirty: boolean) => {
     setDirtySections((prev) => (prev[key] === dirty ? prev : { ...prev, [key]: dirty }));
+    if (dirty) {
+      const openKey = DIRTY_SECTION_OPEN_KEYS[key];
+      if (openKey) {
+        setOpenSections((prev) => (prev[openKey] ? prev : { ...prev, [openKey]: true }));
+      }
+    }
   }, []);
 
   const isAnyDirty = Object.values(dirtySections).some(Boolean);
 
   const handleSaveAll = useCallback(() => {
+    savingAllRef.current = true;
     setSavingAll(true);
     setSaveTrigger((t) => t + 1);
-    setTimeout(() => setSavingAll(false), 2500);
   }, []);
 
   // Unsaved navigation warning
@@ -6153,25 +7171,87 @@ export function ExportBulkingDetail() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [isAnyDirty, handleSaveAll]);
 
-  // Fetch detail + status events
-  const fetchDetail = useCallback(async () => {
+  const fetchDetail = useCallback(async (opts?: { mode?: DetailRefreshMode }) => {
     if (!id || !accessToken) return;
-    setLoading(true);
+    const mode = opts?.mode ?? (dataRef.current ? "silent" : "initial");
+    const isInitial = mode === "initial";
+    const scrollY = !isInitial ? window.scrollY : undefined;
+
+    if (isInitial) setLoading(true);
+    else setRefreshing(true);
+
     const [res, eventsRes] = await Promise.all([
       getExportBulkingShipment(id, accessToken),
       getStatusEvents(id, accessToken),
     ]);
+
     if (isApiError(res)) {
-      setError(res.message);
+      if (isInitial) setError(res.message);
+      else toast.pushToast(res.message, "error");
     } else {
-      setData(res.data);
+      setData({
+        ...res.data,
+        sap_lines: res.data.sap_lines ?? [],
+        billing_lines: res.data.billing_lines ?? [],
+        bills_of_lading: res.data.bills_of_lading ?? [],
+      });
       setError(null);
     }
     if (!isApiError(eventsRes)) setStatusEvents(eventsRes.data ?? []);
-    setLoading(false);
-  }, [id, accessToken]);
 
-  useEffect(() => { fetchDetail(); }, [fetchDetail]);
+    if (isInitial) setLoading(false);
+    else {
+      setRefreshing(false);
+      if (scrollY !== undefined) {
+        requestAnimationFrame(() => window.scrollTo(0, scrollY));
+      }
+    }
+  }, [id, accessToken, toast]);
+
+  const handleSaved = useCallback<OnSavedFn>((options) => {
+    const hasPatch =
+      options?.patch != null ||
+      options?.cargo_lines !== undefined ||
+      options?.shipping_instructions !== undefined ||
+      options?.invoices !== undefined ||
+      options?.packing_lists !== undefined ||
+      options?.sap_lines !== undefined ||
+      options?.billing_lines !== undefined ||
+      options?.bills_of_lading !== undefined;
+
+    if (hasPatch) {
+      setData((prev) => (prev && options ? mergeDetailSaved(prev, options) : prev));
+    }
+
+    if (savingAllRef.current) return;
+
+    const refetch = options?.refetch ?? "none";
+    if (refetch === "silent") {
+      void fetchDetail({ mode: "silent" });
+    }
+  }, [fetchDetail]);
+
+  useEffect(() => {
+    dataRef.current = data;
+  }, [data]);
+
+  useEffect(() => { void fetchDetail({ mode: "initial" }); }, [fetchDetail]);
+
+  useEffect(() => {
+    if (!savingAll) return;
+    if (isAnyDirty) return;
+    savingAllRef.current = false;
+    void fetchDetail({ mode: "silent" }).finally(() => setSavingAll(false));
+  }, [savingAll, isAnyDirty, fetchDetail]);
+
+  useEffect(() => {
+    if (!savingAll) return;
+    const timeout = window.setTimeout(() => {
+      savingAllRef.current = false;
+      setSavingAll(false);
+    }, 12000);
+    return () => window.clearTimeout(timeout);
+  }, [savingAll]);
 
   // Advance status
   const handleAdvanceStatus = async () => {
@@ -6196,7 +7276,7 @@ export function ExportBulkingDetail() {
       toast.pushToast(res.message, "error");
     } else {
       toast.pushToast(`Status advanced to ${formatExportBulkingStatus(ns)}`, "success");
-      fetchDetail();
+      void fetchDetail({ mode: "silent" });
     }
   };
 
@@ -6221,7 +7301,7 @@ export function ExportBulkingDetail() {
   const sectionProps = {
     data,
     accessToken: accessToken!,
-    onSaved: fetchDetail,
+    onSaved: handleSaved,
     toast,
     saveTrigger,
     onDirtyChange,
@@ -6277,10 +7357,29 @@ export function ExportBulkingDetail() {
         <UnsavedBanner dirtySections={dirtySections} onSaveAll={handleSaveAll} saving={savingAll} />
       )}
 
+      {refreshing && (
+        <div className={styles.refreshingBar} role="status" aria-live="polite">
+          Syncing latest data…
+        </div>
+      )}
+
       {/* Two-column layout */}
       <div className={styles.pageLayout}>
         <div className={styles.mainContent}>
           <ShipmentOverviewStrip data={data} showDocCounts={canViewDocs} />
+
+          <SectionJumpNav
+            onJump={jumpToSection}
+            onJumpAnchor={jumpToAnchor}
+            allSectionsExpanded={allSectionsExpanded}
+            onToggleExpandCollapse={toggleAllSections}
+            onFocusOperations={focusOperationsSections}
+            onFocusDocuments={focusDocumentsSections}
+            canViewDocs={showDocumentationTab}
+            showVoyageNav={!showDocumentationTab || detailTab === "operations"}
+            showDocComplianceNav={showDocumentationTab && detailTab === "documentation"}
+            dirtySections={dirtySections}
+          />
 
           {showDocumentationTab && (
             <DetailWorkspaceTabs active={detailTab} onChange={handleDetailTabChange} />
@@ -6301,11 +7400,10 @@ export function ExportBulkingDetail() {
               icon={<ClipboardList size={16} />}
               readOnly={opsReadOnly || forceViewMode}
               completedSummary={[data.vessel_name, data.loadport_name, data.total_quantity ? `${formatNumericDisplay(data.total_quantity)} MT` : null].filter(Boolean).join(" · ")}
-              upcomingFields={["Vessel", "Voyage no.", "Shipper", "Load port", "Total quantity", "Cargo lines"]}
+              upcomingFields={["Vessel", "Voyage no.", "Shipper", "Load port", "Total quantity"]}
               onAdvance={handleAdvanceStatus}
             >
               <GeneralSection {...sectionProps} open={openSections.general} onToggle={() => toggleSection("general")} />
-              <CargoSection {...sectionProps} open={openSections.cargo} onToggle={() => toggleSection("cargo")} />
             </StageCard>
 
             {/* Nomination */}
@@ -6388,12 +7486,13 @@ export function ExportBulkingDetail() {
               completedSummary={[
                 data.commence_loading ? `Started ${formatDatetime(data.commence_loading)}` : null,
                 data.atc ? `ATC ${formatDatetime(data.atc)}` : null,
+                data.npe_date ? `NPE ${formatDatetime(data.npe_date)}` : null,
                 (() => {
                   const totalBl = data.cargo_lines.reduce((sum, c) => sum + (c.bl_figure ?? 0), 0);
                   return totalBl > 0 ? `B/L ${formatNumericDisplay(totalBl)} MT` : null;
                 })(),
               ].filter(Boolean).join(" · ")}
-              upcomingFields={["Commence loading", "ETC", "ATC", "Hose Off", "Qty reconciliation per cargo"]}
+              upcomingFields={["Commence loading", "ETC", "ATC", "Hose Off", "NPE Date", "Qty reconciliation per cargo"]}
               onAdvance={handleAdvanceStatus}
             >
               <LoadingSection
@@ -6434,7 +7533,7 @@ export function ExportBulkingDetail() {
           )}
 
           {showDocumentationTab && detailTab === "documentation" && (
-            <div className={`${styles.stageTimeline} ${docsReadOnly || forceViewMode ? styles.readOnlyRegion : ""}`}>
+            <div className={styles.stageTimeline}>
               {docsReadOnly && canEditOps && (
                 <ExportWorkspaceBanner variant="documentation-readonly" />
               )}
@@ -6454,23 +7553,36 @@ export function ExportBulkingDetail() {
                     stepNumber={1}
                     title="Pre-shipment Documents"
                     doneCount={step1?.doneCount ?? 0}
-                    totalCount={step1?.totalCount ?? 3}
+                    totalCount={step1?.totalCount ?? 4}
                   >
-                    <SiReceiveDateSection {...sectionProps} open={openSections.si} onToggle={() => toggleSection("si")} />
-                    <SISection {...sectionProps} open={openSections.si} onToggle={() => toggleSection("si")} />
-                    <InvoiceSection {...sectionProps} open={openSections.invoices} onToggle={() => toggleSection("invoices")} />
-                    <PackingListSection {...sectionProps} open={openSections.packing} onToggle={() => toggleSection("packing")} />
+                    <div className={cargoReadOnly ? styles.readOnlyRegion : undefined}>
+                      <div className={styles.docStepSections}>
+                        <CargoSection {...sectionProps} open={openSections.cargo} onToggle={() => toggleSection("cargo")} />
+                        <div className={docsReadOnly || forceViewMode ? styles.readOnlyRegion : undefined}>
+                          <SiReceiveDateSection
+                            {...sectionProps}
+                            open={openSections.siReceiveDate}
+                            onToggle={() => toggleSection("siReceiveDate")}
+                          />
+                          <SISection {...sectionProps} open={openSections.si} onToggle={() => toggleSection("si")} />
+                          <InvoiceSection {...sectionProps} open={openSections.invoices} onToggle={() => toggleSection("invoices")} />
+                          <PackingListSection {...sectionProps} open={openSections.packing} onToggle={() => toggleSection("packing")} />
+                        </div>
+                      </div>
+                    </div>
                   </DocStepCard>
                 );
               })()}
 
               {/* Steps 2, 3, 4 */}
-              <DocumentationDetailSections
-                sectionProps={sectionProps}
-                openSections={openSections}
-                toggleSection={toggleSection}
-                billingOcrDisabled={docsReadOnly || forceViewMode}
-              />
+              <div className={docsReadOnly || forceViewMode ? styles.readOnlyRegion : undefined}>
+                <DocumentationDetailSections
+                  sectionProps={sectionProps}
+                  openSections={openSections}
+                  toggleSection={toggleSection}
+                  billingOcrDisabled={docsReadOnly || forceViewMode}
+                />
+              </div>
             </div>
           )}
         </div>

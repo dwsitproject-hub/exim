@@ -83,15 +83,14 @@ export function PoDetail({ id }: { id: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [taking, setTaking] = useState(false);
   const [coupleModal, setCoupleModal] = useState(false);
   const [coupleShipmentId, setCoupleShipmentId] = useState("");
   const [coupling, setCoupling] = useState(false);
   const [coupleShipmentsList, setCoupleShipmentsList] = useState<ShipmentListItem[]>([]);
   const [coupleShipmentsLoading, setCoupleShipmentsLoading] = useState(false);
   const [coupleShipmentsError, setCoupleShipmentsError] = useState<string | null>(null);
-  const [creatingAnotherShipment, setCreatingAnotherShipment] = useState(false);
-  const [createAnotherConfirmOpen, setCreateAnotherConfirmOpen] = useState(false);
+  const [creatingNewShipment, setCreatingNewShipment] = useState(false);
+  const [newShipmentConfirmOpen, setNewShipmentConfirmOpen] = useState(false);
   const [removeShipmentId, setRemoveShipmentId] = useState<string | null>(null);
   const [removingShipment, setRemovingShipment] = useState(false);
   const [expandedLinkedShipmentIds, setExpandedLinkedShipmentIds] = useState<Set<string>>(() => new Set());
@@ -214,22 +213,28 @@ export function PoDetail({ id }: { id: string }) {
     });
   }, [detail, coupleShipmentsList]);
 
-  function handleTakeOwnership() {
+  function executeNewShipment(needsTakeBeforeShipment: boolean) {
     if (!accessToken || !id) return;
-    if (!can(user, "TAKE_OWNERSHIP") || !can(user, "CREATE_SHIPMENT")) return;
+    if (!can(user, "CREATE_SHIPMENT")) return;
+    if (needsTakeBeforeShipment && !can(user, "TAKE_OWNERSHIP")) return;
+
+    setNewShipmentConfirmOpen(false);
     setActionError(null);
-    setTaking(true);
-    takeOwnership(id, accessToken)
-      .then((res) => {
-        if (isApiError(res)) {
-          setActionError(res.message);
-          pushToast(res.message, "error");
-          return null;
-        }
-        if (res.data) setDetail(res.data);
-        pushToast("Purchase Order claimed.", "success");
-        return createShipmentFromPo(id, accessToken);
-      })
+    setCreatingNewShipment(true);
+
+    const shipmentStep = needsTakeBeforeShipment
+      ? takeOwnership(id, accessToken).then((res) => {
+          if (isApiError(res)) {
+            setActionError(res.message);
+            pushToast(res.message, "error");
+            return null;
+          }
+          if (res.data) setDetail(res.data);
+          return createShipmentFromPo(id, accessToken);
+        })
+      : createShipmentFromPo(id, accessToken);
+
+    shipmentStep
       .then((shipRes) => {
         if (!shipRes) return;
         if (isApiError(shipRes)) {
@@ -237,16 +242,23 @@ export function PoDetail({ id }: { id: string }) {
           pushToast(shipRes.message, "error");
           return;
         }
+        pushToast("New shipment created and linked to this Purchase Order.", "success");
         const data = shipRes.data as { shipment_id?: string };
         if (data?.shipment_id) {
-          pushToast("Shipment created from Purchase Order.", "success");
           router.push(`/import/shipments/${data.shipment_id}`);
         } else {
-          pushToast("Shipment created.", "success");
           load();
         }
       })
-      .finally(() => setTaking(false));
+      .finally(() => setCreatingNewShipment(false));
+  }
+
+  function handleNewShipmentClick(needsTakeBeforeShipment: boolean, linkedShipmentCount: number) {
+    if (linkedShipmentCount > 0) {
+      setNewShipmentConfirmOpen(true);
+      return;
+    }
+    executeNewShipment(needsTakeBeforeShipment);
   }
 
   function handleCoupleToShipment() {
@@ -295,30 +307,6 @@ export function PoDetail({ id }: { id: string }) {
       });
   }
 
-  function handleCreateAnotherShipment() {
-    if (!accessToken || !id) return;
-    if (!can(user, "CREATE_SHIPMENT")) return;
-    setCreateAnotherConfirmOpen(false);
-    setActionError(null);
-    setCreatingAnotherShipment(true);
-    createShipmentFromPo(id, accessToken)
-      .then((res) => {
-        if (isApiError(res)) {
-          setActionError(res.message);
-          pushToast(res.message, "error");
-          return;
-        }
-        pushToast("New shipment created and linked to this Purchase Order.", "success");
-        const data = res.data as { shipment_id?: string };
-        if (data?.shipment_id) {
-          router.push(`/import/shipments/${data.shipment_id}`);
-        } else {
-          load();
-        }
-      })
-      .finally(() => setCreatingAnotherShipment(false));
-  }
-
   if (loading) return <LoadingSkeleton lines={6} className={styles.loading} />;
   if (error) return <p className={styles.error}>{error}</p>;
   if (!detail) return null;
@@ -333,18 +321,19 @@ export function PoDetail({ id }: { id: string }) {
     (i) => (i.remaining_qty ?? 0) > 0
   );
   const st = detail.intake_status;
-  const canTakeAgain = allShipmentsDelivered && hasRemainingQty;
-  const canTake = st === "NEW_PO_DETECTED" || canTakeAgain;
+  const needsTakeBeforeShipment = st === "NEW_PO_DETECTED" || (allShipmentsDelivered && hasRemainingQty);
   /** Create / couple from PO page without requiring claim first (grouping can start while status is NEW_PO_DETECTED). */
   const canCreateOrCouple = st !== "FULFILLED";
-  /** Matches POST /po/:id/take then POST /po/:id/create-shipment (both permissions required for current flow). */
-  const canClaimAndCreateShipment =
-    can(user, "TAKE_OWNERSHIP") && can(user, "CREATE_SHIPMENT");
   const canCoupleToShipment = can(user, "COUPLE_DECOUPLE_PO");
-  /** Second (or later) new shipment while links already exist — same API as first leg after Claim. */
-  const canCreateAnotherShipment =
-    canCreateOrCouple && can(user, "CREATE_SHIPMENT") && linkedShipments.length > 0;
+  const canShowNewShipment =
+    st !== "FULFILLED" &&
+    can(user, "CREATE_SHIPMENT") &&
+    (linkedShipments.length > 0 || needsTakeBeforeShipment) &&
+    (!needsTakeBeforeShipment || can(user, "TAKE_OWNERSHIP"));
   const canRemoveLinkedShipment = can(user, "UPDATE_SHIPMENT");
+  const newShipmentBusyLabel = needsTakeBeforeShipment
+    ? "Claiming & creating shipment…"
+    : "Creating shipment…";
 
   /** Same field as Create PO / API `currency` (e.g. USD, IDR) — not the per-line rate. */
   const poCurrency = detail.currency?.trim() || null;
@@ -440,15 +429,21 @@ export function PoDetail({ id }: { id: string }) {
           <Link href="/import/po/new" className={styles.actionOutline}>
             Create Purchase Order
           </Link>
-          {canTake && canClaimAndCreateShipment && (
+          {canShowNewShipment && (
             <Button
               type="button"
               variant="primary"
-              onClick={handleTakeOwnership}
-              disabled={taking}
+              onClick={() => handleNewShipmentClick(needsTakeBeforeShipment, linkedShipments.length)}
+              disabled={creatingNewShipment}
               className={styles.actionPrimary}
+              data-tour="po-new-shipment"
+              title={
+                linkedShipments.length > 0
+                  ? "Create a new shipment linked to this PO—for split cargo or a second booking."
+                  : "Claim this PO and create the first linked shipment."
+              }
             >
-              {taking ? "Claiming & creating shipment…" : canTakeAgain ? "Claim again" : "Claim"}
+              {creatingNewShipment ? newShipmentBusyLabel : "New shipment"}
             </Button>
           )}
           {canEditPoIntake && (
@@ -456,18 +451,6 @@ export function PoDetail({ id }: { id: string }) {
               <Pencil size={18} strokeWidth={2} aria-hidden className={styles.actionOutlineIcon} />
               Edit Purchase Order
             </Link>
-          )}
-          {canCreateAnotherShipment && (
-            <button
-              type="button"
-              className={styles.actionOutline}
-              data-tour="po-create-another-shipment"
-              title="Split cargo or start a second voyage while the first shipment is still in progress."
-              onClick={() => setCreateAnotherConfirmOpen(true)}
-              disabled={creatingAnotherShipment || taking}
-            >
-              {creatingAnotherShipment ? "Creating shipment…" : "Create another shipment"}
-            </button>
           )}
           {canCreateOrCouple && canCoupleToShipment && (
             <button
@@ -481,7 +464,12 @@ export function PoDetail({ id }: { id: string }) {
               Couple to shipment
             </button>
           )}
-          {canCreateAnotherShipment && (
+          {canShowNewShipment && linkedShipments.length === 0 && (
+            <p className={styles.multiAllocationHint}>
+              Claims this PO for you and creates the first linked shipment.
+            </p>
+          )}
+          {canShowNewShipment && linkedShipments.length > 0 && !allShipmentsDelivered && (
             <p className={styles.multiAllocationHint}>
               This PO can stay on several active shipments at the same time—for example split cargo or a second
               booking while the first is still underway. If ship mode is Bulk on those shipments, delivered quantities
@@ -489,11 +477,11 @@ export function PoDetail({ id }: { id: string }) {
               shipment.
             </p>
           )}
-          {canTakeAgain && (
-            <span className={styles.claimAgainHint}>
-              All linked shipments are delivered and there is remaining quantity. Claim again to create or couple
-              another shipment.
-            </span>
+          {canShowNewShipment && allShipmentsDelivered && hasRemainingQty && (
+            <p className={styles.multiAllocationHint}>
+              All linked shipments are delivered and quantity remains open. New shipment assigns this PO to you for
+              the next leg. To attach an existing open shipment instead, choose Couple to shipment.
+            </p>
           )}
         </div>
       </Card>
@@ -699,28 +687,34 @@ export function PoDetail({ id }: { id: string }) {
       </Modal>
 
       <Modal
-        open={createAnotherConfirmOpen}
-        onClose={() => setCreateAnotherConfirmOpen(false)}
-        title="Create another shipment?"
+        open={newShipmentConfirmOpen}
+        onClose={() => !creatingNewShipment && setNewShipmentConfirmOpen(false)}
+        title="New shipment?"
         footer={
           <>
             <Button
               type="button"
               variant="primary"
-              onClick={handleCreateAnotherShipment}
-              disabled={creatingAnotherShipment || taking}
+              onClick={() => executeNewShipment(needsTakeBeforeShipment)}
+              disabled={creatingNewShipment}
             >
-              {creatingAnotherShipment ? "Creating…" : "Create shipment"}
+              {creatingNewShipment ? newShipmentBusyLabel : "Create shipment"}
             </Button>
-            <Button type="button" variant="secondary" onClick={() => setCreateAnotherConfirmOpen(false)} disabled={creatingAnotherShipment}>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setNewShipmentConfirmOpen(false)}
+              disabled={creatingNewShipment}
+            >
               Cancel
             </Button>
           </>
         }
       >
         <p className={styles.coupleModalHint}>
-          This will generate a new shipment record linked to this Purchase Order. Use this for split cargo or secondary
-          bookings.
+          {needsTakeBeforeShipment && allShipmentsDelivered && hasRemainingQty
+            ? "This will assign the PO to you and create a new shipment for the remaining quantity."
+            : "This will create a new shipment record linked to this Purchase Order—for split cargo or a secondary booking."}
         </p>
       </Modal>
 
@@ -756,8 +750,8 @@ export function PoDetail({ id }: { id: string }) {
         {coupleShipmentsError && <p className={styles.error}>{coupleShipmentsError}</p>}
         {!coupleShipmentsLoading && !coupleShipmentsError && eligibleCoupleShipments.length === 0 && (
           <p className={styles.fieldValue}>
-            No matching open shipments found. Use Create another shipment on this PO page, paste a shipment UUID below,
-            or use Claim if you have not created a shipment yet.
+            No matching open shipments found. Use New shipment on this PO page, paste a shipment UUID below, or create
+            the first shipment from this page if none exists yet.
           </p>
         )}
         {eligibleCoupleShipments.length > 0 && (

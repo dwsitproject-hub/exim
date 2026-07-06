@@ -1,0 +1,55 @@
+.linesTitle {
+  font-size: var(--typography-fontSize-small, 14px);
+  font-weight: var(--typography-fontWeight-semibold, 600);
+  margin: 0 0 8px;
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+}
+
+.linesTableWrap {
+  overflow-x: auto;
+  border: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  border-radius: var(--borderRadius-sm, 6px);
+}
+
+.linesTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--typography-fontSize-xs, 12px);
+}
+
+.linesTable th,
+.linesTable td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  white-space: nowrap;
+}
+
+.linesTable th {
+  background: var(--color-primitive-background-lighter, #fafafa);
+  font-weight: var(--typography-fontWeight-semibold, 600);
+}
+
+.linesTable tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.linesHint {
+  margin: 8px 0 0;
+  font-size: var(--typography-fontSize-xs, 12px);
+  color: var(--color-primitive-text-steel, #6b6b6b);
+}
+
+.rowMatch td:first-child {
+  color: var(--color-semantic-success-default, #2e7d32);
+  font-weight: 600;
+}
+
+.rowMismatch {
+  background: #fff8f7;
+}
+
+.rowMismatch td:first-child {
+  color: var(--color-semantic-destructive-default, #c43a31);
+  font-weight: 600;
+}

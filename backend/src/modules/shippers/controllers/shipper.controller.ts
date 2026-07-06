@@ -7,14 +7,26 @@ import type { ListShippersQuery } from "../dto/index.js";
 const repo = new ShipperRepository();
 const service = new ShipperService(repo);
 
+function parseListQuery(req: Request): ListShippersQuery {
+  return {
+    search: typeof req.query.search === "string" ? req.query.search : undefined,
+  };
+}
+
 /* ───────── shippers ───────── */
 
 export async function listShippers(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const query: ListShippersQuery = {
-      search: typeof req.query.search === "string" ? req.query.search : undefined,
-    };
-    const rows = await service.listShippers(query);
+    const rows = await service.listShippers(parseListQuery(req));
+    sendSuccess(res, rows);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function listShippersMaster(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const rows = await service.listShippersMaster(parseListQuery(req));
     sendSuccess(res, rows);
   } catch (err) {
     next(err);
@@ -69,7 +81,53 @@ export async function removeShipper(req: Request, res: Response, next: NextFunct
   }
 }
 
-/* ───────── shipper loadports ───────── */
+/* ───────── plants ───────── */
+
+export async function listPlants(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const rows = await service.listPlants(req.params.id);
+    sendSuccess(res, rows);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function createPlant(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const row = await service.createPlant(req.params.id, req.body);
+    sendSuccess(res, row, { statusCode: 201 });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function updatePlant(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const row = await service.updatePlant(req.params.plantId, req.body);
+    if (!row) {
+      sendError(res, "Plant not found", { statusCode: 404 });
+      return;
+    }
+    sendSuccess(res, row);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function removePlant(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const row = await service.softDeletePlant(req.params.plantId);
+    if (!row) {
+      sendError(res, "Plant not found", { statusCode: 404 });
+      return;
+    }
+    sendSuccess(res, { message: "Deleted" });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/* ───────── loadports ───────── */
 
 export async function listLoadports(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {

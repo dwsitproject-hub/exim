@@ -5,7 +5,13 @@ import { useRouter } from "next/navigation";
 import { ChevronRight, Filter, Plane, Ship, X } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { can } from "@/lib/permissions";
-import { PT_OPTION_LABELS, getAllPlantsSorted } from "@/lib/po-create-constants";
+import {
+  listShippersMaster,
+  getPtShortNameOptions,
+  getAllPlantsFromMasters,
+  formatPtOptionLabel,
+  type ShipperMaster,
+} from "@/services/shipper-service";
 import { PRODUCT_CLASSIFICATION_OPTIONS, displayProductClassification } from "@/lib/product-classification";
 import { getShipmentAnalytics, getShipmentAnalyticsLines } from "@/services/dashboard-service";
 import { listPo, getPoDetail } from "@/services/po-service";
@@ -178,7 +184,17 @@ export function DashboardAnalyticsSection() {
     setLogisticsModalOpen(true);
   }, []);
 
-  const plantsSorted = useMemo(() => getAllPlantsSorted(), []);
+  const [shipperMasters, setShipperMasters] = useState<ShipperMaster[]>([]);
+
+  useEffect(() => {
+    if (!accessToken) return;
+    listShippersMaster(accessToken).then((res) => {
+      if (!isApiError(res)) setShipperMasters((res as ApiSuccess<ShipperMaster[]>).data ?? []);
+    });
+  }, [accessToken]);
+
+  const ptOptions = useMemo(() => getPtShortNameOptions(shipperMasters), [shipperMasters]);
+  const plantsSorted = useMemo(() => getAllPlantsFromMasters(shipperMasters), [shipperMasters]);
 
   const getPoAmountDashboardUsd = (detail: PoDetail, rate: number): number =>
     detail.items.reduce((sum, item) => {
@@ -1205,7 +1221,7 @@ export function DashboardAnalyticsSection() {
               <div>
                 <div className={styles.analyticsMultiFieldLabel}>PT (company entity)</div>
                 <div className={styles.analyticsCheckboxScroll}>
-                  {PT_OPTION_LABELS.map((pt) => (
+                  {ptOptions.map((pt) => (
                     <label key={pt} className={styles.analyticsCheckRow}>
                       <input
                         type="checkbox"
@@ -1217,7 +1233,7 @@ export function DashboardAnalyticsSection() {
                           }))
                         }
                       />
-                      {pt}
+                      {formatPtOptionLabel(pt, shipperMasters)}
                     </label>
                   ))}
                 </div>

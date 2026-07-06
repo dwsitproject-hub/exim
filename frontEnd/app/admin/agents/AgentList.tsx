@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
-import { can } from "@/lib/permissions";
+import { canManageExportMasterList } from "@/lib/permissions";
 import {
   listAgents,
   createAgent,
@@ -12,10 +12,8 @@ import {
 } from "@/services/agent-service";
 import { isApiError } from "@/types/api";
 import type { ApiSuccess } from "@/types/api";
-import { Card } from "@/components/cards";
 import { useToast } from "@/components/providers/ToastProvider";
-import { PageHeader, ActionBar, EmptyState, AccessDenied } from "@/components/navigation";
-import { SearchBar } from "@/components/forms";
+import { AccessDenied } from "@/components/navigation";
 import { Alert } from "@/components/feedback";
 import {
   Table,
@@ -26,7 +24,7 @@ import {
   TableHeaderCell,
 } from "@/components/tables";
 import { Modal } from "@/components/overlays/Modal";
-import styles from "../shippers/ShipperList.module.css";
+import styles from "./AgentList.module.css";
 
 const MANAGE_AGENTS = "MANAGE_AGENTS";
 
@@ -35,8 +33,8 @@ export function AgentList() {
   const [items, setItems] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [searchInput, setSearchInput] = useState("");
-  const [searchParam, setSearchParam] = useState("");
+  const [filter, setFilter] = useState("");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const { pushToast } = useToast();
 
   const [modalOpen, setModalOpen] = useState(false);
@@ -44,7 +42,7 @@ export function AgentList() {
   const [nameValue, setNameValue] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const allowed = can(user, MANAGE_AGENTS);
+  const allowed = canManageExportMasterList(user, MANAGE_AGENTS);
 
   const fetchList = useCallback(() => {
     if (!accessToken || !allowed) {
@@ -52,7 +50,7 @@ export function AgentList() {
       return;
     }
     setLoading(true);
-    listAgents(accessToken, searchParam.trim() || undefined)
+    listAgents(accessToken)
       .then((res) => {
         if (isApiError(res)) {
           setError(res.message);
@@ -63,14 +61,26 @@ export function AgentList() {
       })
       .catch(() => setError("Failed to load agents"))
       .finally(() => setLoading(false));
-  }, [accessToken, allowed, searchParam]);
+  }, [accessToken, allowed]);
 
   useEffect(() => {
     fetchList();
   }, [fetchList]);
 
-  function handleSearchSubmit() {
-    setSearchParam(searchInput);
+  const displayedItems = useMemo(() => {
+    const query = filter.trim().toLowerCase();
+    const filtered = query
+      ? items.filter((agent) => agent.name.toLowerCase().includes(query))
+      : items;
+
+    return [...filtered].sort((a, b) => {
+      const cmp = a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+  }, [items, filter, sortDir]);
+
+  function toggleSort() {
+    setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
   }
 
   const openCreate = useCallback(() => {
@@ -115,7 +125,7 @@ export function AgentList() {
   if (!allowed) {
     return (
       <AccessDenied
-        title="Master Agent"
+        title="Agent"
         backHref="/admin/dashboard"
         backLabel="Dashboard"
         message="You do not have permission to manage agents."
@@ -124,100 +134,117 @@ export function AgentList() {
   }
 
   return (
-    <section>
-      <PageHeader
-        title="Master Agent"
-        backHref="/admin/dashboard"
-        backLabel="Dashboard"
-        subtitle="Manage forwarding agents used in export bulking Commercial Terms."
-      />
+    <section className={styles.page}>
+      <div className={styles.pageHeader}>
+        <h1 className={styles.pageTitle}>Agent</h1>
+        <button type="button" className={styles.addBtn} onClick={openCreate}>
+          Add Agent
+        </button>
+      </div>
 
-      <ActionBar
-        search={
-          <SearchBar
-            value={searchInput}
-            onChange={setSearchInput}
-            onSubmit={handleSearchSubmit}
-            placeholder="Search agents…"
-            ariaLabel="Search agents"
-          />
-        }
-        primaryAction={
-          <button type="button" className={styles.createBtn} onClick={openCreate}>
-            New agent
-          </button>
-        }
-      />
+      <div className={styles.listCard}>
+        {error && (
+          <div style={{ padding: "16px 20px 0" }}>
+            <Alert>{error}</Alert>
+          </div>
+        )}
 
-      <Card>
-        {error && <Alert>{error}</Alert>}
         {loading ? (
-          <p className="utilLoadingFallback">Loading…</p>
-        ) : items.length === 0 ? (
-          <EmptyState title="No agents" description="Create your first agent." />
+          <p className={styles.emptyState}>Loading…</p>
         ) : (
-          <Table>
+          <Table wrapperClassName={styles.tableWrapper}>
             <TableHead>
               <TableRow>
-                <TableHeaderCell>Agent Name</TableHeaderCell>
-                <TableHeaderCell style={{ width: 160, textAlign: "right" }}>Actions</TableHeaderCell>
+                <TableHeaderCell>
+                  <button
+                    type="button"
+                    className={styles.sortBtn}
+                    onClick={toggleSort}
+                    aria-label={`Sort agents ${sortDir === "asc" ? "ascending" : "descending"}`}
+                  >
+                    Agent
+                    <span aria-hidden>{sortDir === "asc" ? "↑" : "↓"}</span>
+                  </button>
+                </TableHeaderCell>
+                <TableHeaderCell className={styles.actionsHeader}>Actions</TableHeaderCell>
+              </TableRow>
+              <TableRow className={styles.filterRow}>
+                <TableHeaderCell colSpan={2} className={styles.filterCell}>
+                  <input
+                    type="text"
+                    className={styles.filterInput}
+                    value={filter}
+                    onChange={(e) => setFilter(e.target.value)}
+                    placeholder="Filter Agent"
+                    aria-label="Filter Agent"
+                  />
+                </TableHeaderCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {items.map((agent) => (
-                <TableRow key={agent.id}>
-                  <TableCell>{agent.name}</TableCell>
-                  <TableCell style={{ textAlign: "right" }}>
-                    <button
-                      type="button"
-                      className={styles.saveBtn}
-                      style={{ marginRight: 8 }}
-                      onClick={() => openEdit(agent)}
-                    >
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      className={styles.deleteBtn}
-                      onClick={() => handleDeleteAgent(agent.id)}
-                    >
-                      Delete
-                    </button>
+              {displayedItems.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={2} className={styles.emptyState}>
+                    {filter.trim() ? "No agents match your filter." : "No agents yet. Add your first agent."}
                   </TableCell>
                 </TableRow>
-              ))}
+              ) : (
+                displayedItems.map((agent) => (
+                  <TableRow key={agent.id}>
+                    <TableCell>{agent.name}</TableCell>
+                    <TableCell className={styles.actionsCell}>
+                      <button
+                        type="button"
+                        className={styles.actionBtn}
+                        onClick={() => openEdit(agent)}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.actionBtn}
+                        onClick={() => handleDeleteAgent(agent.id)}
+                      >
+                        Delete
+                      </button>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
         )}
-      </Card>
+      </div>
 
       <Modal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
-        title={editingId ? "Edit agent" : "New agent"}
+        title={editingId ? "Edit Agent" : "Add Agent"}
+        footer={
+          <div className={styles.modalActions}>
+            <button type="button" className={styles.cancelBtn} onClick={() => setModalOpen(false)}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className={styles.saveBtn}
+              onClick={handleSave}
+              disabled={saving || !nameValue.trim()}
+            >
+              {saving ? "Saving…" : "Save"}
+            </button>
+          </div>
+        }
       >
-        <label className={styles.modalLabel} htmlFor="agent-name">
-          Agent name
-        </label>
-        <input
-          id="agent-name"
-          className={styles.modalInput}
-          value={nameValue}
-          onChange={(e) => setNameValue(e.target.value)}
-          autoFocus
-        />
-        <div className={styles.modalActions}>
-          <button type="button" className={styles.cancelBtn} onClick={() => setModalOpen(false)}>
-            Cancel
-          </button>
-          <button
-            type="button"
-            className={styles.saveBtn}
-            onClick={handleSave}
-            disabled={saving || !nameValue.trim()}
-          >
-            {saving ? "Saving…" : "Save"}
-          </button>
+        <div className={styles.modalField}>
+          <label htmlFor="agent-name">Agent name</label>
+          <input
+            id="agent-name"
+            type="text"
+            value={nameValue}
+            onChange={(e) => setNameValue(e.target.value)}
+            autoFocus
+          />
         </div>
       </Modal>
     </section>

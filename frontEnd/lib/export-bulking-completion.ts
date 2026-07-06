@@ -104,7 +104,7 @@ export function buildExportCompletionSummary(
       id: "si",
       label: "Shipping instructions",
       done: siDone(input),
-      hint: "At least one SI",
+      hint: "At least one shipping instruction",
     },
     {
       id: "arrival",
@@ -128,7 +128,7 @@ export function buildExportCompletionSummary(
       id: "documents",
       label: "Documents set",
       done: docsDone(input),
-      hint: "SI, invoice, and packing list",
+      hint: "Shipping instruction, invoice, and packing list",
     },
   ];
 

@@ -144,6 +144,9 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--spacing-3, 16px);
+  position: sticky;
+  top: 0;
+  z-index: 6;
   margin: 0 var(--spacing-4, 24px) var(--spacing-3, 16px);
   padding: 10px var(--spacing-3, 16px);
   background: #fef3c7;
@@ -155,6 +158,18 @@
 .unsavedMsg {
   color: #92400e;
   font-weight: 500;
+}
+
+.refreshingBar {
+  margin: 0 var(--spacing-4, 24px) var(--spacing-2, 8px);
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #475569;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: var(--borderRadius-md, 8px);
+  text-align: center;
 }
 
 /* ── Sidebar cards ── */
@@ -800,11 +815,206 @@ select.fieldInput {
   text-align: center;
 }
 
-/* ── Cargo lines spreadsheet table ── */
+/* ── Cargo line cards (documentation tab) ── */
+
+.cargoCardList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3, 16px);
+}
+
+.cargoLineCard {
+  overflow: hidden;
+}
+
+.cargoLineCardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-2, 8px);
+  padding: var(--spacing-3, 16px);
+  background: var(--color-primitive-background-light, #ececec);
+  border-bottom: 1px solid var(--color-primitive-border-light, #e0e0e0);
+}
+
+.cargoLineCardTitle {
+  margin: 0;
+  font-size: var(--typography-fontSize-small, 14px);
+  font-weight: var(--typography-fontWeight-semibold, 600);
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+}
+
+.cargoLineCardRemove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  border-radius: var(--borderRadius-sm, 6px);
+  background: var(--color-primitive-background-white, #fff);
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  cursor: pointer;
+}
+
+.cargoLineCardRemove:hover {
+  color: var(--color-semantic-primary-default, #c43a31);
+  border-color: var(--color-semantic-primary-default, #c43a31);
+}
+
+.cargoLineCardRemoveConfirm {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: var(--typography-fontSize-small, 14px);
+  color: var(--color-primitive-text-steel, #6b6b6b);
+}
+
+.cargoLineCardBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3, 16px);
+  padding: var(--spacing-3, 16px);
+}
+
+.cargoLineCardRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(88px, 0.65fr) minmax(64px, 0.45fr) minmax(0, 1.35fr);
+  gap: var(--spacing-3, 16px);
+  align-items: start;
+}
+
+.cargoPeSplit {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--spacing-2, 8px);
+}
+
+@media (max-width: 960px) {
+  .cargoLineCardRow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .cargoLineCardRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .cargoPeSplit {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ── Data SAP table (one row per SO) ── */
+
+.sapTableWrap {
+  width: 100%;
+  overflow-x: auto;
+  margin-bottom: var(--spacing-2, 8px);
+  border: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  border-radius: var(--borderRadius-md, 8px);
+  background: var(--color-primitive-background-white, #fff);
+}
+
+.sapTable {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.billingQtyCell {
+  white-space: nowrap;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  font-variant-numeric: tabular-nums;
+}
+
+.billingOcrTargetRow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1, 4px);
+  max-width: 280px;
+  margin-bottom: var(--spacing-3, 16px);
+}
+
+.billingTableWrap .sapTable {
+  min-width: 1080px;
+}
+
+.sapTable thead {
+  background: var(--color-primitive-background-lighter, #fafafa);
+  border-bottom: 1px solid var(--color-primitive-border-light, #e0e0e0);
+}
+
+.sapTable th {
+  padding: 8px 10px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  white-space: nowrap;
+}
+
+.sapTable tbody tr {
+  border-bottom: 1px solid var(--color-primitive-border-light, #e0e0e0);
+}
+
+.sapTable tbody tr:last-child {
+  border-bottom: none;
+}
+
+.sapTable td {
+  padding: 6px 8px;
+  vertical-align: middle;
+}
+
+.sapSoCell {
+  width: 14%;
+  min-width: 88px;
+}
+
+.sapSoLabel {
+  display: block;
+  font-weight: 600;
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+  word-break: break-word;
+}
+
+.sapInput {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 6px 8px;
+  border: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  border-radius: var(--borderRadius-sm, 6px);
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+  background: var(--color-primitive-background-white, #fff);
+}
+
+.sapInput:focus {
+  outline: none;
+  border-color: var(--color-semantic-primary-default, #c43a31);
+  box-shadow: 0 0 0 2px rgba(196, 58, 49, 0.12);
+}
+
+.readOnlyRegion .sapInput {
+  cursor: default;
+  background: #e2e5e9;
+  color: #1a1a1a;
+}
+
+/* ── Cargo lines spreadsheet table (reconciliation / other views) ── */
 
 .cargoTableWrap {
   width: 100%;
-  overflow-x: hidden;
+  overflow-x: auto;
   margin-bottom: var(--spacing-2, 8px);
   border: 1px solid var(--color-primitive-border-light, #e0e0e0);
   border-radius: var(--borderRadius-md, 8px);
@@ -832,7 +1042,15 @@ select.fieldInput {
 }
 
 .cargoColEven {
-  width: 14.8%;
+  width: 12%;
+}
+
+.cargoColPeNo {
+  width: 9%;
+}
+
+.cargoColPeDate {
+  width: 9%;
 }
 
 .cargoColActions {
@@ -1444,7 +1662,7 @@ textarea.fieldInputReadonly:focus {
 }
 
 .stageCardBody {
-  padding: 0 16px 16px;
+  padding: var(--spacing-3, 16px) 16px 16px;
   border-top: 1px solid var(--color-primitive-border-light, #e0e0e0);
 }
 
@@ -1483,6 +1701,13 @@ textarea.fieldInputReadonly:focus {
   padding-top: var(--spacing-3, 16px);
   border-top: 1px solid var(--color-primitive-border-light, #e0e0e0);
   margin-top: var(--spacing-2, 8px);
+}
+
+.docSiGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3, 12px);
+  margin-bottom: var(--spacing-4, 16px);
 }
 
 .docStatusBadge {
@@ -1596,6 +1821,10 @@ textarea.fieldInputReadonly:focus {
   box-shadow: 0 8px 12px -12px rgba(0, 0, 0, 0.12);
 }
 
+.page:has(.unsavedBanner) .jumpNavWrap {
+  top: 52px;
+}
+
 .jumpNav {
   display: flex;
   flex-wrap: wrap;
@@ -1624,6 +1853,12 @@ textarea.fieldInputReadonly:focus {
 .jumpNavBtn:focus-visible {
   outline: 2px solid var(--color-semantic-primary-default, #c43a31);
   outline-offset: 2px;
+}
+
+.jumpNavBtnDirty {
+  border-color: #fcd34d;
+  background: #fef3c7;
+  color: #92400e;
 }
 
 .jumpNavTools {
@@ -2113,6 +2348,7 @@ textarea.fieldInputReadonly:focus {
   :global(.eos-sidebar-collapsed) .stageCard,
   :global(.eos-sidebar-collapsed) .tableWrap,
   :global(.eos-sidebar-collapsed) .cargoTableWrap,
+  :global(.eos-sidebar-collapsed) .cargoCardList,
   :global(.eos-sidebar-collapsed) .reconTableWrap {
     width: 100%;
   }
@@ -2318,6 +2554,7 @@ textarea.fieldInputReadonly:focus {
 .readOnlyPage .unsavedBanner,
 .readOnlyPage .cargoTableFooter,
 .readOnlyPage .cargoRowRemove,
+.readOnlyPage .cargoLineCardRemove,
 .readOnlyPage .btnDanger,
 .readOnlyPage .btnDangerSm,
 .readOnlyPage .milestoneToggleBtn,
@@ -2328,6 +2565,7 @@ textarea.fieldInputReadonly:focus {
 .readOnlyRegion .stageCardAdvanceRow,
 .readOnlyRegion .cargoTableFooter,
 .readOnlyRegion .cargoRowRemove,
+.readOnlyRegion .cargoLineCardRemove,
 .readOnlyRegion .btnDanger,
 /* ── Documentation Progress Bar ─────────────────────────────────────────── */
 .docProgressWrap {
@@ -2491,6 +2729,27 @@ textarea.fieldInputReadonly:focus {
   padding: var(--spacing-3, 12px) var(--spacing-4, 16px) 0;
 }
 
+.docStepSections {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Consistent spacing between documentation sections (Cargo, Receipt Date, SI, Invoices, PL) */
+.docStepBody .section {
+  margin-bottom: var(--spacing-3, 16px);
+}
+
+.docStepBody .sectionHeader {
+  margin-bottom: var(--spacing-2, 12px);
+}
+
+.docSectionPanel {
+  border: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  border-radius: var(--borderRadius-md, 8px);
+  background: var(--color-primitive-background-white, #fff);
+  padding: var(--spacing-3, 16px);
+}
+
 /* Prevent double bottom margin from the last section inside a step card */
 .docStepBody > :last-child {
   margin-bottom: 0;
@@ -2517,6 +2776,13 @@ textarea.fieldInputReadonly:focus {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-1, 4px);
+}
+
+.billingOcrColFull {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1, 4px);
+  grid-column: 1 / -1;
 }
 
 .billingOcrLabel {
@@ -2645,4 +2911,88 @@ textarea.fieldInputReadonly:focus {
 .readOnlyRegion .loadportConfirm,
 .readOnlyRegion .siDocumentPreviewActions {
   display: none;
+}
+
+.pebSiBlock {
+  margin-bottom: var(--spacing-4, 24px);
+  padding-bottom: var(--spacing-3, 16px);
+  border-bottom: 1px dashed var(--color-primitive-border-light, #e5e7eb);
+}
+
+.pebSiBlock:last-of-type {
+  border-bottom: none;
+  margin-bottom: var(--spacing-2, 8px);
+}
+
+.pebSiBlockHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-2, 8px);
+  margin-bottom: var(--spacing-2, 8px);
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+}
+
+.btnGhostSm {
+  border: none;
+  background: transparent;
+  color: var(--color-semantic-destructive-default, #c43a31);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 2px 6px;
+}
+
+.btnGhostSm:hover {
+  text-decoration: underline;
+}
+
+.billingSummary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--spacing-3, 16px);
+  margin: var(--spacing-4, 24px) 0 var(--spacing-3, 16px);
+  padding: var(--spacing-3, 16px);
+  border-radius: 8px;
+  background: var(--color-primitive-surface-subtle, #f8f9fa);
+  border: 1px solid var(--color-primitive-border-light, #e5e7eb);
+}
+
+@media (max-width: 768px) {
+  .billingSummary {
+    grid-template-columns: 1fr;
+  }
+}
+
+.billingSummaryItem {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.billingSummaryItemTotal {
+  border-left: 2px solid var(--color-semantic-primary-default, #c43a31);
+  padding-left: var(--spacing-3, 16px);
+}
+
+@media (max-width: 768px) {
+  .billingSummaryItemTotal {
+    border-left: none;
+    border-top: 2px solid var(--color-semantic-primary-default, #c43a31);
+    padding-left: 0;
+    padding-top: var(--spacing-2, 8px);
+  }
+}
+
+.billingSummaryLabel {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-primitive-text-steel, #6b7280);
+}
+
+.billingSummaryValue {
+  font-size: 16px;
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
 }

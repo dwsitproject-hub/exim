@@ -185,6 +185,28 @@ export interface ExportBulkingShipmentRow {
   invoice_line_summaries?: { contract_no: string | null; quantity: number | null; so_no: string | null }[] | null;
 }
 
+export interface BillingLineDto {
+  id?: string;
+  so_no: string;
+  line_order?: number;
+  biaya_keluar_price_usd_mt?: number | null;
+  biaya_keluar_amount_idr?: number | null;
+  biaya_keluar_billing_no?: string | null;
+  levy_price_usd_mt?: number | null;
+  levy_amount_idr?: number | null;
+  levy_billing_no?: string | null;
+}
+
+export interface SapLineDto {
+  id?: string;
+  so_no: string;
+  line_order?: number;
+  quantity_spb?: number | null;
+  spb?: string | null;
+  delivery_order_pgi?: string | null;
+  spr?: string | null;
+}
+
 export interface CargoLineDto {
   id?: string;
   line_order?: number;
@@ -198,6 +220,8 @@ export interface CargoLineDto {
   quantity_delivered?: number;
   bl_figure?: number;
   ship_figure?: number;
+  pe_no?: string;
+  pe_date?: string;
 }
 
 export interface ShippingInstructionDto {
@@ -211,7 +235,27 @@ export interface ShippingInstructionDto {
   shipper_snapshot?: string;
   npwp?: string;
   bl_indicated?: string;
+  peb_request_no?: string | null;
+  peb_no?: string | null;
+  peb_date?: string | null;
+  hs_code?: string | null;
   lines?: SiLineDto[];
+}
+
+export interface SiPebFieldsDto {
+  id: string;
+  peb_request_no?: string | null;
+  peb_no?: string | null;
+  peb_date?: string | null;
+  hs_code?: string | null;
+}
+
+export interface BillOfLadingDto {
+  id?: string;
+  line_order?: number;
+  bill_of_lading_no?: string | null;
+  bill_of_lading_date?: string | null;
+  bill_of_lading_nn_obl?: string | null;
 }
 
 export interface BlSplitEntryDto {
@@ -244,6 +288,22 @@ export interface InvoiceDto {
   /** Convenience: creates an initial invoice line tied to cargo when lines are omitted on create. */
   cargo_line_id?: string | null;
   lines?: InvoiceLineDto[];
+  qty_change_reason?: string;
+}
+
+export interface InvoiceSplitDto {
+  mode: "equal" | "quantities";
+  count?: number;
+  quantities?: number[];
+  cargo_line_id?: string | null;
+}
+
+export interface InvoiceAmendDto {
+  reason: string;
+}
+
+export interface InvoiceFinalizeDto {
+  note?: string;
 }
 
 export interface InvoiceLineDto {

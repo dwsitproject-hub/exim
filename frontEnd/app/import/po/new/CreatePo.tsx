@@ -11,7 +11,15 @@ import { Button, ComboboxSelect } from "@/components/forms";
 import { useToast } from "@/components/providers/ToastProvider";
 import { formatPriceInputWithCommas, roundTo2Decimals, roundTo3Decimals } from "@/lib/format-number";
 import { INCOTERM_OPTIONS } from "@/lib/incoterms";
-import { PT_OPTION_LABELS, PO_ITEM_UNIT_OPTIONS, getPlantConfigForPt } from "@/lib/po-create-constants";
+import { PO_ITEM_UNIT_OPTIONS } from "@/lib/po-create-constants";
+import {
+  listShippersMaster,
+  findShipperMasterMatch,
+  resolveShipperShortName,
+  getPlantsForShortName,
+  formatPtOptionLabel,
+  type ShipperMaster,
+} from "@/services/shipper-service";
 import { isApiError } from "@/types/api";
 import type { CreateTestPoPayload } from "@/types/po";
 import { PoPdfUpload, type ApplyPoData } from "./PoPdfUpload";
@@ -92,6 +100,14 @@ export function CreatePo() {
     currency: "USD",
     items: [initialItem()],
   });
+  const [shipperMasters, setShipperMasters] = useState<ShipperMaster[]>([]);
+
+  useEffect(() => {
+    if (!accessToken) return;
+    listShippersMaster(accessToken).then((res) => {
+      if (!isApiError(res)) setShipperMasters(res.data ?? []);
+    });
+  }, [accessToken]);
 
   /**
    * Called when user clicks "Apply to form" in the PDF upload review panel.
@@ -117,11 +133,14 @@ export function CreatePo() {
       }
 
       // PT / Plant: only apply if non-null (parser currently always returns null for PT)
-      if (data.pt && PT_OPTION_LABELS.includes(data.pt as typeof PT_OPTION_LABELS[number])) {
-        next.pt = data.pt;
-        const config = getPlantConfigForPt(data.pt);
-        if (config?.mode === "fixed") next.plant = config.plant;
-        else if (data.plant) next.plant = data.plant;
+      if (data.pt) {
+        const ptShort = resolveShipperShortName(data.pt, shipperMasters);
+        if (ptShort) {
+          next.pt = ptShort;
+          const plants = getPlantsForShortName(shipperMasters, ptShort);
+          if (plants.length === 1) next.plant = plants[0]!;
+          else if (data.plant && plants.includes(data.plant)) next.plant = data.plant;
+        }
       }
 
       // Items: replace only if at least one item was extracted
@@ -151,15 +170,15 @@ export function CreatePo() {
   }
 
   function handlePtChange(pt: string) {
-    const config = getPlantConfigForPt(pt);
-    setForm((prev) => {
-      let plant = "";
-      if (config?.mode === "fixed") plant = config.plant;
-      return { ...prev, pt, plant };
-    });
+    const plants = getPlantsForShortName(shipperMasters, pt);
+    setForm((prev) => ({
+      ...prev,
+      pt,
+      plant: plants.length === 1 ? plants[0]! : "",
+    }));
   }
 
-  const plantConfig = form.pt ? getPlantConfigForPt(form.pt) : null;
+  const plantOptions = form.pt ? getPlantsForShortName(shipperMasters, form.pt) : [];
 
   function updateItem<K extends keyof ItemFormLine>(index: number, field: K, value: ItemFormLine[K]) {
     setForm((prev) => {
@@ -225,8 +244,12 @@ export function CreatePo() {
       setSubmitError("Please select PT.");
       return;
     }
-    if (plantConfig?.mode === "select" && !form.plant?.trim()) {
+    if (plantOptions.length > 1 && !form.plant?.trim()) {
       setSubmitError("Please select Plant.");
+      return;
+    }
+    if (plantOptions.length === 0 && form.pt.trim() && !form.plant?.trim()) {
+      setSubmitError("Plant is required.");
       return;
     }
     if (!form.delivery_location?.trim()) {
@@ -335,9 +358,9 @@ export function CreatePo() {
                 aria-label="PT"
               >
                 <option value="">— Select PT —</option>
-                {PT_OPTION_LABELS.map((label) => (
-                  <option key={label} value={label}>
-                    {label}
+                {shipperMasters.map((master) => (
+                  <option key={master.id} value={master.short_name}>
+                    {formatPtOptionLabel(master.short_name, shipperMasters)}
                   </option>
                 ))}
               </select>
@@ -359,17 +382,28 @@ export function CreatePo() {
                   aria-label="Plant"
                 />
               )}
-              {form.pt && plantConfig?.mode === "fixed" && (
+              {form.pt && plantOptions.length === 0 && (
                 <input
                   id="plant"
                   type="text"
                   className={styles.formInput}
-                  value={plantConfig.plant}
+                  value={form.plant ?? ""}
+                  onChange={(e) => updateField("plant", e.target.value)}
+                  required
+                  aria-label="Plant"
+                />
+              )}
+              {form.pt && plantOptions.length === 1 && (
+                <input
+                  id="plant"
+                  type="text"
+                  className={styles.formInput}
+                  value={plantOptions[0]}
                   readOnly
                   aria-label="Plant"
                 />
               )}
-              {form.pt && plantConfig?.mode === "select" && (
+              {form.pt && plantOptions.length > 1 && (
                 <select
                   id="plant"
                   className={styles.formSelect}
@@ -379,7 +413,7 @@ export function CreatePo() {
                   aria-label="Plant"
                 >
                   <option value="">— Select plant —</option>
-                  {plantConfig.plants.map((p) => (
+                  {plantOptions.map((p) => (
                     <option key={p} value={p}>
                       {p}
                     </option>

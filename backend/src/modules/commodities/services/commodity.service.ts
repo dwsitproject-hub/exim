@@ -1,0 +1,69 @@
+import { AppError } from "../../../middlewares/errorHandler.js";
+import { CommodityRepository } from "../repositories/commodity.repository.js";
+import type {
+  CommodityRow,
+  CreateCommodityDto,
+  UpdateCommodityDto,
+  ListCommoditiesQuery,
+  CommodityType,
+} from "../dto/index.js";
+import { COMMODITY_TYPES } from "../dto/index.js";
+
+function assertCommodityType(value: string): CommodityType {
+  if (!COMMODITY_TYPES.includes(value as CommodityType)) {
+    throw new AppError("Commodity type must be Liquid or Solid", 400);
+  }
+  return value as CommodityType;
+}
+
+function validateCommodityFields(dto: CreateCommodityDto | UpdateCommodityDto): CommodityType {
+  if (!dto.short_name?.trim()) {
+    throw new AppError("Short commodity name is required", 400);
+  }
+  if (!dto.name?.trim()) {
+    throw new AppError("Commodity name is required", 400);
+  }
+  return assertCommodityType(dto.commodity_type);
+}
+
+export class CommodityService {
+  constructor(private readonly repo: CommodityRepository) {}
+
+  async listCommodities(query: ListCommoditiesQuery): Promise<CommodityRow[]> {
+    return this.repo.listCommodities(query);
+  }
+
+  async getCommodityById(id: string): Promise<CommodityRow | null> {
+    return this.repo.getCommodityById(id);
+  }
+
+  async createCommodity(dto: CreateCommodityDto): Promise<CommodityRow> {
+    validateCommodityFields(dto);
+    const existingShort = await this.repo.findCommodityByShortName(dto.short_name);
+    if (existingShort) {
+      return existingShort;
+    }
+    const existingName = await this.repo.findCommodityByName(dto.name);
+    if (existingName) {
+      throw new AppError(`Commodity name "${dto.name.trim()}" already exists`, 409);
+    }
+    return this.repo.createCommodity(dto);
+  }
+
+  async updateCommodity(id: string, dto: UpdateCommodityDto): Promise<CommodityRow | null> {
+    validateCommodityFields(dto);
+    const existingShort = await this.repo.findCommodityByShortName(dto.short_name);
+    if (existingShort && existingShort.id !== id) {
+      throw new AppError(`Short commodity name "${dto.short_name.trim()}" already exists`, 409);
+    }
+    const existingName = await this.repo.findCommodityByName(dto.name);
+    if (existingName && existingName.id !== id) {
+      throw new AppError(`Commodity name "${dto.name.trim()}" already exists`, 409);
+    }
+    return this.repo.updateCommodity(id, dto);
+  }
+
+  async softDeleteCommodity(id: string): Promise<CommodityRow | null> {
+    return this.repo.softDeleteCommodity(id);
+  }
+}

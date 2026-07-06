@@ -3,7 +3,7 @@ import type { ExportBulkingShipmentDetail } from "@/types/export-bulking";
 export type ExportDocNumberKind = "si" | "invoice" | "packing_list";
 
 const DOC_NUMBER_LABELS: Record<ExportDocNumberKind, string> = {
-  si: "SI number",
+  si: "Shipping instruction number",
   invoice: "Invoice number",
   packing_list: "Packing list number",
 };

@@ -108,7 +108,7 @@ export function matchesBacklogFilter(
 }
 
 export const BACKLOG_FILTER_LABELS: Record<ExportBulkingBacklogFilter, string> = {
-  missing_si: "Missing SI",
+  missing_si: "Missing shipping instruction",
   missing_invoice: "Missing invoice",
   missing_pl: "Missing packing list",
   docs_incomplete: "Documents incomplete",
@@ -206,7 +206,7 @@ export function getDocsAttentionReason(row: ExportBulkingListItem): string | nul
 
   if (!hasSi(input)) {
     if (inDocsOrVoyage) return "No shipping instruction";
-    if (row.current_status !== "SHIPMENT_PLANNING") return "SI not recorded";
+    if (row.current_status !== "SHIPMENT_PLANNING") return "Shipping instruction not recorded";
   }
 
   if (!hasInvoice(input) && inDocsOrVoyage) return "No invoice";

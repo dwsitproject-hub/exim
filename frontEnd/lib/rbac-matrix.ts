@@ -4,6 +4,8 @@
 
 export const USER_ROLE_OPTIONS = [
   "ADMIN",
+  "ADMIN_IMPORT",
+  "ADMIN_EXPORT",
   "IMPORT_OFFICER",
   "VIEWER",
   "DOCS",
@@ -17,6 +19,8 @@ export type UserRoleOption = (typeof USER_ROLE_OPTIONS)[number];
 /** Human-readable labels for admin role picker. */
 export const ROLE_DISPLAY_LABELS: Record<UserRoleOption, string> = {
   ADMIN: "Admin",
+  ADMIN_IMPORT: "Admin import",
+  ADMIN_EXPORT: "Admin export",
   IMPORT_OFFICER: "Import officer",
   VIEWER: "Viewer",
   DOCS: "Documentation (legacy)",
@@ -51,8 +55,12 @@ export const PERMISSION_CATALOG: readonly { key: string; label: string }[] = [
   { key: "UPDATE_EXPORT_OPERATIONS", label: "Update export bulking operations" },
   { key: "UPDATE_EXPORT_DOCUMENTATION", label: "Update export bulking documentation" },
   { key: "UPDATE_EXPORT_BULKING_STATUS", label: "Update export bulking status" },
-  { key: "MANAGE_SHIPPERS", label: "Manage shippers" },
+  { key: "MANAGE_SHIPPERS", label: "Manage shippers (legacy — full)" },
+  { key: "MANAGE_IMPORT_MASTERS", label: "Manage import masters (PT, plant)" },
+  { key: "MANAGE_EXPORT_MASTERS", label: "Manage export masters (agent, surveyor, commodity, load port)" },
   { key: "MANAGE_AGENTS", label: "Manage agents" },
+  { key: "MANAGE_SURVEYORS", label: "Manage surveyors" },
+  { key: "MANAGE_COMMODITIES", label: "Manage commodities" },
   { key: "VIEW_PO_PDF_AI_USAGE", label: "View PO PDF AI usage" },
   { key: "VIEW_EXPORT_DOCUMENTATION", label: "View export documentation" },
   { key: "ASSIGN_EXPORT_BULKING_DOCUMENTATION", label: "Assign export bulking documentation" },
@@ -61,6 +69,8 @@ export const PERMISSION_CATALOG: readonly { key: string; label: string }[] = [
 /** Frontend copy of backend role→permission matrix (must stay in sync with backend `shared/rbac.ts`). */
 export const ROLE_DEFAULT_PERMISSIONS: Readonly<Record<UserRoleOption, readonly string[]>> = {
   ADMIN: PERMISSION_CATALOG.map((p) => p.key),
+  ADMIN_IMPORT: ["MANAGE_IMPORT_MASTERS", "VIEW_PO_PDF_AI_USAGE"],
+  ADMIN_EXPORT: ["MANAGE_EXPORT_MASTERS"],
   IMPORT_OFFICER: [
     "VIEW_TRANSACTIONS",
     "CREATE_TRANSACTION",
@@ -89,7 +99,11 @@ export const ROLE_DEFAULT_PERMISSIONS: Readonly<Record<UserRoleOption, readonly 
     "UPDATE_EXPORT_OPERATIONS",
     "UPDATE_EXPORT_BULKING_STATUS",
   ],
-  EXPORT_BULKING_DOCUMENTATION: ["VIEW_EXPORT_BULKING", "VIEW_EXPORT_DOCUMENTATION"],
+  EXPORT_BULKING_DOCUMENTATION: [
+    "VIEW_EXPORT_BULKING",
+    "VIEW_EXPORT_DOCUMENTATION",
+    "UPDATE_EXPORT_DOCUMENTATION",
+  ],
   EXPORT_BULKING_LEAD_DOCUMENTATION: [
     "VIEW_EXPORT_BULKING",
     "VIEW_EXPORT_DOCUMENTATION",

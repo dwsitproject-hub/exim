@@ -247,6 +247,20 @@ function testAdminPermissions() {
     PERMISSIONS.ASSIGN_EXPORT_BULKING_DOCUMENTATION,
   );
   assertEq(leadHasAssign, true, "EXPORT_BULKING_LEAD_DOCUMENTATION has ASSIGN permission");
+
+  const docsCanEdit = userHasPermission(
+    ROLES.EXPORT_BULKING_DOCUMENTATION,
+    [],
+    PERMISSIONS.UPDATE_EXPORT_DOCUMENTATION,
+  );
+  assertEq(docsCanEdit, true, "EXPORT_BULKING_DOCUMENTATION can update documentation");
+
+  const docsCannotAssign = userHasPermission(
+    ROLES.EXPORT_BULKING_DOCUMENTATION,
+    [],
+    PERMISSIONS.ASSIGN_EXPORT_BULKING_DOCUMENTATION,
+  );
+  assertEq(docsCannotAssign, false, "EXPORT_BULKING_DOCUMENTATION cannot assign PIC documentation");
 }
 
 /* ───────── Migration 075 status remap ───────── */
