@@ -263,6 +263,31 @@ function testAdminPermissions() {
   assertEq(docsCannotAssign, false, "EXPORT_BULKING_DOCUMENTATION cannot assign PIC documentation");
 }
 
+function testMasterCreatePermissions() {
+  console.log("\n=== RBAC: master-data create requires export write, not view-only ===");
+
+  assertEq(
+    userHasPermission(ROLES.VIEWER, [], PERMISSIONS.UPDATE_EXPORT_OPERATIONS),
+    false,
+    "VIEWER cannot UPDATE_EXPORT_OPERATIONS",
+  );
+  assertEq(
+    userHasPermission(ROLES.DOCS, [], PERMISSIONS.UPDATE_EXPORT_OPERATIONS),
+    false,
+    "DOCS cannot UPDATE_EXPORT_OPERATIONS",
+  );
+  assertEq(
+    userHasPermission(ROLES.EXPORT_BULKING_OPERATION, [], PERMISSIONS.UPDATE_EXPORT_OPERATIONS),
+    true,
+    "EXPORT_BULKING_OPERATION can UPDATE_EXPORT_OPERATIONS",
+  );
+  assertEq(
+    userHasPermission(ROLES.VIEWER, [], PERMISSIONS.MANAGE_EXPORT_MASTERS),
+    false,
+    "VIEWER cannot MANAGE_EXPORT_MASTERS",
+  );
+}
+
 /* ───────── Migration 075 status remap ───────── */
 
 function testMigration075StatusRemap() {
@@ -588,6 +613,7 @@ async function main() {
   console.log("Export Bulking — Security / regression checklist\n");
 
   testAdminPermissions();
+  testMasterCreatePermissions();
   testMigration075StatusRemap();
   await testDocumentUploadInsertFailure();
   await testDocumentDeleteDbFirstOnFailure();

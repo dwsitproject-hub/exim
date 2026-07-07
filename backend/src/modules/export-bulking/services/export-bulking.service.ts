@@ -293,7 +293,15 @@ export class ExportBulkingService {
     return this.repo.updateShippingInstruction(shipmentId, id, dto, actingUserId);
   }
 
-  async regenerateShippingInstructionNumber(siId: string, userId: string): Promise<unknown | null> {
+  async regenerateShippingInstructionNumber(
+    shipmentId: string,
+    siId: string,
+    userId: string,
+  ): Promise<unknown | null> {
+    const ownerShipmentId = await this.repo.getShippingInstructionShipmentId(siId);
+    if (!ownerShipmentId || ownerShipmentId !== shipmentId) {
+      throw new AppError("Shipping instruction not found", 404);
+    }
     return this.repo.regenerateShippingInstructionNumber(siId, userId);
   }
 
@@ -607,7 +615,15 @@ export class ExportBulkingService {
     };
   }
 
-  async regenerateInvoiceNumber(invoiceId: string, userId: string): Promise<unknown | null> {
+  async regenerateInvoiceNumber(
+    shipmentId: string,
+    invoiceId: string,
+    userId: string,
+  ): Promise<unknown | null> {
+    const header = await this.repo.getInvoiceHeader(invoiceId);
+    if (!header || header.shipment_id !== shipmentId) {
+      throw new AppError("Invoice not found", 404);
+    }
     return this.repo.regenerateInvoiceNumber(invoiceId, userId);
   }
 
@@ -693,7 +709,15 @@ export class ExportBulkingService {
     return this.repo.updatePackingList(shipmentId, id, body, actingUserId);
   }
 
-  async regeneratePackingListNumber(packingListId: string, userId: string): Promise<unknown | null> {
+  async regeneratePackingListNumber(
+    shipmentId: string,
+    packingListId: string,
+    userId: string,
+  ): Promise<unknown | null> {
+    const ownerShipmentId = await this.repo.getPackingListShipmentId(packingListId);
+    if (!ownerShipmentId || ownerShipmentId !== shipmentId) {
+      throw new AppError("Packing list not found", 404);
+    }
     return this.repo.regeneratePackingListNumber(packingListId, userId);
   }
 

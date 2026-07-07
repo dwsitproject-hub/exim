@@ -516,7 +516,11 @@ export class ExportBulkingRepository {
              line.pe_date ? new Date(line.pe_date) : null,
              line.id, shipmentId],
           );
-          if (res.rows[0]) results.push(res.rows[0]);
+          if (res.rows[0]) {
+            results.push(res.rows[0]);
+          } else {
+            throw new AppError(`Cargo line ${line.id} not found for this shipment`, 400);
+          }
         } else {
           const res = await client.query(
             `INSERT INTO export_bulking_cargo_lines
@@ -628,7 +632,11 @@ export class ExportBulkingRepository {
               shipmentId,
             ],
           );
-          if (res.rows[0]) results.push(res.rows[0]);
+          if (res.rows[0]) {
+            results.push(res.rows[0]);
+          } else {
+            throw new AppError(`SAP line ${line.id} not found for this shipment`, 400);
+          }
         } else {
           const res = await client.query(
             `INSERT INTO export_bulking_sap_lines
@@ -747,7 +755,11 @@ export class ExportBulkingRepository {
              RETURNING *`,
             [...params, line.id, shipmentId],
           );
-          if (res.rows[0]) results.push(res.rows[0]);
+          if (res.rows[0]) {
+            results.push(res.rows[0]);
+          } else {
+            throw new AppError(`Billing line ${line.id} not found for this shipment`, 400);
+          }
         } else {
           const res = await client.query(
             `INSERT INTO export_bulking_billing_lines
@@ -872,7 +884,11 @@ export class ExportBulkingRepository {
              RETURNING *`,
             [...params, line.id, shipmentId],
           );
-          if (res.rows[0]) results.push(res.rows[0]);
+          if (res.rows[0]) {
+            results.push(res.rows[0]);
+          } else {
+            throw new AppError(`Bill of lading ${line.id} not found for this shipment`, 400);
+          }
         } else if (line.bill_of_lading_no || line.bill_of_lading_date || line.bill_of_lading_nn_obl) {
           const res = await client.query(
             `INSERT INTO export_bulking_bills_of_lading

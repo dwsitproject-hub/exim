@@ -10,6 +10,11 @@ const P = PERMISSIONS;
 
 surveyorRoutes.get("/", authMiddleware, requirePermission(P.VIEW_EXPORT_BULKING, ...PERMS_MANAGE_EXPORT_MASTERS), ctrl.listSurveyors);
 surveyorRoutes.get("/:id", authMiddleware, requirePermission(P.MANAGE_SURVEYORS, ...PERMS_MANAGE_EXPORT_MASTERS), ctrl.getSurveyorById);
-surveyorRoutes.post("/", authMiddleware, requirePermission(P.VIEW_EXPORT_BULKING), ctrl.createSurveyor);
+surveyorRoutes.post(
+  "/",
+  authMiddleware,
+  requirePermission(P.UPDATE_EXPORT_OPERATIONS, P.UPDATE_EXPORT_BULKING, ...PERMS_MANAGE_EXPORT_MASTERS),
+  ctrl.createSurveyor,
+);
 surveyorRoutes.patch("/:id", authMiddleware, requirePermission(P.MANAGE_SURVEYORS, ...PERMS_MANAGE_EXPORT_MASTERS), ctrl.updateSurveyor);
 surveyorRoutes.delete("/:id", authMiddleware, requirePermission(P.MANAGE_SURVEYORS, ...PERMS_MANAGE_EXPORT_MASTERS), ctrl.removeSurveyor);

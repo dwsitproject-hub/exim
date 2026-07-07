@@ -548,7 +548,7 @@ export async function regenerateSINumber(req: Request, res: Response, next: Next
       sendError(res, "Authentication required", { statusCode: 401 });
       return;
     }
-    const data = await service.regenerateShippingInstructionNumber(req.params.siId, userId);
+    const data = await service.regenerateShippingInstructionNumber(req.params.id, req.params.siId, userId);
     if (!data) {
       sendError(res, "Shipping instruction not found", { statusCode: 404 });
       return;
@@ -566,7 +566,7 @@ export async function regenerateInvoiceNumber(req: Request, res: Response, next:
       sendError(res, "Authentication required", { statusCode: 401 });
       return;
     }
-    const data = await service.regenerateInvoiceNumber(req.params.invId, userId);
+    const data = await service.regenerateInvoiceNumber(req.params.id, req.params.invId, userId);
     if (!data) {
       sendError(res, "Invoice not found", { statusCode: 404 });
       return;
@@ -584,7 +584,7 @@ export async function regeneratePackingListNumber(req: Request, res: Response, n
       sendError(res, "Authentication required", { statusCode: 401 });
       return;
     }
-    const data = await service.regeneratePackingListNumber(req.params.plId, userId);
+    const data = await service.regeneratePackingListNumber(req.params.id, req.params.plId, userId);
     if (!data) {
       sendError(res, "Packing list not found", { statusCode: 404 });
       return;

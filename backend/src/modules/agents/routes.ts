@@ -10,6 +10,11 @@ const P = PERMISSIONS;
 
 agentRoutes.get("/", authMiddleware, requirePermission(P.VIEW_EXPORT_BULKING, ...PERMS_MANAGE_EXPORT_MASTERS), ctrl.listAgents);
 agentRoutes.get("/:id", authMiddleware, requirePermission(P.MANAGE_AGENTS, ...PERMS_MANAGE_EXPORT_MASTERS), ctrl.getAgentById);
-agentRoutes.post("/", authMiddleware, requirePermission(P.VIEW_EXPORT_BULKING), ctrl.createAgent);
+agentRoutes.post(
+  "/",
+  authMiddleware,
+  requirePermission(P.UPDATE_EXPORT_OPERATIONS, P.UPDATE_EXPORT_BULKING, ...PERMS_MANAGE_EXPORT_MASTERS),
+  ctrl.createAgent,
+);
 agentRoutes.patch("/:id", authMiddleware, requirePermission(P.MANAGE_AGENTS, ...PERMS_MANAGE_EXPORT_MASTERS), ctrl.updateAgent);
 agentRoutes.delete("/:id", authMiddleware, requirePermission(P.MANAGE_AGENTS, ...PERMS_MANAGE_EXPORT_MASTERS), ctrl.removeAgent);
