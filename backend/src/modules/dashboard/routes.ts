@@ -37,6 +37,12 @@ dashboardRoutes.get(
   dashboardController.getShipmentAnalytics
 );
 dashboardRoutes.get(
+  "/shipment-analytics/lines/shipments",
+  authMiddleware,
+  requirePermission(PERMISSIONS.VIEW_SHIPMENTS),
+  dashboardController.getShipmentAnalyticsLineGroupShipments
+);
+dashboardRoutes.get(
   "/shipment-analytics/lines",
   authMiddleware,
   requirePermission(PERMISSIONS.VIEW_SHIPMENTS),
@@ -49,10 +55,22 @@ dashboardRoutes.get(
   dashboardController.getClassificationQty
 );
 dashboardRoutes.get(
+  "/post-arrival-lead/shipments",
+  authMiddleware,
+  requirePermission(PERMISSIONS.VIEW_SHIPMENTS),
+  dashboardController.getPostArrivalLeadShipments
+);
+dashboardRoutes.get(
   "/post-arrival-lead",
   authMiddleware,
   requirePermission(PERMISSIONS.VIEW_SHIPMENTS),
   dashboardController.getPostArrivalLead
+);
+dashboardRoutes.get(
+  "/logistics-rows/shipments",
+  authMiddleware,
+  requirePermission(PERMISSIONS.VIEW_SHIPMENTS),
+  dashboardController.getLogisticsGroupShipments
 );
 dashboardRoutes.get(
   "/logistics-rows",

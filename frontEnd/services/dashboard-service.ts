@@ -18,7 +18,12 @@ import type {
   ClassificationQtyRow,
   FinancialSummaryResult,
   PostArrivalLeadRow,
+  PostArrivalLeadShipmentRow,
+  PostArrivalLeadShipmentsQuery,
   ShipmentAnalyticsLineAggRow,
+  ShipmentAnalyticsLineGroupShipmentsQuery,
+  ShipmentAnalyticsGroupShipmentRow,
+  LogisticsGroupShipmentsQuery,
   ShipmentAnalyticsLinesQuery,
   ShipmentAnalyticsLinesResult,
   ShipmentAnalyticsQuery,
@@ -67,6 +72,16 @@ export async function getShipmentDashboardCounts(accessToken: string | null): Pr
   if (rCustoms.meta && typeof rCustoms.meta.total === "number") customsClearance = rCustoms.meta.total;
   if (rDelivered.meta && typeof rDelivered.meta.total === "number") delivered = rDelivered.meta.total;
   return { activeShipments, customsClearance, delivered };
+}
+
+function appendShipmentAnalyticsParams(params: URLSearchParams, query: ShipmentAnalyticsQuery): void {
+  params.set("date_from", query.date_from);
+  params.set("date_to", query.date_to);
+  query.pts?.forEach((p) => params.append("pt", p));
+  query.plants?.forEach((p) => params.append("plant", p));
+  query.vendor_names?.forEach((v) => params.append("vendor_name", v));
+  query.product_classifications?.forEach((c) => params.append("product_classification", c));
+  if (query.shipment_method) params.set("shipment_method", query.shipment_method);
 }
 
 export async function getDeliveredManagementSummary(
@@ -131,13 +146,7 @@ export async function getShipmentAnalytics(
   accessToken: string | null
 ): Promise<ApiResponse<ShipmentAnalyticsSummary>> {
   const params = new URLSearchParams();
-  params.set("date_from", query.date_from);
-  params.set("date_to", query.date_to);
-  query.pts?.forEach((p) => params.append("pt", p));
-  query.plants?.forEach((p) => params.append("plant", p));
-  query.vendor_names?.forEach((v) => params.append("vendor_name", v));
-  query.product_classifications?.forEach((c) => params.append("product_classification", c));
-  if (query.shipment_method) params.set("shipment_method", query.shipment_method);
+  appendShipmentAnalyticsParams(params, query);
   return apiGet<ShipmentAnalyticsSummary>(
     `dashboard/shipment-analytics?${params.toString()}`,
     accessToken
@@ -149,14 +158,8 @@ export async function getShipmentAnalyticsLines(
   accessToken: string | null
 ): Promise<ApiResponse<ShipmentAnalyticsLinesResult>> {
   const params = new URLSearchParams();
-  params.set("date_from", query.date_from);
-  params.set("date_to", query.date_to);
+  appendShipmentAnalyticsParams(params, query);
   params.set("detail_kind", query.detail_kind);
-  query.pts?.forEach((p) => params.append("pt", p));
-  query.plants?.forEach((p) => params.append("plant", p));
-  query.vendor_names?.forEach((v) => params.append("vendor_name", v));
-  query.product_classifications?.forEach((c) => params.append("product_classification", c));
-  if (query.shipment_method) params.set("shipment_method", query.shipment_method);
   if (query.detail_plant != null && query.detail_plant !== "") params.set("detail_plant", query.detail_plant);
   if (query.detail_classification != null && query.detail_classification !== "")
     params.set("detail_classification", query.detail_classification);
@@ -166,18 +169,31 @@ export async function getShipmentAnalyticsLines(
   );
 }
 
+export async function getShipmentAnalyticsLineGroupShipments(
+  query: ShipmentAnalyticsLineGroupShipmentsQuery,
+  accessToken: string | null
+): Promise<ApiResponse<ShipmentAnalyticsGroupShipmentRow[]>> {
+  const params = new URLSearchParams();
+  appendShipmentAnalyticsParams(params, query);
+  params.set("detail_kind", query.detail_kind);
+  if (query.detail_plant != null && query.detail_plant !== "") params.set("detail_plant", query.detail_plant);
+  if (query.detail_classification != null && query.detail_classification !== "")
+    params.set("detail_classification", query.detail_classification);
+  params.set("group_item_description", query.group_item_description);
+  if (query.group_pt) params.set("group_pt", query.group_pt);
+  if (query.group_plant) params.set("group_plant", query.group_plant);
+  return apiGet<ShipmentAnalyticsGroupShipmentRow[]>(
+    `dashboard/shipment-analytics/lines/shipments?${params.toString()}`,
+    accessToken
+  );
+}
+
 export async function getClassificationQty(
   query: ShipmentAnalyticsQuery,
   accessToken: string | null
 ): Promise<ApiResponse<ClassificationQtyRow[]>> {
   const params = new URLSearchParams();
-  params.set("date_from", query.date_from);
-  params.set("date_to", query.date_to);
-  query.pts?.forEach((p) => params.append("pt", p));
-  query.plants?.forEach((p) => params.append("plant", p));
-  query.vendor_names?.forEach((v) => params.append("vendor_name", v));
-  query.product_classifications?.forEach((c) => params.append("product_classification", c));
-  if (query.shipment_method) params.set("shipment_method", query.shipment_method);
+  appendShipmentAnalyticsParams(params, query);
   return apiGet<ClassificationQtyRow[]>(
     `dashboard/classification-qty?${params.toString()}`,
     accessToken
@@ -189,15 +205,23 @@ export async function getPostArrivalLead(
   accessToken: string | null
 ): Promise<ApiResponse<PostArrivalLeadRow[]>> {
   const params = new URLSearchParams();
-  params.set("date_from", query.date_from);
-  params.set("date_to", query.date_to);
-  query.pts?.forEach((p) => params.append("pt", p));
-  query.plants?.forEach((p) => params.append("plant", p));
-  query.vendor_names?.forEach((v) => params.append("vendor_name", v));
-  query.product_classifications?.forEach((c) => params.append("product_classification", c));
-  if (query.shipment_method) params.set("shipment_method", query.shipment_method);
+  appendShipmentAnalyticsParams(params, query);
   return apiGet<PostArrivalLeadRow[]>(
     `dashboard/post-arrival-lead?${params.toString()}`,
+    accessToken
+  );
+}
+
+export async function getPostArrivalLeadShipments(
+  query: PostArrivalLeadShipmentsQuery,
+  accessToken: string | null
+): Promise<ApiResponse<PostArrivalLeadShipmentRow[]>> {
+  const params = new URLSearchParams();
+  appendShipmentAnalyticsParams(params, query);
+  params.set("load_type", query.load_type);
+  params.set("group_pt_plant", query.group_pt_plant);
+  return apiGet<PostArrivalLeadShipmentRow[]>(
+    `dashboard/post-arrival-lead/shipments?${params.toString()}`,
     accessToken
   );
 }
@@ -207,15 +231,25 @@ export async function getLogisticsRows(
   accessToken: string | null
 ): Promise<ApiResponse<LogisticsDetailSourceRow[]>> {
   const params = new URLSearchParams();
-  params.set("date_from", query.date_from);
-  params.set("date_to", query.date_to);
-  query.pts?.forEach((p) => params.append("pt", p));
-  query.plants?.forEach((p) => params.append("plant", p));
-  query.vendor_names?.forEach((v) => params.append("vendor_name", v));
-  query.product_classifications?.forEach((c) => params.append("product_classification", c));
-  if (query.shipment_method) params.set("shipment_method", query.shipment_method);
+  appendShipmentAnalyticsParams(params, query);
   return apiGet<LogisticsDetailSourceRow[]>(
     `dashboard/logistics-rows?${params.toString()}`,
+    accessToken
+  );
+}
+
+export async function getLogisticsGroupShipments(
+  query: LogisticsGroupShipmentsQuery,
+  accessToken: string | null
+): Promise<ApiResponse<ShipmentAnalyticsGroupShipmentRow[]>> {
+  const params = new URLSearchParams();
+  appendShipmentAnalyticsParams(params, query);
+  params.set("group_pt_plant", query.group_pt_plant);
+  params.set("group_item_description", query.group_item_description);
+  params.set("transport_mode", query.transport_mode);
+  if (query.fcl_sub_type) params.set("fcl_sub_type", query.fcl_sub_type);
+  return apiGet<ShipmentAnalyticsGroupShipmentRow[]>(
+    `dashboard/logistics-rows/shipments?${params.toString()}`,
     accessToken
   );
 }

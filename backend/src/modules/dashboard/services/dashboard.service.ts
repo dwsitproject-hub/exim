@@ -14,7 +14,12 @@ import type {
   FinancialSummaryResult,
   LogisticsDetailSourceRow,
   PostArrivalLeadRow,
+  PostArrivalLeadShipmentRow,
+  PostArrivalLeadShipmentsQuery,
   ShipmentAnalyticsLineAggRow,
+  ShipmentAnalyticsLineGroupShipmentsQuery,
+  ShipmentAnalyticsGroupShipmentRow,
+  LogisticsGroupShipmentsQuery,
   ShipmentAnalyticsLinesQuery,
   ShipmentAnalyticsLinesResult,
   ShipmentAnalyticsQuery,
@@ -338,6 +343,12 @@ export class DashboardService {
     return this.analyticsRepo.getLineAggregation(query);
   }
 
+  async getShipmentAnalyticsLineGroupShipments(
+    query: ShipmentAnalyticsLineGroupShipmentsQuery
+  ): Promise<ShipmentAnalyticsGroupShipmentRow[]> {
+    return this.analyticsRepo.getLineGroupShipments(query);
+  }
+
   async getClassificationQty(query: ShipmentAnalyticsQuery): Promise<ClassificationQtyRow[]> {
     return this.analyticsRepo.getClassificationQty(query);
   }
@@ -346,8 +357,20 @@ export class DashboardService {
     return this.analyticsRepo.getPostArrivalLead(query);
   }
 
+  async getPostArrivalLeadShipments(
+    query: PostArrivalLeadShipmentsQuery
+  ): Promise<PostArrivalLeadShipmentRow[]> {
+    return this.analyticsRepo.getPostArrivalLeadShipments(query);
+  }
+
   async getLogisticsRows(query: ShipmentAnalyticsQuery): Promise<LogisticsDetailSourceRow[]> {
     return this.analyticsRepo.getLogisticsRows(query);
+  }
+
+  async getLogisticsGroupShipments(
+    query: LogisticsGroupShipmentsQuery
+  ): Promise<ShipmentAnalyticsGroupShipmentRow[]> {
+    return this.analyticsRepo.getLogisticsGroupShipments(query);
   }
 
   async getFinancialSummary(query: ShipmentAnalyticsQuery, idrPerUsd: number): Promise<FinancialSummaryResult> {

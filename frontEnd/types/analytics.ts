@@ -90,6 +90,39 @@ export interface ShipmentAnalyticsLinesResult {
   rows: ShipmentAnalyticsLineAggRow[];
 }
 
+/** GET /dashboard/shipment-analytics/lines/shipments — expand grouped line to whole shipments. */
+export interface ShipmentAnalyticsLineGroupShipmentsQuery extends ShipmentAnalyticsLinesQuery {
+  group_item_description: string;
+  group_pt?: string;
+  group_plant?: string;
+}
+
+export interface ShipmentAnalyticsGroupShipmentRow {
+  id: string;
+  shipment_number: string;
+  current_status: string;
+  group_qty_delivered: number;
+  group_amount_idr: number;
+}
+
+export type LogisticsTransportMode = "AIR" | "LCL" | "FCL" | "BULK";
+
+/** GET /dashboard/logistics-rows/shipments */
+export interface LogisticsGroupShipmentsQuery extends ShipmentAnalyticsQuery {
+  group_pt_plant: string;
+  group_item_description: string;
+  transport_mode: LogisticsTransportMode;
+  fcl_sub_type?: string;
+}
+
+export function analyticsLineGroupKey(row: Pick<ShipmentAnalyticsLineAggRow, "item_description" | "pt" | "plant">): string {
+  return `${row.item_description}|${row.pt ?? ""}|${row.plant ?? ""}`;
+}
+
+export function logisticsLineGroupKey(ptPlant: string, itemDescription: string): string {
+  return `${ptPlant}|${itemDescription}`;
+}
+
 /** One flat row from GET /dashboard/post-arrival-lead. */
 export interface PostArrivalLeadRow {
   load_type: string;
@@ -104,7 +137,7 @@ export interface PostArrivalLeadRow {
 /** GET /dashboard/financial-summary — aggregated financial breakdown for DELIVERED shipments. */
 export interface FinancialSummaryResult {
   import_value_idr: number;
-  /** BM (Bea Masuk) amount — shown as “Biaya Masuk” in Financial visibility. */
+  /** BM (Bea Masuk) amount — shown in Financial visibility. */
   bm_idr: number;
   ppn_idr: number;
   pph_idr: number;
@@ -121,4 +154,23 @@ export interface PostArrivalLeadItem {
   avg_days: number;
   shipment_count: number;
   by_plant: Array<{ plant: string; avg_days: number; shipment_count: number }>;
+}
+
+/** GET /dashboard/post-arrival-lead/shipments — expand plant group to shipments. */
+export interface PostArrivalLeadShipmentsQuery extends ShipmentAnalyticsQuery {
+  load_type: string;
+  group_pt_plant: string;
+}
+
+export interface PostArrivalLeadShipmentRow {
+  id: string;
+  shipment_number: string;
+  current_status: string;
+  lead_days: number;
+  ata: string | null;
+  closed_at: string | null;
+}
+
+export function postArrivalPlantGroupKey(loadType: string, plant: string): string {
+  return `${loadType}|${plant}`;
 }

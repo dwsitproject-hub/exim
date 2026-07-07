@@ -243,12 +243,8 @@
 }
 
 .procurementTableWrap {
-  overflow-x: auto;
-  margin-bottom: var(--spacing-3, 16px);
-}
-
-.procurementTableWrap table {
-  min-width: 820px;
+  /* Scroll + sticky header handled in AnalyticsDrillLineTable.module.css */
+  margin-bottom: 0;
 }
 
 .procurementTdNum {
@@ -1086,12 +1082,21 @@
   list-style: none;
 }
 
+.postArrivalPlantGroup {
+  list-style: none;
+}
+
 .postArrivalPlantRow {
   display: grid;
-  grid-template-columns: minmax(80px, 1fr) minmax(60px, 1.5fr) auto auto;
+  grid-template-columns: auto minmax(80px, 1fr) minmax(60px, 1.5fr) auto auto;
   align-items: center;
   gap: 8px;
-  padding: 3px 4px 3px 12px;
+  padding: 3px 4px 3px 4px;
+}
+
+.postArrivalPlantExpandSpacer {
+  width: 28px;
+  flex-shrink: 0;
 }
 
 .postArrivalPlantName {
@@ -1100,6 +1105,46 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.postArrivalShipmentList {
+  margin: 0;
+  padding: 0 4px 6px 40px;
+  list-style: none;
+}
+
+.postArrivalShipmentRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 2px 0;
+  font-size: 11px;
+}
+
+.postArrivalShipmentStatus {
+  color: var(--color-text-secondary, #64748b);
+}
+
+.postArrivalShipmentDays {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.postArrivalShipmentHint {
+  margin: 0;
+  padding: 2px 4px 6px 40px;
+  font-size: 11px;
+  color: var(--color-text-secondary, #64748b);
+}
+
+.postArrivalShipmentError {
+  margin: 0;
+  padding: 2px 4px 6px 40px;
+  font-size: 11px;
+  color: var(--color-primitive-danger, #c43a31);
 }
 
 .analyticsDrillBackdrop {
@@ -1172,6 +1217,12 @@
   overflow-y: auto;
   flex: 1;
   min-height: 0;
+}
+
+.analyticsDrillBodyFill {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .dateRangeUnified {

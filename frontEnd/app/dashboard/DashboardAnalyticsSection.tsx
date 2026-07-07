@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { BarChart2, ChevronDown, ChevronRight, Filter, Plane, Ship, X } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { can } from "@/lib/permissions";
@@ -12,27 +13,22 @@ import {
   postArrivalLeadWarnThresholdDays,
 } from "@/lib/post-arrival-lead";
 import { PRODUCT_CLASSIFICATION_OPTIONS, displayProductClassification } from "@/lib/product-classification";
+import { formatShipmentStatusTitleCase } from "@/lib/shipment-status-title-case";
 import { getClassificationQty, getFinancialSummary, getLogisticsRows, getPostArrivalLead, getShipmentAnalytics, getShipmentAnalyticsLines } from "@/services/dashboard-service";
 import { getShipmentAnalyticsDefaultDateRange } from "@/lib/shipment-analytics-date-range";
 import { Card } from "@/components/cards";
 import { LoadingSkeleton } from "@/components/feedback";
 import { EmptyState } from "@/components/navigation";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeaderCell,
-  TableRow,
-} from "@/components/tables";
 import { isApiError } from "@/types/api";
 import type { ApiSuccess } from "@/types/api";
+import { postArrivalPlantGroupKey } from "@/types/analytics";
 import type {
   ClassificationQtyRow,
   FinancialSummaryResult,
   PostArrivalLeadItem,
   PostArrivalLeadRow,
   ShipmentAnalyticsLineAggRow,
+  ShipmentAnalyticsLinesQuery,
   ShipmentAnalyticsLinesResult,
   ShipmentAnalyticsQuery,
   ShipmentAnalyticsSummary,
@@ -45,6 +41,9 @@ import {
 import type { LogisticsDetailSourceRow } from "@/components/logistics-detail-table/types";
 import { ShipmentPerformanceCard } from "@/components/shipment-performance/ShipmentPerformanceCard";
 import { DashboardUsdRateBar } from "@/components/dashboard/DashboardUsdRateBar";
+import { AnalyticsDrillLineTable } from "@/components/dashboard/AnalyticsDrillLineTable";
+import { usePostArrivalPlantExpand } from "@/components/dashboard/usePostArrivalPlantExpand";
+import expandStyles from "@/components/dashboard/GroupedShipmentExpandRows.module.css";
 import { ScalingFinancialValue } from "@/components/dashboard/ScalingFinancialValue";
 import {
   idrToDashboardUsd,
@@ -83,11 +82,6 @@ function buildAnalyticsQueryPayload(a: AppliedFilters): ShipmentAnalyticsQuery {
     ...(a.productClassifications.length ? { product_classifications: [...a.productClassifications] } : {}),
     ...(a.shipmentMethod ? { shipment_method: a.shipmentMethod } : {}),
   };
-}
-
-function formatQtyDelivered(n: number): string {
-  if (!Number.isFinite(n)) return "—";
-  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 4 }).format(n);
 }
 
 const CLASS_COLORS = ["#c43a31", "#6366f1", "#0ea5e9", "#16a34a", "#71717a", "#a855f7", "#ea580c"];
@@ -299,6 +293,28 @@ export function DashboardAnalyticsSection() {
     if (drill.classification === "__ALL__") return summary.total_shipments;
     return summary.by_classification.find((r) => r.classification === drill.classification)?.count ?? null;
   }, [drill, summary, allPlants]);
+
+  const drillLinesQuery = useMemo((): ShipmentAnalyticsLinesQuery | null => {
+    if (!drill) return null;
+    return {
+      ...buildAnalyticsQueryPayload(applied),
+      detail_kind: drill.kind,
+      ...(drill.kind === "plant" && drill.plant !== "__ALL__" ? { detail_plant: drill.plant } : {}),
+      ...(drill.kind === "classification" && drill.classification !== "__ALL__"
+        ? { detail_classification: drill.classification }
+        : {}),
+    };
+  }, [drill, applied]);
+
+  const analyticsQuery = useMemo(() => buildAnalyticsQueryPayload(applied), [applied]);
+  const {
+    expandEnabled: postArrivalExpandEnabled,
+    expanded: expandedPostArrivalPlants,
+    toggleExpand: togglePostArrivalPlant,
+    shipmentsByGroup: postArrivalShipmentsByGroup,
+    loadingGroups: postArrivalLoadingGroups,
+    errorsByGroup: postArrivalErrorsByGroup,
+  } = usePostArrivalPlantExpand(analyticsQuery, accessToken);
 
   const logisticsModePct = useMemo(() => {
     const air = summary?.logistics.air ?? 0;
@@ -796,7 +812,7 @@ export function DashboardAnalyticsSection() {
               <div className={styles.financialBreakdownList}>
                 {[
                   { label: "Import Value", value: financialSummary?.import_value_idr ?? 0 },
-                  { label: "Biaya Masuk", value: financialSummary?.bm_idr ?? 0 },
+                  { label: "Bea Masuk", value: financialSummary?.bm_idr ?? 0 },
                   { label: "PPH", value: financialSummary?.pph_idr ?? 0 },
                   { label: "PPN", value: financialSummary?.ppn_idr ?? 0 },
                   { label: "Freight Charge", value: financialSummary?.freight_idr ?? 0 },
@@ -857,19 +873,74 @@ export function DashboardAnalyticsSection() {
                               {item.by_plant.map((p) => {
                                 const plantOver = p.avg_days > warnDays;
                                 const plantMax = Math.max(...item.by_plant.map((r) => r.avg_days), 1);
+                                const plantKey = postArrivalPlantGroupKey(item.load_type, p.plant);
+                                const plantExpanded = expandedPostArrivalPlants.has(plantKey);
+                                const plantShipments = postArrivalShipmentsByGroup.get(plantKey) ?? [];
+                                const plantLoading = postArrivalLoadingGroups.has(plantKey);
+                                const plantError = postArrivalErrorsByGroup.get(plantKey) ?? null;
                                 return (
-                                  <li key={p.plant} className={styles.postArrivalPlantRow}>
-                                    <span className={styles.postArrivalPlantName}>{displayPtPlantLabel(p.plant)}</span>
-                                    <div className={styles.postArrivalBarTrack}>
-                                      <div
-                                        className={`${styles.postArrivalBarFill} ${plantOver ? styles.postArrivalBarWarn : styles.postArrivalBarOk}`}
-                                        style={{ width: `${(p.avg_days / plantMax) * 100}%` }}
-                                      />
+                                  <li key={p.plant} className={styles.postArrivalPlantGroup}>
+                                    <div className={styles.postArrivalPlantRow}>
+                                      {postArrivalExpandEnabled ? (
+                                        <button
+                                          type="button"
+                                          className={expandStyles.expandBtn}
+                                          aria-expanded={plantExpanded}
+                                          aria-label={plantExpanded ? "Collapse shipments" : "Expand shipments"}
+                                          onClick={() => togglePostArrivalPlant(item.load_type, p.plant)}
+                                        />
+                                      ) : (
+                                        <span className={styles.postArrivalPlantExpandSpacer} aria-hidden />
+                                      )}
+                                      <span className={styles.postArrivalPlantName}>{displayPtPlantLabel(p.plant)}</span>
+                                      <div className={styles.postArrivalBarTrack}>
+                                        <div
+                                          className={`${styles.postArrivalBarFill} ${plantOver ? styles.postArrivalBarWarn : styles.postArrivalBarOk}`}
+                                          style={{ width: `${(p.avg_days / plantMax) * 100}%` }}
+                                        />
+                                      </div>
+                                      <span className={`${styles.postArrivalDays} ${plantOver ? styles.postArrivalDaysWarn : styles.postArrivalDaysOk}`}>
+                                        {p.avg_days.toFixed(1)}d
+                                      </span>
+                                      <span className={styles.postArrivalCount}>{p.shipment_count}</span>
                                     </div>
-                                    <span className={`${styles.postArrivalDays} ${plantOver ? styles.postArrivalDaysWarn : styles.postArrivalDaysOk}`}>
-                                      {p.avg_days.toFixed(1)}d
-                                    </span>
-                                    <span className={styles.postArrivalCount}>{p.shipment_count}</span>
+                                    {postArrivalExpandEnabled && plantExpanded ? (
+                                      plantLoading ? (
+                                        <p className={styles.postArrivalShipmentHint}>Loading shipments…</p>
+                                      ) : plantError ? (
+                                        <p className={styles.postArrivalShipmentError}>{plantError}</p>
+                                      ) : plantShipments.length === 0 ? (
+                                        <p className={styles.postArrivalShipmentHint}>No shipments for this group.</p>
+                                      ) : (
+                                        <ul className={styles.postArrivalShipmentList}>
+                                          {plantShipments.map((s) => {
+                                            const shipmentOver = s.lead_days > warnDays;
+                                            return (
+                                              <li key={s.id} className={styles.postArrivalShipmentRow}>
+                                                <Link
+                                                  href={`/dashboard/shipments/${s.id}`}
+                                                  target="_blank"
+                                                  rel="noopener noreferrer"
+                                                  className={expandStyles.shipmentLink}
+                                                >
+                                                  {s.shipment_number}
+                                                </Link>
+                                                {s.current_status ? (
+                                                  <span className={styles.postArrivalShipmentStatus}>
+                                                    {formatShipmentStatusTitleCase(s.current_status)}
+                                                  </span>
+                                                ) : null}
+                                                <span
+                                                  className={`${styles.postArrivalShipmentDays} ${shipmentOver ? styles.postArrivalDaysWarn : styles.postArrivalDaysOk}`}
+                                                >
+                                                  {s.lead_days}d
+                                                </span>
+                                              </li>
+                                            );
+                                          })}
+                                        </ul>
+                                      )
+                                    ) : null}
                                   </li>
                                 );
                               })}
@@ -918,6 +989,9 @@ export function DashboardAnalyticsSection() {
                     navigate={logisticsNavigate}
                     detailRootId={null}
                     variant="modal"
+                    analyticsQuery={buildAnalyticsQueryPayload(applied)}
+                    accessToken={accessToken}
+                    shipmentDetailBasePath="/dashboard/shipments"
                   />
                 </div>
               </div>
@@ -973,7 +1047,7 @@ export function DashboardAnalyticsSection() {
                     <X size={20} />
                   </button>
                 </div>
-                <div className={styles.analyticsDrillBody}>
+                <div className={`${styles.analyticsDrillBody} ${styles.analyticsDrillBodyFill}`}>
               {detailLoading ? (
                 <p className={styles.subsectionHint}>Loading…</p>
               ) : lineAggRows.length === 0 ? (
@@ -985,38 +1059,18 @@ export function DashboardAnalyticsSection() {
                       : "No delivered shipments match this slice for the selected period and filters."
                   }
                 />
-              ) : (
-                <div className={styles.procurementTableWrap}>
-                  <Table>
-                    <TableHead>
-                      <TableRow>
-                        <TableHeaderCell>Item description</TableHeaderCell>
-                        <TableHeaderCell>PT</TableHeaderCell>
-                        <TableHeaderCell>Plant</TableHeaderCell>
-                        <TableHeaderCell>Unit</TableHeaderCell>
-                        <TableHeaderCell>Total qty delivered</TableHeaderCell>
-                        <TableHeaderCell>Total price (USD)</TableHeaderCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {lineAggRows.map((row) => (
-                        <TableRow
-                          key={`${row.item_description}|${row.pt ?? ""}|${row.plant ?? ""}`}
-                        >
-                          <TableCell>{row.item_description}</TableCell>
-                          <TableCell>{row.pt ? displayPtShortName(row.pt) : "—"}</TableCell>
-                          <TableCell>{row.plant ?? "—"}</TableCell>
-                          <TableCell>{row.unit?.trim() ? row.unit.trim() : "—"}</TableCell>
-                          <TableCell>{formatQtyDelivered(row.total_qty_delivered)}</TableCell>
-                          <TableCell className={styles.procurementTdNum}>
-                            {formatUsd(idrToDashboardUsd(row.total_price_idr, idrPerUsd))}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
+              ) : drillLinesQuery ? (
+                <AnalyticsDrillLineTable
+                  rows={lineAggRows}
+                  linesQuery={drillLinesQuery}
+                  accessToken={accessToken}
+                  shipmentDetailBasePath="/dashboard/shipments"
+                  idrPerUsd={idrPerUsd}
+                  formatUsd={formatUsd}
+                  tableWrapClassName={styles.procurementTableWrap}
+                  tdNumClassName={styles.procurementTdNum}
+                />
+              ) : null}
                 </div>
               </div>
             </div>

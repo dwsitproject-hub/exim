@@ -13,6 +13,10 @@ import {
 } from "./group-logistics-rows";
 import type { FclSubType, LogisticsDetailSourceRow, TransportTab } from "./types";
 import { displayPtPlantLabel } from "@/lib/pt-display";
+import type { ShipmentAnalyticsQuery } from "@/types/analytics";
+import { logisticsLineGroupKey } from "@/types/analytics";
+import { LogisticsExpandableGroupRow } from "./LogisticsExpandableGroupRow";
+import { useLogisticsGroupExpand } from "./useLogisticsGroupExpand";
 
 const TAB_VALUES: TransportTab[] = ["AIR", "LCL", "FCL", "BULK"];
 
@@ -46,6 +50,10 @@ export interface LogisticsDetailTableProps {
   detailRootId?: string | null;
   /** `modal`: compact chrome when embedded in a dialog. */
   variant?: "default" | "modal";
+  /** When set with `accessToken`, grouped rows can expand to list shipments. */
+  analyticsQuery?: ShipmentAnalyticsQuery | null;
+  accessToken?: string | null;
+  shipmentDetailBasePath?: string;
 }
 
 export function LogisticsDetailTable({
@@ -54,6 +62,9 @@ export function LogisticsDetailTable({
   navigate = null,
   detailRootId,
   variant = "default",
+  analyticsQuery = null,
+  accessToken = null,
+  shipmentDetailBasePath = "/dashboard/shipments",
 }: LogisticsDetailTableProps) {
   const [tab, setTab] = useState<TransportTab>("AIR");
   const [fclSize, setFclSize] = useState<FclSubType>("");
@@ -151,6 +162,24 @@ export function LogisticsDetailTable({
     return bulkRows.length === 0;
   }, [tab, airRows.length, lclRows.length, fclRows.length, bulkRows.length]);
 
+  const {
+    expandEnabled,
+    expanded,
+    toggleExpand,
+    shipmentsByGroup,
+    loadingGroups,
+    errorsByGroup,
+  } = useLogisticsGroupExpand(
+    analyticsQuery,
+    accessToken,
+    tab,
+    tab === "FCL" ? fclSize : undefined
+  );
+
+  const expandHeader = expandEnabled ? (
+    <th className="w-10 px-2 py-3" aria-label="Expand" />
+  ) : null;
+
   return (
     <div {...(resolvedRootId ? { id: resolvedRootId } : {})} className={rootClass}>
       {variant === "modal" ? (
@@ -214,6 +243,7 @@ export function LogisticsDetailTable({
             <table className="min-w-full border-collapse text-left text-sm text-slate-800">
               <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-100/95 backdrop-blur supports-[backdrop-filter]:bg-slate-100/80">
                 <tr>
+                  {expandHeader}
                   <th className="whitespace-nowrap px-3 py-3 text-xs font-semibold uppercase tracking-wide text-slate-600">
                     PT – Plant
                   </th>
@@ -229,19 +259,27 @@ export function LogisticsDetailTable({
                 </tr>
               </thead>
               <tbody>
-                {airRows.map((r) => (
-                  <tr
-                    key={`${r.ptPlant}|${r.itemDescription}`}
-                    className="border-b border-slate-100 transition-colors hover:bg-slate-50/90"
-                  >
-                    <td className="whitespace-nowrap px-3 py-2.5 font-medium text-slate-900">{displayPtPlantLabel(r.ptPlant)}</td>
-                    <td className="px-3 py-2.5 text-slate-700">{r.itemDescription}</td>
-                    <td className="whitespace-nowrap px-3 py-2.5 font-mono tabular-nums text-slate-900">
-                      {r.shipmentCount.toLocaleString()}
-                    </td>
-                    <td className="px-3 py-2.5 text-slate-600">{r.forwarder}</td>
-                  </tr>
-                ))}
+                {airRows.map((r) => {
+                  const groupKey = logisticsLineGroupKey(r.ptPlant, r.itemDescription);
+                  return (
+                    <LogisticsExpandableGroupRow
+                      key={`${r.ptPlant}|${r.itemDescription}`}
+                      rowKey={`${r.ptPlant}|${r.itemDescription}`}
+                      ptPlantLabel={displayPtPlantLabel(r.ptPlant)}
+                      itemDescription={r.itemDescription}
+                      metricCells={[r.shipmentCount.toLocaleString()]}
+                      forwarder={r.forwarder}
+                      expanded={expanded.has(groupKey)}
+                      expandEnabled={expandEnabled}
+                      loading={loadingGroups.has(groupKey)}
+                      error={errorsByGroup.get(groupKey) ?? null}
+                      shipments={shipmentsByGroup.get(groupKey) ?? []}
+                      shipmentDetailBasePath={shipmentDetailBasePath}
+                      onToggle={() => toggleExpand(r.ptPlant, r.itemDescription)}
+                      colSpan={6}
+                    />
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -255,6 +293,7 @@ export function LogisticsDetailTable({
             <table className="min-w-full border-collapse text-left text-sm text-slate-800">
               <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-100/95 backdrop-blur supports-[backdrop-filter]:bg-slate-100/80">
                 <tr>
+                  {expandHeader}
                   <th className="whitespace-nowrap px-3 py-3 text-xs font-semibold uppercase tracking-wide text-slate-600">
                     PT – Plant
                   </th>
@@ -273,22 +312,27 @@ export function LogisticsDetailTable({
                 </tr>
               </thead>
               <tbody>
-                {lclRows.map((r) => (
-                  <tr
-                    key={`${r.ptPlant}|${r.itemDescription}`}
-                    className="border-b border-slate-100 transition-colors hover:bg-slate-50/90"
-                  >
-                    <td className="whitespace-nowrap px-3 py-2.5 font-medium text-slate-900">{displayPtPlantLabel(r.ptPlant)}</td>
-                    <td className="px-3 py-2.5 text-slate-700">{r.itemDescription}</td>
-                    <td className="whitespace-nowrap px-3 py-2.5 font-mono tabular-nums text-slate-900">
-                      {r.packageDisplay}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2.5 font-mono tabular-nums text-slate-900">
-                      {r.cbmDisplay}
-                    </td>
-                    <td className="px-3 py-2.5 text-slate-600">{r.forwarder}</td>
-                  </tr>
-                ))}
+                {lclRows.map((r) => {
+                  const groupKey = logisticsLineGroupKey(r.ptPlant, r.itemDescription);
+                  return (
+                    <LogisticsExpandableGroupRow
+                      key={`${r.ptPlant}|${r.itemDescription}`}
+                      rowKey={`${r.ptPlant}|${r.itemDescription}`}
+                      ptPlantLabel={displayPtPlantLabel(r.ptPlant)}
+                      itemDescription={r.itemDescription}
+                      metricCells={[r.packageDisplay, r.cbmDisplay]}
+                      forwarder={r.forwarder}
+                      expanded={expanded.has(groupKey)}
+                      expandEnabled={expandEnabled}
+                      loading={loadingGroups.has(groupKey)}
+                      error={errorsByGroup.get(groupKey) ?? null}
+                      shipments={shipmentsByGroup.get(groupKey) ?? []}
+                      shipmentDetailBasePath={shipmentDetailBasePath}
+                      onToggle={() => toggleExpand(r.ptPlant, r.itemDescription)}
+                      colSpan={7}
+                    />
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -320,6 +364,7 @@ export function LogisticsDetailTable({
             <table className="min-w-full border-collapse text-left text-sm text-slate-800">
               <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-100/95 backdrop-blur supports-[backdrop-filter]:bg-slate-100/80">
                 <tr>
+                  {expandHeader}
                   <th className="whitespace-nowrap px-3 py-3 text-xs font-semibold uppercase tracking-wide text-slate-600">
                     PT – Plant
                   </th>
@@ -335,19 +380,27 @@ export function LogisticsDetailTable({
                 </tr>
               </thead>
               <tbody>
-                {fclRows.map((r) => (
-                  <tr
-                    key={`${r.ptPlant}|${r.itemDescription}`}
-                    className="border-b border-slate-100 transition-colors hover:bg-slate-50/90"
-                  >
-                    <td className="whitespace-nowrap px-3 py-2.5 font-medium text-slate-900">{displayPtPlantLabel(r.ptPlant)}</td>
-                    <td className="px-3 py-2.5 text-slate-700">{r.itemDescription}</td>
-                    <td className="whitespace-nowrap px-3 py-2.5 font-mono text-sm text-slate-900">
-                      {r.containerDisplay}
-                    </td>
-                    <td className="px-3 py-2.5 text-slate-600">{r.forwarder}</td>
-                  </tr>
-                ))}
+                {fclRows.map((r) => {
+                  const groupKey = logisticsLineGroupKey(r.ptPlant, r.itemDescription);
+                  return (
+                    <LogisticsExpandableGroupRow
+                      key={`${r.ptPlant}|${r.itemDescription}`}
+                      rowKey={`${r.ptPlant}|${r.itemDescription}`}
+                      ptPlantLabel={displayPtPlantLabel(r.ptPlant)}
+                      itemDescription={r.itemDescription}
+                      metricCells={[r.containerDisplay]}
+                      forwarder={r.forwarder}
+                      expanded={expanded.has(groupKey)}
+                      expandEnabled={expandEnabled}
+                      loading={loadingGroups.has(groupKey)}
+                      error={errorsByGroup.get(groupKey) ?? null}
+                      shipments={shipmentsByGroup.get(groupKey) ?? []}
+                      shipmentDetailBasePath={shipmentDetailBasePath}
+                      onToggle={() => toggleExpand(r.ptPlant, r.itemDescription)}
+                      colSpan={6}
+                    />
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -363,6 +416,7 @@ export function LogisticsDetailTable({
             <table className="min-w-full border-collapse text-left text-sm text-slate-800">
               <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-100/95 backdrop-blur supports-[backdrop-filter]:bg-slate-100/80">
                 <tr>
+                  {expandHeader}
                   <th className="whitespace-nowrap px-3 py-3 text-xs font-semibold uppercase tracking-wide text-slate-600">
                     PT – Plant
                   </th>
@@ -378,19 +432,27 @@ export function LogisticsDetailTable({
                 </tr>
               </thead>
               <tbody>
-                {bulkRows.map((r) => (
-                  <tr
-                    key={`${r.ptPlant}|${r.itemDescription}`}
-                    className="border-b border-slate-100 transition-colors hover:bg-slate-50/90"
-                  >
-                    <td className="whitespace-nowrap px-3 py-2.5 font-medium text-slate-900">{displayPtPlantLabel(r.ptPlant)}</td>
-                    <td className="px-3 py-2.5 text-slate-700">{r.itemDescription}</td>
-                    <td className="whitespace-nowrap px-3 py-2.5 font-mono tabular-nums text-slate-900">
-                      {r.volumeWeightDisplay}
-                    </td>
-                    <td className="px-3 py-2.5 text-slate-600">{r.forwarder}</td>
-                  </tr>
-                ))}
+                {bulkRows.map((r) => {
+                  const groupKey = logisticsLineGroupKey(r.ptPlant, r.itemDescription);
+                  return (
+                    <LogisticsExpandableGroupRow
+                      key={`${r.ptPlant}|${r.itemDescription}`}
+                      rowKey={`${r.ptPlant}|${r.itemDescription}`}
+                      ptPlantLabel={displayPtPlantLabel(r.ptPlant)}
+                      itemDescription={r.itemDescription}
+                      metricCells={[r.volumeWeightDisplay]}
+                      forwarder={r.forwarder}
+                      expanded={expanded.has(groupKey)}
+                      expandEnabled={expandEnabled}
+                      loading={loadingGroups.has(groupKey)}
+                      error={errorsByGroup.get(groupKey) ?? null}
+                      shipments={shipmentsByGroup.get(groupKey) ?? []}
+                      shipmentDetailBasePath={shipmentDetailBasePath}
+                      onToggle={() => toggleExpand(r.ptPlant, r.itemDescription)}
+                      colSpan={6}
+                    />
+                  );
+                })}
               </tbody>
             </table>
           </div>

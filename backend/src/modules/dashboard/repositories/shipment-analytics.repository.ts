@@ -135,6 +135,37 @@ function buildBaseWhereParams(q: ShipmentAnalyticsQuery): { whereParts: string[]
   return { whereParts, params };
 }
 
+const POST_ARRIVAL_BDAY_INDEX = (col: string) =>
+  `(FLOOR((${col}::date - '2000-01-03'::date)::int / 7) * 5 + LEAST(EXTRACT(ISODOW FROM ${col}::date)::int, 5))`;
+
+const POST_ARRIVAL_PLANT_EXPR = `CONCAT(
+  COALESCE(NULLIF(TRIM(fp.pt), ''), '—'),
+  ' – ',
+  COALESCE(NULLIF(TRIM(fp.plant), ''), '(Unknown)')
+)`;
+
+const POST_ARRIVAL_LOAD_TYPE_EXPR = `CASE
+  WHEN UPPER(TRIM(COALESCE(s.shipment_method, ''))) = 'AIR' THEN 'AIR'
+  ELSE UPPER(TRIM(COALESCE(s.ship_by, '')))
+END`;
+
+function appendPostArrivalScopeFilters(whereParts: string[]): void {
+  whereParts.push(`s.ata IS NOT NULL`);
+  whereParts.push(`(
+    (
+      UPPER(TRIM(COALESCE(s.shipment_method, ''))) = 'SEA'
+      AND UPPER(TRIM(COALESCE(s.ship_by, ''))) IN ('FCL', 'LCL', 'BULK')
+    )
+    OR UPPER(TRIM(COALESCE(s.shipment_method, ''))) = 'AIR'
+  )`);
+}
+
+function appendPostArrivalLeadDaysFilter(whereParts: string[]): void {
+  whereParts.push(
+    `(${POST_ARRIVAL_BDAY_INDEX("s.closed_at")} - ${POST_ARRIVAL_BDAY_INDEX("s.ata")}) >= 0`
+  );
+}
+
 export interface FinancialSummaryResult {
   import_value_idr: number;
   bm_idr: number;
@@ -164,6 +195,22 @@ export interface PostArrivalLeadRow {
   is_type_total: boolean;
 }
 
+export interface PostArrivalLeadShipmentsQuery extends ShipmentAnalyticsQuery {
+  load_type: string;
+  /** Raw plant key from aggregate row (PT – Plant concat). */
+  group_pt_plant: string;
+}
+
+/** One shipment for post-arrival lead expand (load type + plant group). */
+export interface PostArrivalLeadShipmentRow {
+  id: string;
+  shipment_number: string;
+  current_status: string;
+  lead_days: number;
+  ata: string | null;
+  closed_at: string | null;
+}
+
 /** Aggregated PO lines for analytics drill (Import by plant / By classification). */
 export interface ShipmentAnalyticsLinesQuery extends ShipmentAnalyticsQuery {
   detail_kind: "plant" | "classification";
@@ -187,6 +234,63 @@ export interface ShipmentAnalyticsLinesResult {
   /** Delivered shipments in scope (matches summary card counts). */
   shipment_count: number;
   rows: ShipmentAnalyticsLineAggRow[];
+}
+
+export interface ShipmentAnalyticsLineGroupShipmentsQuery extends ShipmentAnalyticsLinesQuery {
+  group_item_description: string;
+  group_pt?: string;
+  group_plant?: string;
+}
+
+/** Whole shipments for an aggregated line group (expand/collapse drill). */
+export interface ShipmentAnalyticsGroupShipmentRow {
+  id: string;
+  shipment_number: string;
+  current_status: string;
+  group_qty_delivered: number;
+  group_amount_idr: number;
+}
+
+export type LogisticsTransportMode = "AIR" | "LCL" | "FCL" | "BULK";
+
+export interface LogisticsGroupShipmentsQuery extends ShipmentAnalyticsQuery {
+  group_pt_plant: string;
+  group_item_description: string;
+  transport_mode: LogisticsTransportMode;
+  fcl_sub_type?: string;
+}
+
+function appendLineGroupKeyFilter(
+  whereParts: string[],
+  params: unknown[],
+  group: { item_description: string; pt?: string; plant?: string }
+): void {
+  let idx = params.length + 1;
+  const desc = group.item_description.trim();
+  if (desc === "(No description)" || desc === "") {
+    whereParts.push(
+      `(CASE WHEN enriched.merged_desc = '' THEN '__EMPTY_DESC__' ELSE LOWER(enriched.merged_desc) END) = '__EMPTY_DESC__'`
+    );
+  } else {
+    whereParts.push(`LOWER(enriched.merged_desc) = LOWER($${idx++})`);
+    params.push(desc);
+  }
+
+  const pt = group.pt?.trim() || null;
+  if (pt) {
+    whereParts.push(`LOWER(TRIM(COALESCE(enriched.line_pt, ''))) = LOWER($${idx++})`);
+    params.push(pt);
+  } else {
+    whereParts.push(`enriched.line_pt IS NULL`);
+  }
+
+  const plant = group.plant?.trim() || null;
+  if (plant) {
+    whereParts.push(`LOWER(TRIM(COALESCE(enriched.line_plant, ''))) = LOWER($${idx++})`);
+    params.push(plant);
+  } else {
+    whereParts.push(`enriched.line_plant IS NULL`);
+  }
 }
 
 function appendAnalyticsDetailDrill(
@@ -703,37 +807,20 @@ export class ShipmentAnalyticsRepository {
    */
   async getPostArrivalLead(q: ShipmentAnalyticsQuery): Promise<PostArrivalLeadRow[]> {
     const { whereParts, params } = buildBaseWhereParams(q);
-    whereParts.push(`s.ata IS NOT NULL`);
-    whereParts.push(`(
-      (
-        UPPER(TRIM(COALESCE(s.shipment_method, ''))) = 'SEA'
-        AND UPPER(TRIM(COALESCE(s.ship_by, ''))) IN ('FCL', 'LCL', 'BULK')
-      )
-      OR UPPER(TRIM(COALESCE(s.shipment_method, ''))) = 'AIR'
-    )`);
+    appendPostArrivalScopeFilters(whereParts);
+    appendPostArrivalLeadDaysFilter(whereParts);
     const whereSql = whereParts.join(" AND ");
-
-    const bdayExpr = (col: string) =>
-      `(FLOOR((${col}::date - '2000-01-03'::date)::int / 7) * 5 + LEAST(EXTRACT(ISODOW FROM ${col}::date)::int, 5))`;
 
     const sql = `
       WITH ${FIRST_PO_CTE},
       base AS (
         SELECT
-          CASE
-            WHEN UPPER(TRIM(COALESCE(s.shipment_method, ''))) = 'AIR' THEN 'AIR'
-            ELSE UPPER(TRIM(COALESCE(s.ship_by, '')))
-          END AS load_type,
-          CONCAT(
-            COALESCE(NULLIF(TRIM(fp.pt), ''), '—'),
-            ' – ',
-            COALESCE(NULLIF(TRIM(fp.plant), ''), '(Unknown)')
-          ) AS plant,
-          ${bdayExpr('s.closed_at')} - ${bdayExpr('s.ata')} AS bdays
+          ${POST_ARRIVAL_LOAD_TYPE_EXPR} AS load_type,
+          ${POST_ARRIVAL_PLANT_EXPR} AS plant,
+          ${POST_ARRIVAL_BDAY_INDEX("s.closed_at")} - ${POST_ARRIVAL_BDAY_INDEX("s.ata")} AS bdays
         FROM shipments s
         LEFT JOIN first_po fp ON fp.shipment_id = s.id
         WHERE ${whereSql}
-          AND (${bdayExpr('s.closed_at')} - ${bdayExpr('s.ata')}) >= 0
       )
       SELECT
         load_type,
@@ -760,6 +847,68 @@ export class ShipmentAnalyticsRepository {
       avg_days: parseFloat(row.avg_days),
       shipment_count: Number(row.shipment_count),
       is_type_total: row.is_type_total === 1,
+    }));
+  }
+
+  /** Whole delivered shipments for a post-arrival lead plant group (expand drill). */
+  async getPostArrivalLeadShipments(q: PostArrivalLeadShipmentsQuery): Promise<PostArrivalLeadShipmentRow[]> {
+    const { whereParts, params } = buildBaseWhereParams(q);
+    appendPostArrivalScopeFilters(whereParts);
+    appendPostArrivalLeadDaysFilter(whereParts);
+    const scopeWhereSql = whereParts.join(" AND ");
+
+    let idx = params.length + 1;
+    const loadType = q.load_type.trim().toUpperCase();
+    const groupPtPlant = q.group_pt_plant.trim();
+
+    const sql = `
+      WITH ${FIRST_PO_CTE},
+      base AS (
+        SELECT
+          s.id AS shipment_id,
+          s.shipment_no AS shipment_number,
+          COALESCE(s.current_status, '') AS current_status,
+          ${POST_ARRIVAL_LOAD_TYPE_EXPR} AS load_type,
+          ${POST_ARRIVAL_PLANT_EXPR} AS plant,
+          (${POST_ARRIVAL_BDAY_INDEX("s.closed_at")} - ${POST_ARRIVAL_BDAY_INDEX("s.ata")})::int AS lead_days,
+          s.ata,
+          s.closed_at
+        FROM shipments s
+        LEFT JOIN first_po fp ON fp.shipment_id = s.id
+        WHERE ${scopeWhereSql}
+      )
+      SELECT
+        shipment_id::text AS id,
+        shipment_number,
+        current_status,
+        lead_days::text AS lead_days,
+        ata::text AS ata,
+        closed_at::text AS closed_at
+      FROM base
+      WHERE load_type = $${idx++}
+        AND plant = $${idx++}
+      ORDER BY shipment_number ASC
+      LIMIT 500
+    `;
+
+    params.push(loadType, groupPtPlant);
+
+    const result = await this.pool.query<{
+      id: string;
+      shipment_number: string;
+      current_status: string;
+      lead_days: string;
+      ata: string | null;
+      closed_at: string | null;
+    }>(sql, params);
+
+    return result.rows.map((row) => ({
+      id: row.id,
+      shipment_number: row.shipment_number,
+      current_status: row.current_status,
+      lead_days: parseInt(row.lead_days, 10),
+      ata: row.ata,
+      closed_at: row.closed_at,
     }));
   }
 
@@ -844,5 +993,181 @@ export class ShipmentAnalyticsRepository {
       nilai_pabean_idr: nilaiPabean,
       total_idr: nilaiPabean + ppn + pph + freight,
     };
+  }
+
+  /**
+   * Whole delivered shipments for a plant/classification aggregated line group.
+   * One row per shipment with matching received lines; link opens full shipment detail.
+   */
+  async getLineGroupShipments(
+    q: ShipmentAnalyticsLineGroupShipmentsQuery
+  ): Promise<ShipmentAnalyticsGroupShipmentRow[]> {
+    const base = buildBaseWhereParams(q);
+    const whereParts = [...base.whereParts];
+    const params = [...base.params];
+    appendAnalyticsDetailDrill(whereParts, params, q);
+    const scopeWhereSql = whereParts.join(" AND ");
+
+    const groupWhereParts: string[] = [];
+    appendLineGroupKeyFilter(groupWhereParts, params, {
+      item_description: q.group_item_description,
+      pt: q.group_pt,
+      plant: q.group_plant,
+    });
+    const groupWhereSql = groupWhereParts.join(" AND ");
+
+    const scopeCte = `
+      WITH ${FIRST_PO_CTE},
+      shipments_in_scope AS (
+        SELECT s.id
+        FROM shipments s
+        LEFT JOIN first_po fp ON fp.shipment_id = s.id
+        WHERE ${scopeWhereSql}
+      )`;
+
+    const sql = `
+      ${scopeCte},
+      enriched AS (
+        SELECT
+          sis.id AS shipment_id,
+          TRIM(BOTH FROM COALESCE(
+            NULLIF(TRIM(BOTH FROM COALESCE(r.item_description, '')), ''),
+            NULLIF(TRIM(BOTH FROM COALESCE(it.item_description, '')), '')
+          )) AS merged_desc,
+          NULLIF(TRIM(BOTH FROM COALESCE(fp.plant, '')), '') AS line_plant,
+          NULLIF(TRIM(BOTH FROM COALESCE(fp.pt, '')), '') AS line_pt,
+          COALESCE(r.received_qty, 0)::numeric AS qty,
+          (COALESCE(r.received_qty, 0)::numeric * COALESCE(it.unit_price, 0)::numeric * CASE
+            WHEN UPPER(TRIM(COALESCE(i.currency, ''))) IN ('IDR', 'RP') THEN 1::numeric
+            ELSE COALESCE(NULLIF(m.currency_rate, 0), 1)::numeric
+          END) AS amount_idr
+        FROM shipments_in_scope sis
+        LEFT JOIN first_po fp ON fp.shipment_id = sis.id
+        INNER JOIN shipment_po_mapping m
+          ON m.shipment_id = sis.id AND m.decoupled_at IS NULL
+        INNER JOIN shipment_po_line_received r
+          ON r.shipment_id = m.shipment_id AND r.intake_id = m.intake_id AND r.deleted_at IS NULL
+        INNER JOIN Import_purchase_order_items it
+          ON it.id = r.item_id AND it.import_purchase_order_id = r.intake_id
+        INNER JOIN Import_purchase_order i ON i.id = r.intake_id
+      )
+      SELECT
+        s.id::text AS id,
+        s.shipment_no AS shipment_number,
+        COALESCE(s.current_status, '') AS current_status,
+        COALESCE(SUM(enriched.qty), 0)::text AS group_qty_delivered,
+        COALESCE(SUM(enriched.amount_idr), 0)::text AS group_amount_idr
+      FROM enriched
+      INNER JOIN shipments s ON s.id = enriched.shipment_id AND s.deleted_at IS NULL
+      WHERE ${groupWhereSql}
+      GROUP BY s.id, s.shipment_no, s.current_status
+      ORDER BY s.shipment_no ASC
+      LIMIT 500
+    `;
+
+    const result = await this.pool.query<{
+      id: string;
+      shipment_number: string;
+      current_status: string;
+      group_qty_delivered: string;
+      group_amount_idr: string;
+    }>(sql, params);
+
+    return result.rows.map((row) => ({
+      id: row.id,
+      shipment_number: row.shipment_number,
+      current_status: row.current_status,
+      group_qty_delivered: parseFloat(row.group_qty_delivered),
+      group_amount_idr: parseFloat(row.group_amount_idr),
+    }));
+  }
+
+  /** Whole delivered shipments for a logistics detail group (expand/collapse). */
+  async getLogisticsGroupShipments(q: LogisticsGroupShipmentsQuery): Promise<ShipmentAnalyticsGroupShipmentRow[]> {
+    const { whereParts, params } = buildBaseWhereParams(q);
+    const whereSql = whereParts.join(" AND ");
+
+    let idx = params.length + 1;
+    params.push(q.group_pt_plant.trim());
+    const ptPlantParam = `$${idx++}`;
+    params.push(q.group_item_description.trim());
+    const itemParam = `$${idx++}`;
+
+    const ptPlantSql = `CONCAT(COALESCE(NULLIF(TRIM(fp.pt), ''), '—'), ' – ', COALESCE(NULLIF(TRIM(fp.plant), ''), '—'))`;
+    const itemSql = `COALESCE(fd.item_description, '(No description)')`;
+
+    const transportFilters: string[] = [
+      `${ptPlantSql} = ${ptPlantParam}`,
+      `${itemSql} = ${itemParam}`,
+    ];
+
+    if (q.transport_mode === "AIR") {
+      transportFilters.push(`UPPER(TRIM(COALESCE(s.shipment_method, ''))) = 'AIR'`);
+    } else {
+      transportFilters.push(`UPPER(TRIM(COALESCE(s.shipment_method, ''))) = 'SEA'`);
+      if (q.transport_mode === "LCL") {
+        transportFilters.push(`UPPER(TRIM(COALESCE(s.ship_by, ''))) = 'LCL'`);
+      } else if (q.transport_mode === "FCL") {
+        transportFilters.push(`UPPER(TRIM(COALESCE(s.ship_by, ''))) = 'FCL'`);
+        const slug = q.fcl_sub_type?.trim();
+        const containerType = slug
+          ? FCL_CONTAINER_REGISTRY.find((t) => t.slug === slug)
+          : FCL_CONTAINER_REGISTRY[0];
+        if (containerType) {
+          transportFilters.push(`COALESCE(s.${containerType.column}, 0) > 0`);
+        }
+      } else {
+        transportFilters.push(`UPPER(TRIM(COALESCE(s.ship_by, ''))) = 'BULK'`);
+      }
+    }
+
+    const sql = `
+      WITH ${FIRST_PO_CTE},
+      first_desc AS (
+        SELECT DISTINCT ON (m.shipment_id)
+          m.shipment_id,
+          TRIM(COALESCE(
+            NULLIF(TRIM(COALESCE(r.item_description, '')), ''),
+            NULLIF(TRIM(COALESCE(it.item_description, '')), ''),
+            '(No description)'
+          )) AS item_description
+        FROM shipment_po_mapping m
+        JOIN Import_purchase_order i ON i.id = m.intake_id AND m.decoupled_at IS NULL
+        JOIN Import_purchase_order_items it ON it.import_purchase_order_id = i.id
+        LEFT JOIN shipment_po_line_received r
+          ON r.shipment_id = m.shipment_id AND r.intake_id = m.intake_id
+          AND r.item_id = it.id AND r.deleted_at IS NULL
+        ORDER BY m.shipment_id, i.po_number ASC NULLS LAST, it.id ASC
+      )
+      SELECT
+        s.id::text AS id,
+        s.shipment_no AS shipment_number,
+        COALESCE(s.current_status, '') AS current_status,
+        '0'::text AS group_qty_delivered,
+        '0'::text AS group_amount_idr
+      FROM shipments s
+      LEFT JOIN first_po fp ON fp.shipment_id = s.id
+      LEFT JOIN first_desc fd ON fd.shipment_id = s.id
+      WHERE ${whereSql}
+        AND ${transportFilters.join(" AND ")}
+      ORDER BY s.shipment_no ASC
+      LIMIT 500
+    `;
+
+    const result = await this.pool.query<{
+      id: string;
+      shipment_number: string;
+      current_status: string;
+      group_qty_delivered: string;
+      group_amount_idr: string;
+    }>(sql, params);
+
+    return result.rows.map((row) => ({
+      id: row.id,
+      shipment_number: row.shipment_number,
+      current_status: row.current_status,
+      group_qty_delivered: parseFloat(row.group_qty_delivered),
+      group_amount_idr: parseFloat(row.group_amount_idr),
+    }));
   }
 }
