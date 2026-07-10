@@ -18,6 +18,10 @@ import { DashboardCurrencyProvider } from "@/lib/dashboard-currency-context";
 import { DashboardUsdRateBar } from "@/components/dashboard/DashboardUsdRateBar";
 import { DashboardAnalyticsSection } from "./DashboardAnalyticsSection";
 import { RecentShipmentsCard } from "@/components/dashboard/RecentShipmentsCard";
+import {
+  buildShipmentListActivePipelineLink,
+  buildShipmentListPerformanceStatusLink,
+} from "@/lib/shipment-performance-deep-link";
 import styles from "./DashboardContent.module.css";
 
 const RECENT_LIMIT = 5;
@@ -158,21 +162,21 @@ export function DashboardContent() {
             <StatsCard
               label="Active Shipments"
               value={shipmentCounts.activeShipments}
-              href="/dashboard/shipments"
+              href={buildShipmentListActivePipelineLink()}
               aria-label="Shipments in progress (not delivered and not closed)"
               icon={<IconShip />}
             />
             <StatsCard
               label="In Customs"
               value={shipmentCounts.customsClearance}
-              href="/dashboard/shipments?status=CUSTOMS_CLEARANCE"
+              href={buildShipmentListPerformanceStatusLink("CUSTOMS_CLEARANCE")}
               aria-label="Customs clearance"
               icon={<IconDocument />}
             />
             <StatsCard
               label="Delivered"
               value={shipmentCounts.delivered}
-              href="/dashboard/shipments?status=DELIVERED"
+              href={buildShipmentListPerformanceStatusLink("DELIVERED")}
               aria-label="Delivered"
               icon={<IconCheck />}
             />

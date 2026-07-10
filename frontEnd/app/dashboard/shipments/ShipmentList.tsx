@@ -29,6 +29,7 @@ import { formatStatusLabel } from "@/lib/status-badge";
 import { shipmentTimelineStatusTone } from "@/lib/shipment-timeline-status";
 import { MANAGERIAL_LIST_FILTERS } from "@/lib/managerial-deep-link";
 import {
+  ACTIVE_PIPELINE_QUERY_PARAM,
   PERFORMANCE_ETA_LATE_QUERY_PARAM,
   PERFORMANCE_STATUS_QUERY_PARAM,
 } from "@/lib/shipment-performance-deep-link";
@@ -151,6 +152,9 @@ export function ShipmentList() {
   const managerialFilter = searchParams.get("filter");
   const managerialDays = searchParams.get("days");
   const performanceStatusRaw = (searchParams.get(PERFORMANCE_STATUS_QUERY_PARAM) ?? "").trim() || undefined;
+  const activePipelineFromUrl =
+    searchParams.get(ACTIVE_PIPELINE_QUERY_PARAM) === "true" ||
+    searchParams.get(ACTIVE_PIPELINE_QUERY_PARAM) === "1";
   const performanceEtaLate =
     searchParams.get(PERFORMANCE_ETA_LATE_QUERY_PARAM) === "true" ||
     searchParams.get(PERFORMANCE_ETA_LATE_QUERY_PARAM) === "1";
@@ -236,6 +240,7 @@ export function ShipmentList() {
       search: searchParam.trim() || undefined,
       po_from_date: poFromUrl || undefined,
       po_to_date: poToUrl || undefined,
+      ...(activePipelineFromUrl ? { active_pipeline: true } : {}),
       ...(managerialFilter === MANAGERIAL_LIST_FILTERS.dormantRemaining
         ? { dormant_remaining_qty: true, dormant_days: dormantDays }
         : {}),
@@ -274,6 +279,7 @@ export function ShipmentList() {
     managerialFilter,
     managerialDays,
     performanceStatusRaw,
+    activePipelineFromUrl,
     performanceEtaLate,
     columnFiltersKey,
     statusLabelToRaw,
@@ -319,6 +325,10 @@ export function ShipmentList() {
   }, [performanceEtaLate]);
 
   useEffect(() => {
+    setPage(1);
+  }, [activePipelineFromUrl]);
+
+  useEffect(() => {
     if (!performanceStatusRaw || !filterOptions?.statuses?.includes(performanceStatusRaw)) return;
     const label = formatStatusLabel(performanceStatusRaw);
     setColumnFilters((prev) => {
@@ -348,6 +358,12 @@ export function ShipmentList() {
   const clearPerformanceEtaLateFilter = useCallback(() => {
     const p = new URLSearchParams(searchParams.toString());
     p.delete(PERFORMANCE_ETA_LATE_QUERY_PARAM);
+    router.replace(`/dashboard/shipments${p.toString() ? `?${p.toString()}` : ""}`, { scroll: false });
+  }, [router, searchParams]);
+
+  const clearActivePipelineFilter = useCallback(() => {
+    const p = new URLSearchParams(searchParams.toString());
+    p.delete(ACTIVE_PIPELINE_QUERY_PARAM);
     router.replace(`/dashboard/shipments${p.toString() ? `?${p.toString()}` : ""}`, { scroll: false });
   }, [router, searchParams]);
 
@@ -699,9 +715,23 @@ export function ShipmentList() {
       />
 
       {(managerialFilter === MANAGERIAL_LIST_FILTERS.dormantRemaining ||
+        activePipelineFromUrl ||
         performanceStatusRaw ||
         performanceEtaLate) && (
         <div className={styles.filterChipsBar}>
+          {activePipelineFromUrl && (
+            <span className={styles.filterChip}>
+              Active shipments (in progress, not delivered)
+              <button
+                type="button"
+                className={styles.filterChipRemove}
+                aria-label="Clear active shipments filter"
+                onClick={clearActivePipelineFilter}
+              >
+                <X size={14} />
+              </button>
+            </span>
+          )}
           {managerialFilter === MANAGERIAL_LIST_FILTERS.dormantRemaining && (
             <span className={styles.filterChip}>
               Dormant: remaining PO line qty, shipment last updated &gt;{" "}

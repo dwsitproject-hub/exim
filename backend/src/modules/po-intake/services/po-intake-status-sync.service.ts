@@ -12,6 +12,19 @@ import type { IntakeStatus } from "../dto/index.js";
 const PICKED_UP = "PICKED_UP";
 const DELIVERED = "DELIVERED";
 
+/** node-pg returns DECIMAL/NUMERIC as strings — coerce before arithmetic. */
+function coercePgNumeric(value: unknown): number {
+  if (value == null) return 0;
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  if (typeof value === "string") {
+    const t = value.replace(/,/g, "").trim();
+    if (t === "") return 0;
+    const n = Number(t);
+    return Number.isFinite(n) ? n : 0;
+  }
+  return 0;
+}
+
 const repo = new PoIntakeRepository();
 const mappingRepo = new ShipmentPoMappingRepository();
 const lineReceivedRepo = new ShipmentPoLineReceivedRepository();
@@ -45,7 +58,7 @@ export async function computePoIntakeStatus(intakeId: string): Promise<ComputePo
   const items = await repo.findItemsByIntakeId(intakeId);
   const linked = await mappingRepo.findActiveShipmentsByIntakeId(intakeId);
 
-  const totalPoQty = items.reduce((s, it) => s + (it.qty ?? 0), 0);
+  const totalPoQty = items.reduce((s, it) => s + coercePgNumeric(it.qty), 0);
   let totalReceived = 0;
   for (const it of items) {
     totalReceived += await lineReceivedRepo.getTotalReceivedByIntakeItem(intakeId, it.id);

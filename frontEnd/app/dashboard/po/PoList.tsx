@@ -260,6 +260,12 @@ export function PoList() {
     router.replace(`/dashboard/po${p.toString() ? `?${p.toString()}` : ""}`, { scroll: false });
   }, [router, searchParams]);
 
+  const clearIntakeStatusFilter = useCallback(() => {
+    const p = new URLSearchParams(searchParams.toString());
+    p.delete("intake_status");
+    router.replace(`/dashboard/po${p.toString() ? `?${p.toString()}` : ""}`, { scroll: false });
+  }, [router, searchParams]);
+
   const totalPages = meta ? Math.ceil(meta.total / meta.limit) : 0;
 
   const staleDaysChip =
@@ -397,27 +403,45 @@ export function PoList() {
         <LoadingSkeleton lines={6} />
       ) : (
         <Card>
-          {(filterFromUrl === MANAGERIAL_LIST_FILTERS.stale || filterFromUrl === MANAGERIAL_LIST_FILTERS.uncoupled) && (
+          {(statusFromUrl && !filterFromUrl) ||
+          filterFromUrl === MANAGERIAL_LIST_FILTERS.stale ||
+          filterFromUrl === MANAGERIAL_LIST_FILTERS.uncoupled ? (
             <div className={styles.filterChipsBar}>
-              <span className={styles.filterChip}>
-                {filterFromUrl === MANAGERIAL_LIST_FILTERS.stale ? (
-                  <>
-                    Stale POs: New PO detected, unclaimed, detected &gt; {staleDaysChip} day(s) ago
-                  </>
-                ) : (
-                  <>Uncoupled: no active shipment link</>
-                )}
-                <button
-                  type="button"
-                  className={styles.filterChipRemove}
-                  aria-label="Clear managerial filter"
-                  onClick={clearManagerialFilter}
-                >
-                  <X size={14} />
-                </button>
-              </span>
+              {statusFromUrl && !filterFromUrl && (
+                <span className={styles.filterChip}>
+                  PO status: {formatPoStatusLabel(statusFromUrl)}
+                  <button
+                    type="button"
+                    className={styles.filterChipRemove}
+                    aria-label="Clear PO status filter"
+                    onClick={clearIntakeStatusFilter}
+                  >
+                    <X size={14} />
+                  </button>
+                </span>
+              )}
+              {(filterFromUrl === MANAGERIAL_LIST_FILTERS.stale ||
+                filterFromUrl === MANAGERIAL_LIST_FILTERS.uncoupled) && (
+                <span className={styles.filterChip}>
+                  {filterFromUrl === MANAGERIAL_LIST_FILTERS.stale ? (
+                    <>
+                      Stale POs: New PO detected, unclaimed, detected &gt; {staleDaysChip} day(s) ago
+                    </>
+                  ) : (
+                    <>Uncoupled: no active shipment link</>
+                  )}
+                  <button
+                    type="button"
+                    className={styles.filterChipRemove}
+                    aria-label="Clear managerial filter"
+                    onClick={clearManagerialFilter}
+                  >
+                    <X size={14} />
+                  </button>
+                </span>
+              )}
             </div>
-          )}
+          ) : null}
           {items.length === 0 ? (
             <EmptyState
               title="No Purchase Order found"

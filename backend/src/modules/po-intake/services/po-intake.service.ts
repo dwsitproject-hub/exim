@@ -636,7 +636,7 @@ export class PoIntakeService {
       let totalReceived = 0;
       let totalPoQty = 0;
       for (const it of items) {
-        totalPoQty += it.qty ?? 0;
+        totalPoQty += coercePgNumeric(it.qty) ?? 0;
         totalReceived += await this.lineReceivedRepo.getTotalReceivedByIntakeItem(id, it.id);
       }
       const eligibility = evaluatePoIntakeReclaimEligibility({
