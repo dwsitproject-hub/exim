@@ -148,7 +148,8 @@ const STATUS_REQUIREMENTS: Record<string, StatusRequirement> = {
   },
   DELIVERED: {
     status: "DELIVERED",
-    requiredFields: ["closed_at"],
+    /** User must provide `closed_at` when transitioning to Delivered (via status update modal). */
+    requiredFields: [],
     requiredDocs: [],
   },
 };

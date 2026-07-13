@@ -1,0 +1,88 @@
+.subRow {
+  background: var(--color-primitive-background-lighter, #fafafa);
+}
+
+.subRow:hover {
+  background: var(--color-primitive-background-lighter, #fafafa);
+}
+
+.subCell {
+  padding: var(--spacing-4, 18px) var(--spacing-4, 20px);
+  font-size: var(--typography-fontSize-sm, 13px);
+  vertical-align: top;
+}
+
+.subIndentCell {
+  padding: var(--spacing-4, 18px) var(--spacing-4, 20px);
+  vertical-align: top;
+}
+
+.subShipmentCell {
+  padding: var(--spacing-4, 18px) var(--spacing-4, 20px);
+  vertical-align: top;
+}
+
+.subMutedCell {
+  padding: var(--spacing-4, 18px) var(--spacing-4, 20px);
+  vertical-align: top;
+  color: var(--color-primitive-text-secondary, #71717a);
+}
+
+.subQtyCell {
+  padding: var(--spacing-4, 18px) var(--spacing-4, 20px);
+  vertical-align: top;
+  font-variant-numeric: tabular-nums;
+}
+
+.subHint {
+  color: var(--color-primitive-text-secondary, #71717a);
+  font-size: var(--typography-fontSize-sm, 13px);
+}
+
+.subError {
+  color: var(--color-primitive-danger, #c43a31);
+  font-size: var(--typography-fontSize-sm, 13px);
+}
+
+.shipmentLink {
+  color: var(--color-primitive-brand, #c43a31);
+  font-weight: var(--typography-fontWeight-medium, 500);
+  text-decoration: none;
+}
+
+.shipmentLink:hover {
+  text-decoration: underline;
+}
+
+.subStatus {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--typography-fontSize-xs, 11px);
+  color: var(--color-primitive-text-secondary, #71717a);
+}
+
+.subNum {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.expandBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-right: 4px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-primitive-text-secondary, #71717a);
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.expandBtn:hover {
+  background: var(--color-primitive-background-light, #f4f4f5);
+  color: var(--color-primitive-text-primary, #18181b);
+}

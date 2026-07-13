@@ -121,4 +121,28 @@ export class NotificationRepository {
       values,
     );
   }
+
+  async insertEtaReminderNotifications(
+    client: PoolClient,
+    rows: {
+      userId: string;
+      shipmentId: string;
+      type: "shipment_eta_h3" | "shipment_eta_h2" | "shipment_eta_h1";
+      message: string;
+    }[]
+  ): Promise<void> {
+    if (rows.length === 0) return;
+    const values: unknown[] = [];
+    const placeholders: string[] = [];
+    let p = 1;
+    for (const r of rows) {
+      placeholders.push(`($${p++}::uuid, $${p++}, $${p++}::uuid, $${p++}::uuid, $${p++})`);
+      values.push(r.userId, r.type, r.shipmentId, r.shipmentId, r.message);
+    }
+    await client.query(
+      `INSERT INTO notifications (user_id, type, reference_id, shipment_id, message)
+       VALUES ${placeholders.join(", ")}`,
+      values
+    );
+  }
 }

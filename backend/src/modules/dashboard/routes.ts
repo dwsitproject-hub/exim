@@ -37,10 +37,52 @@ dashboardRoutes.get(
   dashboardController.getShipmentAnalytics
 );
 dashboardRoutes.get(
+  "/shipment-analytics/lines/shipments",
+  authMiddleware,
+  requirePermission(PERMISSIONS.VIEW_SHIPMENTS),
+  dashboardController.getShipmentAnalyticsLineGroupShipments
+);
+dashboardRoutes.get(
   "/shipment-analytics/lines",
   authMiddleware,
   requirePermission(PERMISSIONS.VIEW_SHIPMENTS),
   dashboardController.getShipmentAnalyticsLines
+);
+dashboardRoutes.get(
+  "/classification-qty",
+  authMiddleware,
+  requirePermission(PERMISSIONS.VIEW_SHIPMENTS),
+  dashboardController.getClassificationQty
+);
+dashboardRoutes.get(
+  "/post-arrival-lead/shipments",
+  authMiddleware,
+  requirePermission(PERMISSIONS.VIEW_SHIPMENTS),
+  dashboardController.getPostArrivalLeadShipments
+);
+dashboardRoutes.get(
+  "/post-arrival-lead",
+  authMiddleware,
+  requirePermission(PERMISSIONS.VIEW_SHIPMENTS),
+  dashboardController.getPostArrivalLead
+);
+dashboardRoutes.get(
+  "/logistics-rows/shipments",
+  authMiddleware,
+  requirePermission(PERMISSIONS.VIEW_SHIPMENTS),
+  dashboardController.getLogisticsGroupShipments
+);
+dashboardRoutes.get(
+  "/logistics-rows",
+  authMiddleware,
+  requirePermission(PERMISSIONS.VIEW_SHIPMENTS),
+  dashboardController.getLogisticsRows
+);
+dashboardRoutes.get(
+  "/financial-summary",
+  authMiddleware,
+  requirePermission(PERMISSIONS.VIEW_SHIPMENTS),
+  dashboardController.getFinancialSummary
 );
 /** @deprecated Use GET /dashboard/delivered-management — same response shape. */
 dashboardRoutes.get(

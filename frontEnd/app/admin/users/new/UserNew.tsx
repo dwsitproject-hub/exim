@@ -22,7 +22,7 @@ export function UserNew() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState<string>(USER_ROLE_OPTIONS[2]!);
+  const [role, setRole] = useState<string>("IMPORT_OFFICER");
   const [overrides, setOverrides] = useState<Set<string>>(() => new Set());
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);

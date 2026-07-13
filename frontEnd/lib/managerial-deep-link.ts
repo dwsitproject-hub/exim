@@ -1,6 +1,6 @@
 /**
  * Central URL builders and query keys for dashboard “Exception & alert” deep links.
- * List routes live under `/import/po` and `/import/shipments`.
+ * List routes live under `/dashboard/po` and `/dashboard/shipments`.
  */
 
 export const MANAGERIAL_FILTER_PARAM = "filter";
@@ -29,14 +29,14 @@ export function buildPoListDeepLink(
   if (filter === MANAGERIAL_LIST_FILTERS.stale) {
     p.set(MANAGERIAL_DAYS_PARAM, String(days ?? DEFAULT_STALE_DAYS));
   }
-  return `/import/po?${p.toString()}`;
+  return `/dashboard/po?${p.toString()}`;
 }
 
 export function buildShipmentListDormantDeepLink(days = DEFAULT_DORMANT_DAYS): string {
   const p = new URLSearchParams();
   p.set(MANAGERIAL_FILTER_PARAM, MANAGERIAL_LIST_FILTERS.dormantRemaining);
   p.set(MANAGERIAL_DAYS_PARAM, String(days));
-  return `/import/shipments?${p.toString()}`;
+  return `/dashboard/shipments?${p.toString()}`;
 }
 
 export function managerialFilterTooltip(count: number): string {

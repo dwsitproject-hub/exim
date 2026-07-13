@@ -298,7 +298,10 @@ export class PoIntakeRepository {
    * @returns `blocked` if deliveries reference this line; `deleted` if a row was removed.
    */
   async tryDeleteItemIfNoLineReceived(intakeId: string, itemId: string): Promise<{ deleted: boolean; blocked: boolean }> {
-    const block = await this.pool.query(`SELECT 1 FROM shipment_po_line_received WHERE item_id = $1 LIMIT 1`, [itemId]);
+    const block = await this.pool.query(
+      `SELECT 1 FROM shipment_po_line_received WHERE item_id = $1 AND deleted_at IS NULL LIMIT 1`,
+      [itemId]
+    );
     if (block.rows.length > 0) return { deleted: false, blocked: true };
     const r = await this.pool.query(
       `DELETE FROM Import_purchase_order_items WHERE id = $1::uuid AND import_purchase_order_id = $2::uuid`,

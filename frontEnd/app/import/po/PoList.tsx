@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
+import { useSessionPersistedState } from "@/hooks/use-session-persisted-state";
 import { useTableColumnVisibility, type TableColumnDef } from "@/hooks/use-table-column-visibility";
 import { listPo, getPoListFilterOptions } from "@/services/po-service";
 import { Card } from "@/components/cards";
@@ -36,12 +37,12 @@ import styles from "./PoList.module.css";
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 10;
 
-const PO_LIST_TABLE_COLUMNS_KEY = "eos.dash.poList.tableColumns.v3";
+const PO_LIST_TABLE_COLUMNS_KEY = "eos.dash.poList.tableColumns.v4";
+const PO_LIST_COLUMN_FILTERS_KEY = "eos.dash.poList.columnFilters.v1";
 
 /** All scalar PO detail fields (lines / linked shipments are not columns). */
 const PO_TABLE_COLUMNS: TableColumnDef[] = [
   { id: "po_number", label: "PO number", locked: true },
-  { id: "external_id", label: "External ID" },
   { id: "pt", label: "PT" },
   { id: "plant", label: "Plant" },
   { id: "supplier", label: "Supplier" },
@@ -71,7 +72,6 @@ function buildPoListColumnFilters(
     if (statuses.length) q.intake_statuses = statuses;
   }
   if (raw("po_number").length) q.po_numbers = raw("po_number");
-  if (raw("external_id").length) q.external_ids = raw("external_id");
   if (raw("pt").length) q.pts = raw("pt");
   if (raw("plant").length) q.plants = raw("plant");
   if (raw("supplier").length) q.supplier_names = raw("supplier");
@@ -117,7 +117,9 @@ export function PoList() {
   const [page, setPage] = useState(DEFAULT_PAGE);
   const [searchInput, setSearchInput] = useState("");
   const [searchParam, setSearchParam] = useState("");
-  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
+  const [columnFilters, setColumnFilters, columnFiltersHydrated] = useSessionPersistedState<
+    Record<string, string[]>
+  >(PO_LIST_COLUMN_FILTERS_KEY, {});
   const [openFilterColumnId, setOpenFilterColumnId] = useState<string | null>(null);
   const [filterOptions, setFilterOptions] = useState<PoListFilterOptions | null>(null);
   const [sortBy, setSortBy] = useState<string | null>(null);
@@ -138,7 +140,6 @@ export function PoList() {
     const o = filterOptions;
     return {
       po_number: o.po_numbers,
-      external_id: o.external_ids,
       pt: o.pts,
       plant: o.plants,
       supplier: o.supplier_names,
@@ -224,8 +225,9 @@ export function PoList() {
   }, [accessToken, listQuery]);
 
   useEffect(() => {
+    if (!columnFiltersHydrated) return;
     fetchList();
-  }, [fetchList]);
+  }, [fetchList, columnFiltersHydrated]);
 
   useEffect(() => {
     if (!accessToken) return;
@@ -258,6 +260,12 @@ export function PoList() {
     p.delete("filter");
     p.delete("days");
     router.replace(`/import/po${p.toString() ? `?${p.toString()}` : ""}`, { scroll: false });
+  }, [router, searchParams]);
+
+  const clearIntakeStatusFilter = useCallback(() => {
+    const p = new URLSearchParams(searchParams.toString());
+    p.delete("intake_status");
+    router.replace(`/dashboard/po${p.toString() ? `?${p.toString()}` : ""}`, { scroll: false });
   }, [router, searchParams]);
 
   const totalPages = meta ? Math.ceil(meta.total / meta.limit) : 0;
@@ -305,8 +313,6 @@ export function PoList() {
         return <TableCell key={column.id}>{row.plant ?? "—"}</TableCell>;
       case "supplier":
         return <TableCell key={column.id}>{row.supplier_name ?? "—"}</TableCell>;
-      case "external_id":
-        return <TableCell key={column.id}>{row.external_id?.trim() || "—"}</TableCell>;
       case "delivery_location":
         return <TableCell key={column.id}>{row.delivery_location?.trim() || "—"}</TableCell>;
       case "incoterm_location":
@@ -393,27 +399,45 @@ export function PoList() {
         <LoadingSkeleton lines={6} />
       ) : (
         <Card>
-          {(filterFromUrl === MANAGERIAL_LIST_FILTERS.stale || filterFromUrl === MANAGERIAL_LIST_FILTERS.uncoupled) && (
+          {(statusFromUrl && !filterFromUrl) ||
+          filterFromUrl === MANAGERIAL_LIST_FILTERS.stale ||
+          filterFromUrl === MANAGERIAL_LIST_FILTERS.uncoupled ? (
             <div className={styles.filterChipsBar}>
-              <span className={styles.filterChip}>
-                {filterFromUrl === MANAGERIAL_LIST_FILTERS.stale ? (
-                  <>
-                    Stale POs: New PO detected, unclaimed, detected &gt; {staleDaysChip} day(s) ago
-                  </>
-                ) : (
-                  <>Uncoupled: no active shipment link</>
-                )}
-                <button
-                  type="button"
-                  className={styles.filterChipRemove}
-                  aria-label="Clear managerial filter"
-                  onClick={clearManagerialFilter}
-                >
-                  <X size={14} />
-                </button>
-              </span>
+              {statusFromUrl && !filterFromUrl && (
+                <span className={styles.filterChip}>
+                  PO status: {formatPoStatusLabel(statusFromUrl)}
+                  <button
+                    type="button"
+                    className={styles.filterChipRemove}
+                    aria-label="Clear PO status filter"
+                    onClick={clearIntakeStatusFilter}
+                  >
+                    <X size={14} />
+                  </button>
+                </span>
+              )}
+              {(filterFromUrl === MANAGERIAL_LIST_FILTERS.stale ||
+                filterFromUrl === MANAGERIAL_LIST_FILTERS.uncoupled) && (
+                <span className={styles.filterChip}>
+                  {filterFromUrl === MANAGERIAL_LIST_FILTERS.stale ? (
+                    <>
+                      Stale POs: New PO detected, unclaimed, detected &gt; {staleDaysChip} day(s) ago
+                    </>
+                  ) : (
+                    <>Uncoupled: no active shipment link</>
+                  )}
+                  <button
+                    type="button"
+                    className={styles.filterChipRemove}
+                    aria-label="Clear managerial filter"
+                    onClick={clearManagerialFilter}
+                  >
+                    <X size={14} />
+                  </button>
+                </span>
+              )}
             </div>
-          )}
+          ) : null}
           {items.length === 0 ? (
             <EmptyState
               title="No Purchase Order found"

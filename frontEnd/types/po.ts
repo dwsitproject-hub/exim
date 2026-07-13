@@ -5,7 +5,7 @@
 
 export interface PoListItem {
   id: string;
-  external_id: string;
+  external_id: string | null;
   po_number: string;
   plant: string | null;
   pt: string | null;
@@ -119,7 +119,7 @@ export interface PoLinkedShipment {
 
 export interface PoDetail {
   id: string;
-  external_id: string;
+  external_id: string | null;
   po_number: string;
   plant: string | null;
   pt: string | null;
@@ -140,7 +140,7 @@ export interface PoDetail {
   overshipped?: boolean;
 }
 
-/** Payload for temporary "Create test PO" (POST /po/test-create). Matches backend CreatePoIntakeDto. 1 PO = multiple items, 1 incoterm. */
+/** Payload for Create PO (POST /po/test-create). Matches backend CreatePoIntakeDto. */
 export interface CreateTestPoItem {
   item_description?: string;
   qty?: number;
@@ -152,7 +152,8 @@ export interface CreateTestPoItem {
 }
 
 export interface CreateTestPoPayload {
-  external_id: string;
+  /** SaaS source id; omit for POs created manually in EOS. */
+  external_id?: string;
   po_number: string;
   plant?: string;
   pt?: string;

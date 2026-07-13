@@ -5,13 +5,13 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { RotateCw, X } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import { useSessionPersistedState } from "@/hooks/use-session-persisted-state";
 import { useTableColumnVisibility, type TableColumnDef } from "@/hooks/use-table-column-visibility";
 import { listShipments, getShipmentListFilterOptions } from "@/services/shipments-service";
 import { Card } from "@/components/cards";
 import { LoadingSkeleton } from "@/components/feedback";
-import { StatusBadge } from "@/components/badges/StatusBadge";
 import { PageHeader, ActionBar, EmptyState } from "@/components/navigation";
-import { SearchBar } from "@/components/forms";
+import { useShipmentListRowContextMenu } from "@/components/shipments";
 import {
   Table,
   TableHead,
@@ -21,14 +21,15 @@ import {
   TableHeaderCell,
   TableColumnPicker,
   TableColumnFilterPicker,
-  TablePagination,
 } from "@/components/tables";
 import { isApiError } from "@/types/api";
 import { displayPibTypeLabel } from "@/lib/pib-type-label";
 import { displayProductClassification } from "@/lib/product-classification";
 import { formatStatusLabel } from "@/lib/status-badge";
+import { shipmentTimelineStatusTone } from "@/lib/shipment-timeline-status";
 import { MANAGERIAL_LIST_FILTERS } from "@/lib/managerial-deep-link";
 import {
+  ACTIVE_PIPELINE_QUERY_PARAM,
   PERFORMANCE_ETA_LATE_QUERY_PARAM,
   PERFORMANCE_STATUS_QUERY_PARAM,
 } from "@/lib/shipment-performance-deep-link";
@@ -41,6 +42,7 @@ const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 10;
 
 const SHIPMENT_LIST_TABLE_COLUMNS_KEY = "eos.dash.shipmentList.tableColumns.v4";
+const SHIPMENT_LIST_COLUMN_FILTERS_KEY = "eos.dash.shipmentList.columnFilters.v1";
 
 /** PT and Plant first for sticky priority; Shipment scrolls with the table. */
 const SHIPMENT_TABLE_COLUMNS: TableColumnDef[] = [
@@ -48,17 +50,17 @@ const SHIPMENT_TABLE_COLUMNS: TableColumnDef[] = [
   { id: "plant", label: "Plant", locked: true },
   { id: "shipment", label: "Shipment", locked: true },
   { id: "status", label: "Status" },
+  { id: "pic", label: "PIC" },
   { id: "po_number", label: "PO number" },
+  { id: "eta", label: "ETA" },
   { id: "vendor", label: "Vendor" },
   { id: "incoterm", label: "Incoterms" },
   { id: "pib_type", label: "PIB type" },
   { id: "ship_via", label: "Ship via" },
   { id: "product_classification", label: "Product classification" },
   { id: "ship_by", label: "Ship by" },
-  { id: "pic", label: "PIC" },
   { id: "forwarder", label: "Forwarder" },
   { id: "etd", label: "ETD" },
-  { id: "eta", label: "ETA" },
   { id: "origin_port", label: "Origin port" },
   { id: "destination_port", label: "Destination port" },
 ];
@@ -143,12 +145,16 @@ function CellText({ value, className }: { value: string | null | undefined; clas
 export function ShipmentList() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { openRowContextMenu, rowContextMenu } = useShipmentListRowContextMenu();
   const searchFromUrl = searchParams.get("search") ?? "";
   const poFromUrl = (searchParams.get("po_from_date") ?? "").trim();
   const poToUrl = (searchParams.get("po_to_date") ?? "").trim();
   const managerialFilter = searchParams.get("filter");
   const managerialDays = searchParams.get("days");
   const performanceStatusRaw = (searchParams.get(PERFORMANCE_STATUS_QUERY_PARAM) ?? "").trim() || undefined;
+  const activePipelineFromUrl =
+    searchParams.get(ACTIVE_PIPELINE_QUERY_PARAM) === "true" ||
+    searchParams.get(ACTIVE_PIPELINE_QUERY_PARAM) === "1";
   const performanceEtaLate =
     searchParams.get(PERFORMANCE_ETA_LATE_QUERY_PARAM) === "true" ||
     searchParams.get(PERFORMANCE_ETA_LATE_QUERY_PARAM) === "1";
@@ -167,7 +173,9 @@ export function ShipmentList() {
   const [poFromInput, setPoFromInput] = useState(poFromUrl);
   const [poToInput, setPoToInput] = useState(poToUrl);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
-  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
+  const [columnFilters, setColumnFilters, columnFiltersHydrated] = useSessionPersistedState<
+    Record<string, string[]>
+  >(SHIPMENT_LIST_COLUMN_FILTERS_KEY, {});
   const [openFilterColumnId, setOpenFilterColumnId] = useState<string | null>(null);
   const [filterOptions, setFilterOptions] = useState<ShipmentListFilterOptions | null>(null);
   const [sortBy, setSortBy] = useState<string | null>(null);
@@ -178,7 +186,7 @@ export function ShipmentList() {
       const p = new URLSearchParams(searchParams.toString());
       if (search) p.set("search", search);
       else p.delete("search");
-      router.replace(`/import/shipments${p.toString() ? `?${p.toString()}` : ""}`, { scroll: false });
+      router.replace(`/dashboard/shipments${p.toString() ? `?${p.toString()}` : ""}`, { scroll: false });
     },
     [router, searchParams]
   );
@@ -232,6 +240,7 @@ export function ShipmentList() {
       search: searchParam.trim() || undefined,
       po_from_date: poFromUrl || undefined,
       po_to_date: poToUrl || undefined,
+      ...(activePipelineFromUrl ? { active_pipeline: true } : {}),
       ...(managerialFilter === MANAGERIAL_LIST_FILTERS.dormantRemaining
         ? { dormant_remaining_qty: true, dormant_days: dormantDays }
         : {}),
@@ -270,6 +279,7 @@ export function ShipmentList() {
     managerialFilter,
     managerialDays,
     performanceStatusRaw,
+    activePipelineFromUrl,
     performanceEtaLate,
     columnFiltersKey,
     statusLabelToRaw,
@@ -278,8 +288,9 @@ export function ShipmentList() {
   ]);
 
   useEffect(() => {
+    if (!columnFiltersHydrated) return;
     fetchList();
-  }, [fetchList]);
+  }, [fetchList, columnFiltersHydrated]);
 
   useEffect(() => {
     if (!accessToken) return;
@@ -314,6 +325,10 @@ export function ShipmentList() {
   }, [performanceEtaLate]);
 
   useEffect(() => {
+    setPage(1);
+  }, [activePipelineFromUrl]);
+
+  useEffect(() => {
     if (!performanceStatusRaw || !filterOptions?.statuses?.includes(performanceStatusRaw)) return;
     const label = formatStatusLabel(performanceStatusRaw);
     setColumnFilters((prev) => {
@@ -326,13 +341,13 @@ export function ShipmentList() {
     const p = new URLSearchParams(searchParams.toString());
     p.delete("filter");
     p.delete("days");
-    router.replace(`/import/shipments${p.toString() ? `?${p.toString()}` : ""}`, { scroll: false });
+    router.replace(`/dashboard/shipments${p.toString() ? `?${p.toString()}` : ""}`, { scroll: false });
   }, [router, searchParams]);
 
   const clearPerformanceStatusFilter = useCallback(() => {
     const p = new URLSearchParams(searchParams.toString());
     p.delete(PERFORMANCE_STATUS_QUERY_PARAM);
-    router.replace(`/import/shipments${p.toString() ? `?${p.toString()}` : ""}`, { scroll: false });
+    router.replace(`/dashboard/shipments${p.toString() ? `?${p.toString()}` : ""}`, { scroll: false });
     setColumnFilters((prev) => {
       const next = { ...prev };
       delete next.status;
@@ -343,7 +358,13 @@ export function ShipmentList() {
   const clearPerformanceEtaLateFilter = useCallback(() => {
     const p = new URLSearchParams(searchParams.toString());
     p.delete(PERFORMANCE_ETA_LATE_QUERY_PARAM);
-    router.replace(`/import/shipments${p.toString() ? `?${p.toString()}` : ""}`, { scroll: false });
+    router.replace(`/dashboard/shipments${p.toString() ? `?${p.toString()}` : ""}`, { scroll: false });
+  }, [router, searchParams]);
+
+  const clearActivePipelineFilter = useCallback(() => {
+    const p = new URLSearchParams(searchParams.toString());
+    p.delete(ACTIVE_PIPELINE_QUERY_PARAM);
+    router.replace(`/dashboard/shipments${p.toString() ? `?${p.toString()}` : ""}`, { scroll: false });
   }, [router, searchParams]);
 
   const syncPoDatesToUrl = useCallback(
@@ -355,25 +376,29 @@ export function ShipmentList() {
       else p.delete("po_from_date");
       if (t) p.set("po_to_date", t);
       else p.delete("po_to_date");
-      router.replace(`/import/shipments${p.toString() ? `?${p.toString()}` : ""}`, { scroll: false });
+      router.replace(`/dashboard/shipments${p.toString() ? `?${p.toString()}` : ""}`, { scroll: false });
     },
     [router, searchParams]
   );
 
   const totalPages = meta ? Math.ceil(meta.total / meta.limit) : 0;
 
-  function handleRowClick(shipmentId: string) {
-    router.push(`/import/shipments/${shipmentId}`);
+  function shipmentDetailHref(shipmentId: string) {
+    return `/dashboard/shipments/${shipmentId}`;
   }
 
-  function handleSearchSubmit() {
+  function handleRowClick(shipmentId: string) {
+    router.push(shipmentDetailHref(shipmentId));
+  }
+
+  function handleSearchSubmit(e: React.FormEvent) {
+    e.preventDefault();
     setSearchParam(searchInput);
     setPage(1);
     syncSearchToUrl(searchInput);
   }
 
   function handleColumnSort(columnId: string) {
-    if (columnId === "actions") return;
     setPage(1);
     if (sortBy === columnId) {
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -419,8 +444,15 @@ export function ShipmentList() {
       changed = true;
     }
     if (changed) {
-      router.replace(`/import/shipments${p.toString() ? `?${p.toString()}` : ""}`, { scroll: false });
+      router.replace(`/dashboard/shipments${p.toString() ? `?${p.toString()}` : ""}`, { scroll: false });
     }
+  }
+
+  function statusBadgeClass(status: string | null | undefined): string {
+    const tone = shipmentTimelineStatusTone(status);
+    if (tone === "delivered") return styles.statusDelivered;
+    if (tone === "green") return styles.statusGreen;
+    return styles.statusEarly;
   }
 
   function renderShipmentRowCell(column: (typeof SHIPMENT_TABLE_COLUMNS)[number], row: ShipmentListItem) {
@@ -446,7 +478,7 @@ export function ShipmentList() {
         return (
           <TableCell key={column.id}>
             <Link
-              href={`/import/shipments/${row.id}`}
+              href={shipmentDetailHref(row.id)}
               className={styles.cellLink}
               onClick={(e) => e.stopPropagation()}
             >
@@ -457,7 +489,9 @@ export function ShipmentList() {
       case "status":
         return (
           <TableCell key={column.id}>
-            <StatusBadge domain="shipment" status={row.current_status} visual="text" />
+            <span className={`${styles.statusBadge} ${statusBadgeClass(row.current_status)}`}>
+              {formatStatusLabel(row.current_status ?? "")}
+            </span>
           </TableCell>
         );
       case "po_number":
@@ -615,18 +649,23 @@ export function ShipmentList() {
 
   return (
     <section>
-      <PageHeader title="Shipments" backHref="/import/dashboard" backLabel="Dashboard" />
+      <PageHeader title="Shipments" backHref="/dashboard" backLabel="Dashboard" />
 
       <ActionBar
         search={
-          <SearchBar
-            value={searchInput}
-            onChange={setSearchInput}
-            onSubmit={handleSearchSubmit}
-            placeholder="Search shipment or supplier…"
-            ariaLabel="Search shipments"
-            fluid
-          />
+          <form onSubmit={handleSearchSubmit} className={styles.searchForm}>
+            <input
+              type="search"
+              placeholder="Search shipment, supplier, PO, BL, or invoice no…"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              className={styles.searchInput}
+              aria-label="Search shipments"
+            />
+            <button type="submit" className={styles.searchSubmit}>
+              Search
+            </button>
+          </form>
         }
         filters={
           <div className={styles.filterBar} data-tour="shipment-po-date-filter">
@@ -676,9 +715,23 @@ export function ShipmentList() {
       />
 
       {(managerialFilter === MANAGERIAL_LIST_FILTERS.dormantRemaining ||
+        activePipelineFromUrl ||
         performanceStatusRaw ||
         performanceEtaLate) && (
         <div className={styles.filterChipsBar}>
+          {activePipelineFromUrl && (
+            <span className={styles.filterChip}>
+              Active shipments (in progress, not delivered)
+              <button
+                type="button"
+                className={styles.filterChipRemove}
+                aria-label="Clear active shipments filter"
+                onClick={clearActivePipelineFilter}
+              >
+                <X size={14} />
+              </button>
+            </span>
+          )}
           {managerialFilter === MANAGERIAL_LIST_FILTERS.dormantRemaining && (
             <span className={styles.filterChip}>
               Dormant: remaining PO line qty, shipment last updated &gt;{" "}
@@ -754,7 +807,7 @@ export function ShipmentList() {
                       const p = new URLSearchParams(searchParams.toString());
                       p.delete(PERFORMANCE_STATUS_QUERY_PARAM);
                       p.delete(PERFORMANCE_ETA_LATE_QUERY_PARAM);
-                      router.replace(`/import/shipments${p.toString() ? `?${p.toString()}` : ""}`, { scroll: false });
+                      router.replace(`/dashboard/shipments${p.toString() ? `?${p.toString()}` : ""}`, { scroll: false });
                     }
                   }}
                   disabled={Object.values(columnFilters).every((v) => !Array.isArray(v) || v.length === 0)}
@@ -832,6 +885,7 @@ export function ShipmentList() {
                         <TableRow
                           className={styles.rowInteractive}
                           onClick={() => handleRowClick(row.id)}
+                          onContextMenu={(e) => openRowContextMenu(e, shipmentDetailHref(row.id))}
                           onKeyDown={(e) => {
                             if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) {
                               e.preventDefault();
@@ -857,16 +911,35 @@ export function ShipmentList() {
                 </TableBody>
               </Table>
 
-              <TablePagination
-                page={page}
-                totalPages={totalPages}
-                totalItems={meta?.total}
-                onPageChange={setPage}
-              />
+              {totalPages > 1 && (
+                <nav className={styles.pagination} aria-label="Pagination">
+                  <button
+                    type="button"
+                    className={styles.pageBtn}
+                    disabled={page <= 1}
+                    onClick={() => setPage((p) => p - 1)}
+                  >
+                    Previous
+                  </button>
+                  <span className={styles.pageInfo}>
+                    Page {page} of {totalPages}
+                    {meta && ` (${meta.total} total)`}
+                  </span>
+                  <button
+                    type="button"
+                    className={styles.pageBtn}
+                    disabled={page >= totalPages}
+                    onClick={() => setPage((p) => p + 1)}
+                  >
+                    Next
+                  </button>
+                </nav>
+              )}
             </>
           )}
         </Card>
       )}
+      {rowContextMenu}
     </section>
   );
 }

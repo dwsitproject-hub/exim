@@ -92,10 +92,16 @@ export interface UpdateShipmentDto {
   unit_40ft?: boolean;
   unit_package?: boolean;
   unit_20_iso_tank?: boolean;
+  unit_40_hc?: boolean;
+  unit_20_fr?: boolean;
+  unit_40_fr?: boolean;
   container_count_20ft?: number | null;
   container_count_40ft?: number | null;
   package_count?: number | null;
   container_count_20_iso_tank?: number | null;
+  container_count_40_hc?: number | null;
+  container_count_20_fr?: number | null;
+  container_count_40_fr?: number | null;
   /** BM total (IDR), user-entered. */
   bm?: number;
   /** PPN total (IDR), user-entered. */
@@ -291,10 +297,16 @@ export interface ShipmentRow {
   unit_40ft: boolean;
   unit_package: boolean;
   unit_20_iso_tank: boolean;
+  unit_40_hc: boolean;
+  unit_20_fr: boolean;
+  unit_40_fr: boolean;
   container_count_20ft: number | null;
   container_count_40ft: number | null;
   package_count: number | null;
   container_count_20_iso_tank: number | null;
+  container_count_40_hc: number | null;
+  container_count_20_fr: number | null;
+  container_count_40_fr: number | null;
   /** When set, shipment is soft-deleted (hidden from lists and detail). */
   deleted_at: Date | null;
   deleted_by: string | null;
@@ -381,10 +393,16 @@ export interface ShipmentDetail {
   unit_40ft: boolean;
   unit_package: boolean;
   unit_20_iso_tank: boolean;
+  unit_40_hc: boolean;
+  unit_20_fr: boolean;
+  unit_40_fr: boolean;
   container_count_20ft: number | null;
   container_count_40ft: number | null;
   package_count: number | null;
   container_count_20_iso_tank: number | null;
+  container_count_40_hc: number | null;
+  container_count_20_fr: number | null;
+  container_count_40_fr: number | null;
   /** Sum in IDR: all linked POs share currency & rate — IDR/RP = Σ(qty×price); else Σ(qty×price) × group currency_rate. */
   total_items_amount: number;
   /** BM total (IDR), user-entered on shipment. */

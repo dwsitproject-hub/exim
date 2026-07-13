@@ -24,7 +24,7 @@ export function UserEdit({ userId }: { userId: string }) {
   const [row, setRow] = useState<UserAdmin | null>(null);
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState<string>(USER_ROLE_OPTIONS[2]!);
+  const [role, setRole] = useState<string>("IMPORT_OFFICER");
   const [isActive, setIsActive] = useState(true);
   const [overrides, setOverrides] = useState<Set<string>>(() => new Set());
   const [error, setError] = useState<string | null>(null);
