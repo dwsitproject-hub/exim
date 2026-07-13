@@ -5,6 +5,7 @@ import { uploadSingle } from "../../middlewares/upload.middleware.js";
 import { parsePdfLimiter } from "../../middlewares/po-pdf-rate-limit.js";
 import { PERMISSIONS } from "../../shared/rbac.js";
 import * as ctrl from "./controllers/export-bulking.controller.js";
+import * as activityCtrl from "./controllers/export-bulking-activity.controller.js";
 import * as docCtrl from "./controllers/export-bulking-document.controller.js";
 import * as billingParseCtrl from "./controllers/billing-pdf-parse.controller.js";
 
@@ -34,6 +35,7 @@ exportBulkingRoutes.patch(
 exportBulkingRoutes.delete("/shipments/:id", authMiddleware, requirePermission(P.UPDATE_EXPORT_OPERATIONS, P.UPDATE_EXPORT_BULKING), ctrl.remove);
 exportBulkingRoutes.patch("/shipments/:id/status", authMiddleware, requirePermission(P.UPDATE_EXPORT_BULKING_STATUS), ctrl.updateStatus);
 exportBulkingRoutes.get("/shipments/:id/status-events", authMiddleware, requirePermission(P.VIEW_EXPORT_BULKING), ctrl.getStatusEvents);
+exportBulkingRoutes.get("/shipments/:id/activity-log", authMiddleware, requirePermission(P.VIEW_EXPORT_BULKING), activityCtrl.getActivityLog);
 
 /* ───── cargo lines ───── */
 exportBulkingRoutes.get("/shipments/:id/cargos", authMiddleware, requirePermission(P.VIEW_EXPORT_BULKING), ctrl.listCargos);

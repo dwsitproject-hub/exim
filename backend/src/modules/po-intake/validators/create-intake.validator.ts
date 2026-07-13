@@ -1,5 +1,5 @@
 /**
- * Create PO intake validation (ingestion / test-create). SaaS payload shape.
+ * Create PO intake validation (SaaS ingestion / manual create). SaaS payload shape.
  * Line items: aligned with frontEnd Create PO (at least one complete line).
  */
 
@@ -27,8 +27,8 @@ export function validateCreateIntakeBody(
   const body = req.body as Record<string, unknown>;
   const errors: ErrorField[] = [];
 
-  const external_id = typeof body?.external_id === "string" ? body.external_id.trim() : "";
-  if (!external_id) errors.push({ field: "external_id", message: "external_id is required" });
+  const external_id_raw = typeof body?.external_id === "string" ? body.external_id.trim() : "";
+  const external_id = external_id_raw || undefined;
 
   const po_number = typeof body?.po_number === "string" ? body.po_number.trim() : "";
   if (!po_number) errors.push({ field: "po_number", message: "po_number is required" });
@@ -66,7 +66,6 @@ export function validateCreateIntakeBody(
   if (errors.length > 0) return { ok: false, errors };
 
   const data: CreatePoIntakeDto = {
-    external_id,
     po_number,
     supplier_name,
     items: rawItems.map((it, i) => ({
@@ -90,6 +89,7 @@ export function validateCreateIntakeBody(
     }
   }
   if (typeof body?.currency === "string") data.currency = body.currency.trim();
+  if (external_id) data.external_id = external_id;
 
   return { ok: true, data };
 }

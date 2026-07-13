@@ -1,1 +1,1 @@
-export { GuideTourProvider, useGuideTour } from "./GuideTourProvider";
+export { GuideTourProvider, useGuideTour, useRegisterGuideTourHooks } from "./GuideTourProvider";

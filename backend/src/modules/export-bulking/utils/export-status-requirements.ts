@@ -54,17 +54,19 @@ export type ExportBulkingForStatusValidation = {
 };
 
 function resolveEffectiveTotalQuantity(data: ExportBulkingForStatusValidation): number | null {
+  const lines = data.cargo_lines ?? [];
+  if (lines.length > 0) {
+    const sum = lines.reduce((acc, line) => {
+      const q = line.quantity != null ? Number(line.quantity) : 0;
+      return acc + (Number.isNaN(q) ? 0 : q);
+    }, 0);
+    if (sum > 0) return sum;
+  }
   if (data.total_quantity != null && !Number.isNaN(Number(data.total_quantity))) {
     const n = Number(data.total_quantity);
     if (n > 0) return n;
   }
-  const lines = data.cargo_lines ?? [];
-  if (lines.length === 0) return null;
-  const sum = lines.reduce((acc, line) => {
-    const q = line.quantity != null ? Number(line.quantity) : 0;
-    return acc + (Number.isNaN(q) ? 0 : q);
-  }, 0);
-  return sum > 0 ? sum : null;
+  return null;
 }
 
 export const EXPORT_STATUS_FIELD_LABELS: Record<string, string> = {

@@ -9,6 +9,7 @@ export interface AuthUser {
   role: string;
   permission_overrides: string[];
   effective_permissions: string[];
+  must_change_password: boolean;
 }
 
 export interface LoginResponseData {

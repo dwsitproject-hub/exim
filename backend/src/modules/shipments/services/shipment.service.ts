@@ -355,10 +355,16 @@ function toDetail(
     unit_40ft: row.unit_40ft ?? false,
     unit_package: row.unit_package ?? false,
     unit_20_iso_tank: row.unit_20_iso_tank ?? false,
+    unit_40_hc: row.unit_40_hc ?? false,
+    unit_20_fr: row.unit_20_fr ?? false,
+    unit_40_fr: row.unit_40_fr ?? false,
     container_count_20ft: row.container_count_20ft ?? null,
     container_count_40ft: row.container_count_40ft ?? null,
     package_count: row.package_count ?? null,
     container_count_20_iso_tank: row.container_count_20_iso_tank ?? null,
+    container_count_40_hc: row.container_count_40_hc ?? null,
+    container_count_20_fr: row.container_count_20_fr ?? null,
+    container_count_40_fr: row.container_count_40_fr ?? null,
     total_items_amount: totalItemsAmount,
     ppn,
     pph,
@@ -1267,6 +1273,9 @@ export class ShipmentService {
       deletedBy,
       "Shipment removed (soft delete)"
     );
+    if (this.lineReceivedRepo) {
+      await this.lineReceivedRepo.softDeleteForShipment(id, deletedBy);
+    }
     for (const intakeId of intakeIds) {
       await syncPoIntakeStatus(intakeId);
     }
@@ -1350,6 +1359,9 @@ export class ShipmentService {
 
     const updated = await this.mappingRepo.decouple(shipmentId, intakeId, decoupledBy, reason);
     if (!updated) throw new AppError("PO is not coupled to this shipment or already decoupled", 404);
+    if (this.lineReceivedRepo) {
+      await this.lineReceivedRepo.softDeleteForShipmentAndIntake(shipmentId, intakeId, decoupledBy);
+    }
     await syncPoIntakeStatus(intakeId);
     await this.syncComputedBmToDb(shipmentId);
   }

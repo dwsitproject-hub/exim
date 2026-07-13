@@ -6,7 +6,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { ACCESS_COOKIE_NAME } from "@/lib/cookies";
-import { LOGIN_PATH, DEFAULT_AFTER_LOGIN_PATH } from "@/lib/constants";
+import { CHANGE_PASSWORD_PATH, LOGIN_PATH } from "@/lib/constants";
 
 /** Paths that require authentication (exact or prefix). */
 const PROTECTED_PREFIXES = ["/import", "/export", "/admin"];
@@ -15,14 +15,39 @@ function isProtectedPath(pathname: string): boolean {
   return PROTECTED_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 
+/** Legacy bookmark/casing: /import/Dashboard → /import/dashboard (exact-case only). */
+function normalizeImportDashboardPath(pathname: string): string | null {
+  if (pathname === "/import/Dashboard") return "/import/dashboard";
+  if (pathname.startsWith("/import/Dashboard/")) {
+    return `/import/dashboard${pathname.slice("/import/Dashboard".length)}`;
+  }
+  return null;
+}
+
 export function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   const accessToken = request.cookies.get(ACCESS_COOKIE_NAME)?.value;
+
+  const normalizedImportDashboard = normalizeImportDashboardPath(pathname);
+  if (normalizedImportDashboard) {
+    const url = request.nextUrl.clone();
+    url.pathname = normalizedImportDashboard;
+    return NextResponse.redirect(url);
+  }
 
   if (pathname === "/" && !accessToken) {
     const url = request.nextUrl.clone();
     url.pathname = LOGIN_PATH;
     return NextResponse.redirect(url);
+  }
+
+  if (pathname === CHANGE_PASSWORD_PATH) {
+    if (!accessToken) {
+      const loginUrl = new URL(LOGIN_PATH, request.url);
+      loginUrl.searchParams.set("from", CHANGE_PASSWORD_PATH);
+      return NextResponse.redirect(loginUrl);
+    }
+    return NextResponse.next();
   }
 
   if (!isProtectedPath(pathname)) return NextResponse.next();
@@ -37,5 +62,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/", "/import/:path*", "/export/:path*", "/admin/:path*"],
+  matcher: ["/", "/change-password", "/import/:path*", "/export/:path*", "/admin/:path*"],
 };

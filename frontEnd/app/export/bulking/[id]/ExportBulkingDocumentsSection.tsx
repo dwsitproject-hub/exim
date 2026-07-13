@@ -15,17 +15,19 @@ import { config } from "@/lib/config";
 import {
   EXPORT_BULKING_DOC_FILE_ACCEPT,
   EXPORT_BULKING_UPLOAD_DOCUMENT_LABELS,
-  EXPORT_BULKING_UPLOAD_DOCUMENT_TYPES,
+  getVisibleExportBulkingUploadDocumentTypes,
   isAcceptedExportBulkingDocFile,
   type ExportBulkingUploadDocumentType,
 } from "@/lib/export-bulking-document-types";
+import { shipmentHasSolidCargo } from "@/lib/export-bulking-loading-validation";
+import { listCommodities, type Commodity } from "@/services/commodity-service";
 import {
   deleteExportBulkingDocument,
   listExportBulkingDocuments,
   uploadExportBulkingDocument,
 } from "@/services/export-bulking-service";
 import { isApiError } from "@/types/api";
-import type { ExportBulkingDocumentListItem } from "@/types/export-bulking";
+import type { CargoLine, ExportBulkingDocumentListItem } from "@/types/export-bulking";
 import { formatDateTime } from "@/lib/format-date";
 import { formatDocumentBytes } from "@/lib/format-files";
 import importDocStyles from "@/app/import/shipments/[id]/ShipmentDetail.module.css";
@@ -144,12 +146,15 @@ export function ExportBulkingDocumentsSection({
   shipmentId,
   accessToken,
   canUpload,
+  cargoLines,
 }: {
   shipmentId: string;
   accessToken: string;
   canUpload: boolean;
+  cargoLines: CargoLine[];
 }) {
   const [documents, setDocuments] = useState<ExportBulkingDocumentListItem[]>([]);
+  const [commodityList, setCommodityList] = useState<Commodity[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploadingType, setUploadingType] = useState<ExportBulkingUploadDocumentType | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -173,20 +178,41 @@ export function ExportBulkingDocumentsSection({
     void refresh();
   }, [refresh]);
 
+  useEffect(() => {
+    if (!accessToken) return;
+    let cancelled = false;
+    void listCommodities(accessToken).then((res) => {
+      if (!cancelled && !isApiError(res)) setCommodityList(res.data ?? []);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken]);
+
+  const hasSolidCargo = useMemo(
+    () => shipmentHasSolidCargo(cargoLines, commodityList),
+    [cargoLines, commodityList],
+  );
+
+  const visibleDocumentTypes = useMemo(
+    () => getVisibleExportBulkingUploadDocumentTypes(hasSolidCargo),
+    [hasSolidCargo],
+  );
+
   const docsByType = useMemo(() => {
     const map = new Map<ExportBulkingUploadDocumentType, ExportBulkingDocumentListItem[]>();
-    for (const t of EXPORT_BULKING_UPLOAD_DOCUMENT_TYPES) map.set(t, []);
+    for (const t of visibleDocumentTypes) map.set(t, []);
     for (const doc of documents) {
       const t = doc.document_type as ExportBulkingUploadDocumentType;
       if (map.has(t)) map.get(t)!.push(doc);
     }
-    for (const t of EXPORT_BULKING_UPLOAD_DOCUMENT_TYPES) {
+    for (const t of visibleDocumentTypes) {
       map.get(t)!.sort(
         (a, b) => new Date(b.uploaded_at).getTime() - new Date(a.uploaded_at).getTime(),
       );
     }
     return map;
-  }, [documents]);
+  }, [documents, visibleDocumentTypes]);
 
   async function handleUpload(documentType: ExportBulkingUploadDocumentType, file: File) {
     if (!canUpload || !accessToken) return;
@@ -312,7 +338,7 @@ export function ExportBulkingDocumentsSection({
         <p className={importDocStyles.shipmentDocFileEmpty}>Loading documents…</p>
       ) : (
         <div className={importDocStyles.shipmentDocCategories}>
-          {EXPORT_BULKING_UPLOAD_DOCUMENT_TYPES.map((docType) => {
+          {visibleDocumentTypes.map((docType) => {
             const files = docsByType.get(docType) ?? [];
             const busy = uploadingType === docType;
             return (

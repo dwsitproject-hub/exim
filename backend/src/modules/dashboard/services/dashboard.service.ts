@@ -10,8 +10,18 @@ import type {
 } from "../repositories/dashboard.repository.js";
 import { DashboardRepository } from "../repositories/dashboard.repository.js";
 import type {
+  ClassificationQtyRow,
+  FinancialSummaryResult,
+  LogisticsDetailSourceRow,
+  PostArrivalLeadRow,
+  PostArrivalLeadShipmentRow,
+  PostArrivalLeadShipmentsQuery,
   ShipmentAnalyticsLineAggRow,
+  ShipmentAnalyticsLineGroupShipmentsQuery,
+  ShipmentAnalyticsGroupShipmentRow,
+  LogisticsGroupShipmentsQuery,
   ShipmentAnalyticsLinesQuery,
+  ShipmentAnalyticsLinesResult,
   ShipmentAnalyticsQuery,
   ShipmentAnalyticsSummary,
 } from "../repositories/shipment-analytics.repository.js";
@@ -329,7 +339,41 @@ export class DashboardService {
     return this.analyticsRepo.getSummary(query);
   }
 
-  async getShipmentAnalyticsLines(query: ShipmentAnalyticsLinesQuery): Promise<ShipmentAnalyticsLineAggRow[]> {
+  async getShipmentAnalyticsLines(query: ShipmentAnalyticsLinesQuery): Promise<ShipmentAnalyticsLinesResult> {
     return this.analyticsRepo.getLineAggregation(query);
+  }
+
+  async getShipmentAnalyticsLineGroupShipments(
+    query: ShipmentAnalyticsLineGroupShipmentsQuery
+  ): Promise<ShipmentAnalyticsGroupShipmentRow[]> {
+    return this.analyticsRepo.getLineGroupShipments(query);
+  }
+
+  async getClassificationQty(query: ShipmentAnalyticsQuery): Promise<ClassificationQtyRow[]> {
+    return this.analyticsRepo.getClassificationQty(query);
+  }
+
+  async getPostArrivalLead(query: ShipmentAnalyticsQuery): Promise<PostArrivalLeadRow[]> {
+    return this.analyticsRepo.getPostArrivalLead(query);
+  }
+
+  async getPostArrivalLeadShipments(
+    query: PostArrivalLeadShipmentsQuery
+  ): Promise<PostArrivalLeadShipmentRow[]> {
+    return this.analyticsRepo.getPostArrivalLeadShipments(query);
+  }
+
+  async getLogisticsRows(query: ShipmentAnalyticsQuery): Promise<LogisticsDetailSourceRow[]> {
+    return this.analyticsRepo.getLogisticsRows(query);
+  }
+
+  async getLogisticsGroupShipments(
+    query: LogisticsGroupShipmentsQuery
+  ): Promise<ShipmentAnalyticsGroupShipmentRow[]> {
+    return this.analyticsRepo.getLogisticsGroupShipments(query);
+  }
+
+  async getFinancialSummary(query: ShipmentAnalyticsQuery, idrPerUsd: number): Promise<FinancialSummaryResult> {
+    return this.analyticsRepo.getFinancialSummary(query, idrPerUsd);
   }
 }

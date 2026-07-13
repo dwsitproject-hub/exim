@@ -18,12 +18,20 @@ export const STATUS_TRANSITIONS: Record<ExportBulkingStatus, ExportBulkingStatus
   CASE_OFF: null,
 };
 
+export interface CreateExportBulkingCargoLineDto {
+  cargo_name: string;
+  quantity: number;
+  item_description?: string | null;
+}
+
 export interface CreateExportBulkingShipmentDto {
   vessel_name: string;
   voyage_number: string;
   shipper: string;
   loadport_name: string;
-  total_quantity: number;
+  /** Derived from cargo line quantities when `cargo_lines` is sent. */
+  total_quantity?: number;
+  cargo_lines?: CreateExportBulkingCargoLineDto[];
   remarks?: string;
 }
 
@@ -86,9 +94,36 @@ export interface UpdateExportBulkingShipmentDto {
   surveyor?: string;
   surveyor_reason?: string;
   agent?: string;
+  length_over_all?: number;
   laytime_rate_mtph?: number;
   demurrage_rate_pdpr?: number;
   remarks?: string;
+  hose_on?: string;
+}
+
+export interface ExportBulkingListFilterOptions {
+  statuses: string[];
+  shipment_nos: string[];
+  vessel_names: string[];
+  voyage_numbers: string[];
+  shippers: string[];
+  loadport_names: string[];
+  cargo_names: string[];
+  cargo_line_labels: string[];
+  total_qty_labels: string[];
+  laycan_labels: string[];
+  cargo_readiness_labels: string[];
+  demurrage_rate_labels: string[];
+  eta_dates: string[];
+  pic_documentation_names: string[];
+  si_numbers: string[];
+  invoice_numbers: string[];
+  pl_numbers: string[];
+  peb_nos: string[];
+  peb_dates: string[];
+  bl_nos: string[];
+  bl_dates: string[];
+  status_counts?: Record<string, number>;
 }
 
 export interface ListExportBulkingQuery {
@@ -96,6 +131,26 @@ export interface ListExportBulkingQuery {
   limit?: number;
   search?: string;
   statuses?: string[];
+  shipment_nos?: string[];
+  vessel_names?: string[];
+  voyage_numbers?: string[];
+  shippers?: string[];
+  loadport_names?: string[];
+  cargo_names?: string[];
+  cargo_line_labels?: string[];
+  total_qty_labels?: string[];
+  laycan_labels?: string[];
+  cargo_readiness_labels?: string[];
+  demurrage_rate_labels?: string[];
+  eta_dates?: string[];
+  pic_documentation_names?: string[];
+  si_numbers?: string[];
+  invoice_numbers?: string[];
+  pl_numbers?: string[];
+  peb_nos?: string[];
+  peb_dates?: string[];
+  bl_nos?: string[];
+  bl_dates?: string[];
   sort_by?: string;
   sort_dir?: "asc" | "desc";
   /** Filter by documentation PIC assignment. */
@@ -128,6 +183,7 @@ export interface ExportBulkingShipmentRow {
   commence_loading: string | null;
   etc: string | null;
   atc: string | null;
+  hose_on: string | null;
   hose_off: string | null;
   bl_figure: number | null;
   ship_figure: number | null;
@@ -165,6 +221,7 @@ export interface ExportBulkingShipmentRow {
   surveyor: string | null;
   surveyor_reason: string | null;
   agent: string | null;
+  length_over_all: number | null;
   laytime_rate_mtph: number | null;
   demurrage_rate_pdpr: number | null;
   total_quantity: number | null;
@@ -177,7 +234,12 @@ export interface ExportBulkingShipmentRow {
   created_at: string;
   updated_at: string;
   cargo_count?: number;
-  cargo_summaries?: { item_description: string | null; destination_port: string | null }[] | null;
+  cargo_summaries?: {
+    cargo_name?: string | null;
+    quantity?: number | null;
+    item_description: string | null;
+    destination_port: string | null;
+  }[] | null;
   si_numbers?: string[] | null;
   invoice_numbers?: string[] | null;
   pl_numbers?: string[] | null;
@@ -220,6 +282,7 @@ export interface CargoLineDto {
   quantity_delivered?: number;
   bl_figure?: number;
   ship_figure?: number;
+  reconciliation_remarks?: string | null;
   pe_no?: string;
   pe_date?: string;
 }
@@ -261,6 +324,7 @@ export interface BillOfLadingDto {
 export interface BlSplitEntryDto {
   count: number;
   quantity: number;
+  mode?: "Max" | "Min" | "Exact" | "Balance";
 }
 
 export interface SiLineDto {
@@ -335,4 +399,24 @@ export interface PackingListLineDto {
   quantity?: number;
   destination_snapshot?: string;
   packing?: string;
+}
+
+/** GET /export-bulking/shipments/:id/activity-log — merged audit trail. */
+export interface ExportBulkingActivityItem {
+  id: string;
+  type:
+    | "export_bulking_created"
+    | "status_change"
+    | "shipment_updated"
+    | "documentation_assigned";
+  title: string;
+  detail: string | null;
+  field_changes?: Array<{
+    field: string;
+    label: string;
+    before: string | null;
+    after: string | null;
+  }>;
+  actor: string;
+  occurred_at: string;
 }

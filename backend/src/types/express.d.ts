@@ -11,6 +11,7 @@ declare global {
         role: string;
         permission_overrides: string[];
         effective_permissions: string[];
+        must_change_password: boolean;
       };
     }
   }

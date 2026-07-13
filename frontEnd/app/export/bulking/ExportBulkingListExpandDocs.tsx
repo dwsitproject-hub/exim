@@ -81,6 +81,7 @@ function buildCargoUpsertPayload(
   cargoLines: CargoLine[],
   commodityList: Commodity[],
   edit: { id: string; draft: CargoDraft } | { draft: CargoDraft } | null,
+  canEditDestinations: boolean,
 ): CargoLineUpsertPayload[] {
   const rows: Array<{ id?: string; draft: CargoDraft }> = cargoLines.map((c) => ({
     id: c.id,
@@ -99,6 +100,7 @@ function buildCargoUpsertPayload(
       ? resolveCommodityShortName(r.draft.cargo_name.trim(), commodityList)
       : "";
     const commodity = findCommodityMatch(cargoName, commodityList);
+    const orig = r.id ? cargoLines.find((c) => c.id === r.id) : undefined;
     return {
       ...(r.id ? { id: r.id } : {}),
       line_order: idx + 1,
@@ -106,9 +108,14 @@ function buildCargoUpsertPayload(
       quantity: r.draft.quantity.trim() ? Number(r.draft.quantity) : null,
       unit: "MT",
       item_description: commodity?.name ?? null,
-      destination_port: r.draft.destination_port.trim() || null,
-      pe_no: r.draft.pe_no.trim() || null,
-      pe_date: r.draft.pe_date.trim() ? new Date(r.draft.pe_date).toISOString() : null,
+      destination_port: canEditDestinations
+        ? (r.draft.destination_port.trim() || null)
+        : (orig?.destination_port ?? null),
+      destination_country: canEditDestinations ? null : (orig?.destination_country ?? null),
+      pe_no: canEditDestinations ? (r.draft.pe_no.trim() || null) : (orig?.pe_no ?? null),
+      pe_date: canEditDestinations
+        ? (r.draft.pe_date.trim() ? new Date(r.draft.pe_date).toISOString() : null)
+        : (orig?.pe_date ?? null),
     };
   });
 }
@@ -119,6 +126,7 @@ function CargoLineManager({
   cargoLines,
   totalQuantity,
   canEdit,
+  canEditDestinations,
   onRefresh,
 }: {
   shipmentId: string;
@@ -126,6 +134,7 @@ function CargoLineManager({
   cargoLines: CargoLine[];
   totalQuantity?: number | null;
   canEdit: boolean;
+  canEditDestinations: boolean;
   onRefresh: () => Promise<void>;
 }) {
   const { pushToast } = useToast();
@@ -163,13 +172,9 @@ function CargoLineManager({
   function startAdd() {
     setAdding(true);
     setEditingId(null);
-    const seedQty =
-      cargoLines.length === 0 && totalQuantity != null && totalQuantity > 0
-        ? String(Math.round(Number(totalQuantity)))
-        : "";
     setDraft({
       cargo_name: "",
-      quantity: seedQty,
+      quantity: "",
       destination_port: "",
       pe_no: "",
       pe_date: "",
@@ -188,7 +193,7 @@ function CargoLineManager({
     setBusy(true);
     const editPayload =
       editingId != null ? { id: editingId, draft } : adding ? { draft } : null;
-    const payload = buildCargoUpsertPayload(cargoLines, commodityList, editPayload);
+    const payload = buildCargoUpsertPayload(cargoLines, commodityList, editPayload, canEditDestinations);
     const res = await upsertCargoLines(shipmentId, payload, accessToken);
     if (isApiError(res)) pushToast(res.message, "error");
     else {
@@ -239,6 +244,7 @@ function CargoLineManager({
               setDraft={setDraft}
               commodityList={commodityList}
               commodityOptions={commodityOptions}
+              canEditDestinations={canEditDestinations}
               onSave={() => void saveDraft()}
               onCancel={cancelEdit}
               busy={busy}
@@ -318,6 +324,7 @@ function CargoLineManager({
           setDraft={setDraft}
           commodityList={commodityList}
           commodityOptions={commodityOptions}
+          canEditDestinations={canEditDestinations}
           onSave={() => void saveDraft()}
           onCancel={cancelEdit}
           busy={busy}
@@ -340,6 +347,7 @@ function CargoEditBlock({
   setDraft,
   commodityList,
   commodityOptions,
+  canEditDestinations,
   onSave,
   onCancel,
   busy,
@@ -349,6 +357,7 @@ function CargoEditBlock({
   setDraft: (d: CargoDraft) => void;
   commodityList: Commodity[];
   commodityOptions: string[];
+  canEditDestinations: boolean;
   onSave: () => void;
   onCancel: () => void;
   busy: boolean;
@@ -381,31 +390,35 @@ function CargoEditBlock({
           onChange={(e) => setDraft({ ...draft, quantity: e.target.value })}
           aria-label="Quantity"
         />
-        <input
-          className={styles.cargoInput}
-          placeholder="Dest port"
-          value={draft.destination_port}
-          disabled={busy}
-          onChange={(e) => setDraft({ ...draft, destination_port: e.target.value })}
-          aria-label="Destination port"
-        />
-        <input
-          className={styles.cargoInput}
-          placeholder="PE No"
-          value={draft.pe_no}
-          disabled={busy}
-          onChange={(e) => setDraft({ ...draft, pe_no: e.target.value })}
-          aria-label="PE number"
-        />
-        <input
-          className={styles.cargoInput}
-          placeholder="PE Date"
-          type="date"
-          value={draft.pe_date}
-          disabled={busy}
-          onChange={(e) => setDraft({ ...draft, pe_date: e.target.value })}
-          aria-label="PE date"
-        />
+        {canEditDestinations ? (
+          <>
+            <input
+              className={styles.cargoInput}
+              placeholder="Dest port"
+              value={draft.destination_port}
+              disabled={busy}
+              onChange={(e) => setDraft({ ...draft, destination_port: e.target.value })}
+              aria-label="Destination port"
+            />
+            <input
+              className={styles.cargoInput}
+              placeholder="PE No"
+              value={draft.pe_no}
+              disabled={busy}
+              onChange={(e) => setDraft({ ...draft, pe_no: e.target.value })}
+              aria-label="PE number"
+            />
+            <input
+              className={styles.cargoInput}
+              placeholder="PE Date"
+              type="date"
+              value={draft.pe_date}
+              disabled={busy}
+              onChange={(e) => setDraft({ ...draft, pe_date: e.target.value })}
+              aria-label="PE date"
+            />
+          </>
+        ) : null}
       </div>
       <div className={styles.cargoActionsBar}>
         <button type="button" className={styles.cargoSaveBtn} onClick={onSave} disabled={busy}>
@@ -471,6 +484,7 @@ export function BulkingExpandDocsPanel({
             cargoLines={cargoLines}
             totalQuantity={row.total_quantity}
             canEdit={canEditCargo}
+            canEditDestinations={canEditDocs}
             onRefresh={onRefresh}
           />
         )}

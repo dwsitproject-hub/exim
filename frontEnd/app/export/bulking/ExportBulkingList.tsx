@@ -1,7 +1,6 @@
 "use client";
 
-import {
-  useCallback,
+import { useCallback,
   useEffect,
   useState,
   useMemo,
@@ -10,9 +9,10 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
+import { flushSync } from "react-dom";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { RotateCw, Plus, Check, Search, CalendarRange, ChevronRight, ChevronDown, Pencil, Eye } from "lucide-react";
+import { RotateCw, Plus, Check, Search, CalendarRange, ChevronRight, ChevronDown, Pencil, Eye, X } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import {
   useTableColumnVisibility,
@@ -36,6 +36,12 @@ import {
   type Shipper,
   type ShipperLoadport,
 } from "@/services/shipper-service";
+import {
+  listCommodities,
+  resolveCommodityShortName,
+  findCommodityMatch,
+  type Commodity,
+} from "@/services/commodity-service";
 import { Modal } from "@/components/overlays";
 import { ComboboxSelect } from "@/components/forms/ComboboxSelect/ComboboxSelect";
 import { ComboboxSelectById } from "@/components/forms/ComboboxSelect/ComboboxSelectById";
@@ -50,6 +56,8 @@ import {
 } from "@/components/tables";
 import { useToast } from "@/components/providers/ToastProvider";
 import { ProcessChecklist } from "@/components/export-bulking/ProcessChecklist";
+import { useRegisterGuideTourHooks, useGuideTour } from "@/components/guide-tour";
+import { isFirstTimeUser } from "@/lib/first-time-user-storage";
 import { can } from "@/lib/permissions";
 import {
   BACKLOG_FILTER_LABELS,
@@ -68,6 +76,7 @@ import {
   DOCUMENTATION_COLUMN_LABELS,
   DOCUMENTATION_LIST_COLUMN_IDS,
   EXPORT_DOC_COLUMN_IDS,
+  OPERATIONS_LIST_COLUMN_IDS,
   buildBulkingDetailUrl,
   canEditExportBulking,
   canEditExportCargo,
@@ -100,7 +109,7 @@ const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 25;
 const BACKLOG_FETCH_LIMIT = 100;
 
-const TABLE_COLUMNS_KEY = "eos.export.bulkingGrid.tableColumns.v13";
+const TABLE_COLUMNS_KEY = "eos.export.bulkingGrid.tableColumns.v16";
 
 /* ────────── column metadata ────────── */
 
@@ -125,15 +134,19 @@ const DOC_NUMBER_COLUMN_IDS = new Set([
 const BASE_COLUMNS: GridColumnDef[] = [
   { id: "_expand", label: "", locked: true, width: 36, minWidth: 36 },
   { id: "shipment_no", label: "Shipment No.", locked: true, width: 148, minWidth: 132 },
+  { id: "vessel", label: "Vessel Name", locked: true, width: 168, minWidth: 120, editable: true, dbField: "vessel_name" },
+  { id: "voyage", label: "Voyage No.", editable: true, dbField: "voyage_number", width: 112, minWidth: 88 },
+  { id: "loadport", label: "Load Port", editable: true, dbField: "loadport_name", width: 140, minWidth: 100 },
   { id: "progress", label: "Progress", width: 88, minWidth: 72 },
   { id: "status", label: "Status", locked: true, width: 144, minWidth: 120 },
   { id: "cargo_name", label: "Commodity", width: 148, minWidth: 120, multiValue: true, defaultVisible: false, rbacGated: true },
-  { id: "total_qty", label: "Total Qty", editable: true, dbField: "total_quantity", width: 112, minWidth: 88 },
-  { id: "vessel", label: "Vessel Name", locked: true, width: 168, minWidth: 120, editable: true, dbField: "vessel_name" },
-  { id: "voyage", label: "Voyage No.", editable: true, dbField: "voyage_number", width: 112, minWidth: 88 },
+  { id: "total_qty", label: "Total Qty", width: 112, minWidth: 88 },
+  { id: "cargo_lines", label: "Cargo Lines", width: 200, minWidth: 160, multiValue: true },
+  { id: "laycan", label: "Laycan", width: 148, minWidth: 120 },
+  { id: "cargo_readiness", label: "Cargo Readiness", width: 148, minWidth: 120 },
+  { id: "demurrage_rate", label: "Demurrage Rate", width: 132, minWidth: 108 },
   { id: "pic_documentation", label: "PIC documentation", width: 168, minWidth: 140, defaultVisible: false, rbacGated: true },
   { id: "shipper", label: "Shipper", editable: true, dbField: "shipper", width: 152, minWidth: 120 },
-  { id: "loadport", label: "Load Port", editable: true, dbField: "loadport_name", width: 140, minWidth: 100 },
   { id: "eta", label: "ETA", width: 96, minWidth: 80 },
   { id: "si_no", label: "Shipping Instruction No.", width: 220, minWidth: 200, multiValue: true, defaultVisible: false, rbacGated: true },
   { id: "invoice_no", label: "No Invoice", width: 240, minWidth: 220, multiValue: true, defaultVisible: false, rbacGated: true },
@@ -182,7 +195,7 @@ function buildBulkingUrl(params: URLSearchParams): string {
 const LIST_VIEW_OPTIONS: { id: ExportBulkingListView; label: string }[] = [
   { id: "all", label: "All" },
   { id: "operations", label: "Operations" },
-  { id: "documentation", label: "Documentation" },
+  { id: "documentation", label: "Document" },
 ];
 
 function mapSortFieldForApi(columnId: string | null): string | undefined {
@@ -200,6 +213,9 @@ function mapSortFieldForApi(columnId: string | null): string | undefined {
     peb_date: "peb_date",
     bl_no: "bill_of_lading_no",
     bl_date: "bill_of_lading_date",
+    laycan: "laycan_from",
+    cargo_readiness: "est_cargo_readiness",
+    demurrage_rate: "demurrage_rate_pdpr",
   };
   return allowed[columnId];
 }
@@ -209,14 +225,40 @@ function buildListQueryFromColumnFilters(
   statusLabelToRaw: Map<string, string>,
 ): Partial<ListExportBulkingQuery> {
   const q: Partial<ListExportBulkingQuery> = {};
-  const statusLabels = columnFilters["status"] ?? [];
+  const raw = (id: string) => columnFilters[id] ?? [];
+
+  const statusLabels = raw("status");
   if (statusLabels.length > 0) {
     const statuses = statusLabels
       .map((l) => statusLabelToRaw.get(l))
       .filter((x): x is string => Boolean(x));
     if (statuses.length) q.statuses = statuses;
   }
+  if (raw("shipment_no").length) q.shipment_nos = raw("shipment_no");
+  if (raw("vessel").length) q.vessel_names = raw("vessel");
+  if (raw("voyage").length) q.voyage_numbers = raw("voyage");
+  if (raw("shipper").length) q.shippers = raw("shipper");
+  if (raw("loadport").length) q.loadport_names = raw("loadport");
+  if (raw("cargo_name").length) q.cargo_names = raw("cargo_name");
+  if (raw("cargo_lines").length) q.cargo_line_labels = raw("cargo_lines");
+  if (raw("total_qty").length) q.total_qty_labels = raw("total_qty");
+  if (raw("laycan").length) q.laycan_labels = raw("laycan");
+  if (raw("cargo_readiness").length) q.cargo_readiness_labels = raw("cargo_readiness");
+  if (raw("demurrage_rate").length) q.demurrage_rate_labels = raw("demurrage_rate");
+  if (raw("eta").length) q.eta_dates = raw("eta");
+  if (raw("pic_documentation").length) q.pic_documentation_names = raw("pic_documentation");
+  if (raw("si_no").length) q.si_numbers = raw("si_no");
+  if (raw("invoice_no").length) q.invoice_numbers = raw("invoice_no");
+  if (raw("pl_no").length) q.pl_numbers = raw("pl_no");
+  if (raw("peb_no").length) q.peb_nos = raw("peb_no");
+  if (raw("peb_date").length) q.peb_dates = raw("peb_date");
+  if (raw("bl_no").length) q.bl_nos = raw("bl_no");
+  if (raw("bl_date").length) q.bl_dates = raw("bl_date");
   return q;
+}
+
+function columnSupportsFilter(colId: string): boolean {
+  return colId !== "_expand" && colId !== "_actions" && colId !== "progress";
 }
 
 function etaColorClass(eta: string | null | undefined): string {
@@ -252,6 +294,54 @@ function formatIntegerThousandsFromNumber(value: number | null | undefined): str
   return formatThousands(String(Math.round(Number(value))));
 }
 
+function formatLaycanDisplay(row: ExportBulkingListItem): string {
+  if (row.laycan_from && row.laycan_to) {
+    return `${formatShortDate(row.laycan_from)} — ${formatShortDate(row.laycan_to)}`;
+  }
+  if (row.laycan?.trim()) return row.laycan.trim();
+  if (row.laycan_from) return formatShortDate(row.laycan_from);
+  if (row.laycan_to) return formatShortDate(row.laycan_to);
+  return "";
+}
+
+function formatCargoReadinessDisplay(row: ExportBulkingListItem): string {
+  if (!row.est_cargo_readiness) return "";
+  const date = formatShortDate(row.est_cargo_readiness);
+  const period = row.est_cargo_readiness_period?.trim();
+  return period ? `${date} ${period}` : date;
+}
+
+function formatDemurrageRateDisplay(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(Number(value))) return "";
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(Number(value));
+}
+
+function resolveListTotalQty(row: ExportBulkingListItem): number | null {
+  const fromLines = (row.cargo_summaries ?? []).reduce((sum, line) => {
+    const q = line.quantity != null ? Number(line.quantity) : 0;
+    return sum + (Number.isNaN(q) ? 0 : q);
+  }, 0);
+  if (fromLines > 0) return fromLines;
+  if (row.total_quantity != null && !Number.isNaN(Number(row.total_quantity))) {
+    return Number(row.total_quantity);
+  }
+  return null;
+}
+
+function cargoLineLabels(row: ExportBulkingListItem): string[] {
+  const summaries = row.cargo_summaries ?? [];
+  if (summaries.length > 0) {
+    return summaries.map((line) => {
+      const name = line.cargo_name?.trim() || line.item_description?.trim() || "Cargo";
+      const qty = line.quantity != null && !Number.isNaN(Number(line.quantity))
+        ? formatIntegerThousandsFromNumber(Number(line.quantity))
+        : null;
+      return qty ? `${name} ${qty} MT` : name;
+    });
+  }
+  return (row.cargo_names ?? []).filter(Boolean);
+}
+
 function getCellValue(row: ExportBulkingListItem, colId: string): string {
   switch (colId) {
     case "shipment_no": return row.shipment_no ?? "";
@@ -259,8 +349,12 @@ function getCellValue(row: ExportBulkingListItem, colId: string): string {
     case "voyage": return row.voyage_number ?? "";
     case "shipper": return row.shipper ?? "";
     case "loadport": return row.loadport_name ?? "";
-    case "total_qty": return row.total_quantity != null ? String(row.total_quantity) : "";
+    case "total_qty": return resolveListTotalQty(row) != null ? String(resolveListTotalQty(row)) : "";
     case "cargo_name": return (row.cargo_names ?? []).join(" ");
+    case "cargo_lines": return cargoLineLabels(row).join(" ");
+    case "laycan": return formatLaycanDisplay(row);
+    case "cargo_readiness": return formatCargoReadinessDisplay(row);
+    case "demurrage_rate": return formatDemurrageRateDisplay(row.demurrage_rate_pdpr);
     case "si_no": return (row.si_numbers ?? []).join(" ");
     case "invoice_no": return (row.invoice_numbers ?? []).join(" ");
     case "pl_no": return (row.pl_numbers ?? []).join(" ");
@@ -374,12 +468,10 @@ export function ExportBulkingList() {
       );
     }
     if (listView === "operations") {
+      const opsVisible = new Set<string>(OPERATIONS_LIST_COLUMN_IDS);
       return base.map((c) => {
         if (docIds.has(c.id) || c.id === "pic_documentation") return { ...c, defaultVisible: false };
-        if (["vessel", "voyage", "shipper", "loadport", "total_qty", "eta", "progress"].includes(c.id)) {
-          return { ...c, defaultVisible: true };
-        }
-        return c;
+        return { ...c, defaultVisible: opsVisible.has(c.id) };
       });
     }
     if (listView === "documentation") {
@@ -432,6 +524,41 @@ export function ExportBulkingList() {
     [docAssignees],
   );
   const closeCreateModal = useCallback(() => setShowCreateModal(false), []);
+  const gridRef = useRef<HTMLDivElement>(null);
+
+  const tourHooks = useMemo(
+    () => ({
+      onBeforeStep: (stepIndex: number) => {
+        if (stepIndex === 2 && canCreateShipment) {
+          flushSync(() => setShowCreateModal(true));
+        } else if (stepIndex < 2) {
+          setShowCreateModal(false);
+        }
+        // Grid step (index 6): keep table header in view inside the scrollable grid.
+        if (stepIndex === 6 && gridRef.current) {
+          gridRef.current.querySelector("thead")?.scrollIntoView({ block: "center", behavior: "smooth" });
+        }
+      },
+      onTourEnd: () => setShowCreateModal(false),
+    }),
+    [canCreateShipment],
+  );
+  useRegisterGuideTourHooks("exportBulkingList", tourHooks);
+
+  const { startTour } = useGuideTour();
+  const tourAutoStartedRef = useRef(false);
+
+  useEffect(() => {
+    if (loading) return;
+    if (!user?.id || !isFirstTimeUser(user.id)) return;
+    if (tourAutoStartedRef.current) return;
+
+    const timer = window.setTimeout(() => {
+      tourAutoStartedRef.current = true;
+      startTour();
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [loading, startTour, user?.id]);
 
   /* ── shipper data for inline edit comboboxes ── */
   const [shipperList, setShipperList] = useState<Shipper[]>([]);
@@ -458,7 +585,6 @@ export function ExportBulkingList() {
   const backlogAutoExpandDoneRef = useRef(false);
 
   const editInputRef = useRef<HTMLInputElement>(null);
-  const gridRef = useRef<HTMLDivElement>(null);
   const activeCellRef = useRef(activeCell);
   activeCellRef.current = activeCell;
   const editingCellRef = useRef(editingCell);
@@ -482,8 +608,29 @@ export function ExportBulkingList() {
 
   const columnFilterOptions = useMemo(() => {
     if (!filterOptions) return {} as Record<string, string[]>;
+    const o = filterOptions;
     return {
-      status: filterOptions.statuses.map((s) => formatExportBulkingStatus(s)),
+      shipment_no: o.shipment_nos,
+      status: o.statuses.map((s) => formatExportBulkingStatus(s)),
+      vessel: o.vessel_names,
+      voyage: o.voyage_numbers,
+      shipper: o.shippers,
+      loadport: o.loadport_names,
+      cargo_name: o.cargo_names,
+      cargo_lines: o.cargo_line_labels,
+      total_qty: o.total_qty_labels,
+      laycan: o.laycan_labels,
+      cargo_readiness: o.cargo_readiness_labels,
+      demurrage_rate: o.demurrage_rate_labels,
+      eta: o.eta_dates,
+      pic_documentation: o.pic_documentation_names,
+      si_no: o.si_numbers,
+      invoice_no: o.invoice_numbers,
+      pl_no: o.pl_numbers,
+      peb_no: o.peb_nos,
+      peb_date: o.peb_dates,
+      bl_no: o.bl_nos,
+      bl_date: o.bl_dates,
     };
   }, [filterOptions]);
 
@@ -722,7 +869,7 @@ export function ExportBulkingList() {
 
     const val = getCellValue(row, col.id);
     setEditingCell({ row: rowIdx, col: colIdx });
-    setEditValue(col.id === "total_qty" ? formatIntegerThousandsFromNumber(row.total_quantity) : val);
+    setEditValue(val);
 
     if (col.id === "loadport") {
       const shipper = row.shipper;
@@ -750,25 +897,7 @@ export function ExportBulkingList() {
     let valueToSave = editValue.trim();
     let patchPayload: Record<string, string | number | null> | null = null;
 
-    if (col.id === "total_qty") {
-      valueToSave = parseThousands(valueToSave);
-      const num = Number.parseInt(valueToSave, 10);
-      if (!valueToSave.trim() || Number.isNaN(num) || num < 0) {
-        setValidationErrors((prev) => ({
-          ...prev,
-          [row.id]: { ...prev[row.id], [col.id]: "Invalid number" },
-        }));
-        setEditingCell(null);
-        return;
-      }
-      const prevRounded =
-        row.total_quantity != null ? Math.round(Number(row.total_quantity)) : null;
-      if (prevRounded !== null && num === prevRounded) {
-        setEditingCell(null);
-        return;
-      }
-      patchPayload = { [col.dbField]: num };
-    } else {
+    {
       const originalValue = getCellValue(row, col.id);
       if (col.id === "loadport") {
         valueToSave = findMatchingOption(inlineLoadportOptions, valueToSave) ?? valueToSave;
@@ -780,7 +909,7 @@ export function ExportBulkingList() {
         setEditingCell(null);
         return;
       }
-      patchPayload = { [col.dbField]: valueToSave || null };
+      patchPayload = { [col.dbField!]: valueToSave || null };
     }
 
     setEditingCell(null);
@@ -998,14 +1127,7 @@ export function ExportBulkingList() {
         type="text"
         className={styles.inlineEditInput}
         value={editValue}
-        onChange={(e) => {
-          if (col.id === "total_qty") {
-            const raw = e.target.value.replace(/[^0-9]/g, "");
-            setEditValue(formatThousands(raw));
-          } else {
-            setEditValue(e.target.value);
-          }
-        }}
+        onChange={(e) => setEditValue(e.target.value)}
         onBlur={() => commitEdit()}
         onKeyDown={(e) => {
           if (e.key === "Enter") { e.preventDefault(); commitEdit(); }
@@ -1113,12 +1235,11 @@ export function ExportBulkingList() {
         );
       }
       case "total_qty": {
-        const val = row.total_quantity;
-        return (
-          <span className={styles.editableCellContent}>
-            <span>{val != null ? formatIntegerThousandsFromNumber(val) : <span className={styles.cellEmpty}>—</span>}</span>
-            {savedCells[cellKey] && <Check size={12} className={styles.savedIcon} />}
-          </span>
+        const val = resolveListTotalQty(row);
+        return val != null ? (
+          <span title="Sum of cargo line quantities">{formatIntegerThousandsFromNumber(val)}</span>
+        ) : (
+          <span className={styles.cellEmpty}>—</span>
         );
       }
       case "si_no":
@@ -1129,6 +1250,24 @@ export function ExportBulkingList() {
         return renderMultiValueTags(row.pl_numbers);
       case "cargo_name":
         return renderMultiValueTags(row.cargo_names);
+      case "cargo_lines":
+        return renderMultiValueTags(cargoLineLabels(row));
+      case "laycan": {
+        const val = formatLaycanDisplay(row);
+        return val ? <span title={val}>{val}</span> : <span className={styles.cellEmpty}>—</span>;
+      }
+      case "cargo_readiness": {
+        const val = formatCargoReadinessDisplay(row);
+        return val ? <span title={val}>{val}</span> : <span className={styles.cellEmpty}>—</span>;
+      }
+      case "demurrage_rate": {
+        const val = formatDemurrageRateDisplay(row.demurrage_rate_pdpr);
+        return val ? (
+          <span title={`${val} PD/PR`}>{val}</span>
+        ) : (
+          <span className={styles.cellEmpty}>—</span>
+        );
+      }
       case "peb_no":
         return row.peb_no?.trim() ? (
           <span className={styles.docNumberText} title={row.peb_no}>
@@ -1235,7 +1374,7 @@ export function ExportBulkingList() {
 
   if (loading && items.length === 0) {
     return (
-      <div className={styles.pageContainer}>
+      <div className={styles.pageContainer} data-tour="export-bulking-page">
         <div className={styles.toolbarRow}>
           <div className={styles.toolbarLeft}>
             <span style={{ fontWeight: 700, fontSize: 16 }}>Bulking</span>
@@ -1250,8 +1389,15 @@ export function ExportBulkingList() {
 
   const hasActiveFilters = Object.values(columnFilters).some((v) => Array.isArray(v) && v.length > 0);
 
+  function formatOptionForColumn(columnId: string): ((v: string) => string) | undefined {
+    if (columnId === "eta" || columnId === "peb_date" || columnId === "bl_date") {
+      return (v) => formatShortDate(v);
+    }
+    return undefined;
+  }
+
   return (
-    <div className={styles.pageContainer}>
+    <div className={styles.pageContainer} data-tour="export-bulking-page">
       {/* ── Toolbar ── */}
       <div className={styles.toolbarRow}>
         <div className={styles.toolbarLeft}>
@@ -1260,7 +1406,7 @@ export function ExportBulkingList() {
           </Link>
           <span style={{ fontWeight: 700, fontSize: 16, letterSpacing: "-0.01em" }}>Bulking</span>
 
-          <div className={styles.searchBox}>
+          <div className={styles.searchBox} data-tour="export-bulking-search">
             <Search size={14} className={styles.searchIcon} aria-hidden />
             <input
               type="search"
@@ -1277,7 +1423,7 @@ export function ExportBulkingList() {
           </div>
 
           {/* Status filter pills (inline, with counts) */}
-          <div className={styles.pillGroup}>
+          <div className={styles.pillGroup} data-tour="export-bulking-status-filters">
             {filterOptions?.statuses.map((rawStatus) => {
               const label = formatExportBulkingStatus(rawStatus);
               const isActive = (columnFilters["status"] ?? []).includes(label);
@@ -1367,6 +1513,7 @@ export function ExportBulkingList() {
           <button
             type="button"
             className={styles.createBtn}
+            data-tour="export-bulking-create-btn"
             onClick={() => setShowCreateModal(true)}
             disabled={creating || !canCreateShipment}
             title={!canCreateShipment ? "You do not have permission to create shipments" : undefined}
@@ -1378,7 +1525,8 @@ export function ExportBulkingList() {
       </div>
 
       <div className={styles.viewTabsRow}>
-        <div className={styles.viewTabs} role="tablist" aria-label="Bulking list view">
+        {availableListViews.length > 1 && (
+        <div className={styles.viewTabs} role="tablist" aria-label="Bulking list view" data-tour="export-bulking-view-tabs">
           {LIST_VIEW_OPTIONS.filter(({ id }) => availableListViews.includes(id)).map(({ id, label }) => (
             <button
               key={id}
@@ -1392,6 +1540,7 @@ export function ExportBulkingList() {
             </button>
           ))}
         </div>
+        )}
         {backlogFilter && (
           <button type="button" className={styles.backlogChip} onClick={clearBacklogFilter}>
             Filter: {BACKLOG_FILTER_LABELS[backlogFilter]}
@@ -1463,6 +1612,7 @@ export function ExportBulkingList() {
         <div
           ref={gridRef}
           className={styles.gridWrapper}
+          data-tour="export-bulking-grid"
           tabIndex={0}
           onKeyDown={handleGridKeyDown}
         >
@@ -1512,7 +1662,7 @@ export function ExportBulkingList() {
                             </span>
                           )}
                         </button>
-                        {opts.length > 0 && (
+                        {columnSupportsFilter(col.id) && (
                           <TableColumnFilterPicker
                             columnLabel={col.label}
                             options={opts}
@@ -1520,7 +1670,7 @@ export function ExportBulkingList() {
                             onChange={(next) => setColumnFilter(col.id, next)}
                             open={openFilterColumnId === col.id}
                             onOpenChange={(open) => setOpenFilterColumnId(open ? col.id : null)}
-                            revealIconOnHover
+                            formatOptionLabel={formatOptionForColumn(col.id)}
                           />
                         )}
                       </div>
@@ -1581,6 +1731,25 @@ export function ExportBulkingList() {
   );
 }
 
+function parseCreateQuantityInput(raw: string): number | null {
+  const cleaned = parseThousands(raw.trim());
+  if (!cleaned) return null;
+  const n = Number(cleaned);
+  return Number.isNaN(n) ? null : n;
+}
+
+function emptyCreateCargoLine(): CreateCargoLineDraft {
+  return { _key: `new-${++createCargoKeyCounter}`, cargo_name: "", quantity: "" };
+}
+
+let createCargoKeyCounter = 0;
+
+interface CreateCargoLineDraft {
+  _key: string;
+  cargo_name: string;
+  quantity: string;
+}
+
 /* ────────── Create Shipment Modal ────────── */
 
 function CreateShipmentModal({
@@ -1594,7 +1763,7 @@ function CreateShipmentModal({
   onClose: () => void;
   onSubmit: (payload: Record<string, unknown>) => void;
 }) {
-  const { accessToken } = useAuth();
+  const { accessToken, user } = useAuth();
   const [vesselName, setVesselName] = useState("");
   const [voyageNumber, setVoyageNumber] = useState("");
 
@@ -1605,17 +1774,41 @@ function CreateShipmentModal({
   const [loadportOptions, setLoadportOptions] = useState<string[]>([]);
   const [loadport, setLoadport] = useState("");
 
-  const [totalQuantityDisplay, setTotalQuantityDisplay] = useState("");
+  const [cargoLines, setCargoLines] = useState<CreateCargoLineDraft[]>(() => [emptyCreateCargoLine()]);
+  const [commodityList, setCommodityList] = useState<Commodity[]>([]);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [pendingLoadportName, setPendingLoadportName] = useState<string | null>(null);
 
   const shipperNameOptions = useMemo(() => shipperShortNameOptions(shipperList), [shipperList]);
+
+  const commodityOptions = useMemo(
+    () =>
+      [...commodityList]
+        .map((c) => c.short_name.trim())
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" })),
+    [commodityList],
+  );
+
+  const cargoTotalMt = useMemo(
+    () =>
+      cargoLines.reduce((sum, line) => {
+        const qty = parseCreateQuantityInput(line.quantity);
+        return sum + (qty != null && qty > 0 ? qty : 0);
+      }, 0),
+    [cargoLines],
+  );
 
   useEffect(() => {
     if (!accessToken) return;
     listShippers(accessToken).then((res) => {
       if (!isApiError(res)) {
         setShipperList((res as ApiSuccess<Shipper[]>).data ?? []);
+      }
+    });
+    listCommodities(accessToken).then((res) => {
+      if (!isApiError(res)) {
+        setCommodityList((res as ApiSuccess<Commodity[]>).data ?? []);
       }
     });
   }, [accessToken]);
@@ -1682,16 +1875,33 @@ function CreateShipmentModal({
     setSelectedShipperId(null);
     setLoadport("");
     setLoadportOptions([]);
-    setTotalQuantityDisplay("");
+    setCargoLines([emptyCreateCargoLine()]);
     setFieldErrors({});
     setPendingLoadportName(null);
     onClose();
   }, [onClose]);
 
-  function handleQuantityChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const raw = e.target.value.replace(/[^0-9]/g, "");
-    setTotalQuantityDisplay(formatThousands(raw));
-  }
+  const updateCargoLine = (idx: number, patch: Partial<Pick<CreateCargoLineDraft, "cargo_name" | "quantity">>) => {
+    setCargoLines((prev) => prev.map((row, i) => (i === idx ? { ...row, ...patch } : row)));
+  };
+
+  const addCargoLine = () => {
+    setCargoLines((prev) => [...prev, emptyCreateCargoLine()]);
+  };
+
+  const removeCargoLine = (idx: number) => {
+    setCargoLines((prev) => {
+      if (prev.length <= 1) return [emptyCreateCargoLine()];
+      return prev.filter((_, i) => i !== idx);
+    });
+  };
+
+  const handleCargoQuantityChange = (idx: number, raw: string) => {
+    const cleaned = raw.replace(/[^0-9.]/g, "");
+    const parts = cleaned.split(".");
+    const normalized = parts.length > 2 ? `${parts[0]}.${parts.slice(1).join("")}` : cleaned;
+    updateCargoLine(idx, { quantity: formatThousands(normalized) });
+  };
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -1700,19 +1910,48 @@ function CreateShipmentModal({
     if (!voyageNumber.trim()) errs.voyage_number = "Voyage number is required";
     if (!shipperName.trim()) errs.shipper = "Shipper is required";
     if (!loadport.trim()) errs.loadport_name = "Load port is required";
-    const rawQty = parseThousands(totalQuantityDisplay);
-    const qty = Number.parseInt(rawQty, 10);
-    if (!rawQty.trim() || Number.isNaN(qty) || qty <= 0) errs.total_quantity = "Must be greater than 0";
+
+    let hasValidCargoLine = false;
+    cargoLines.forEach((line, idx) => {
+      const commodity = line.cargo_name.trim();
+      const qty = parseCreateQuantityInput(line.quantity);
+      if (!commodity) {
+        errs[`cargo_${idx}_commodity`] = "Commodity is required";
+      }
+      if (qty == null || qty <= 0) {
+        errs[`cargo_${idx}_quantity`] = "Quantity must be greater than 0";
+      }
+      if (commodity && qty != null && qty > 0) hasValidCargoLine = true;
+    });
+    if (!hasValidCargoLine) {
+      errs.cargo_lines = "Add at least one cargo line with commodity and quantity";
+    }
 
     setFieldErrors(errs);
     if (Object.keys(errs).length > 0) return;
+
+    const payloadCargoLines = cargoLines
+      .map((line) => {
+        const cargoName = line.cargo_name.trim()
+          ? resolveCommodityShortName(line.cargo_name, commodityList)
+          : "";
+        const commodity = findCommodityMatch(cargoName, commodityList);
+        const qty = parseCreateQuantityInput(line.quantity);
+        if (!cargoName || qty == null || qty <= 0) return null;
+        return {
+          cargo_name: cargoName,
+          quantity: qty,
+          item_description: commodity?.name ?? null,
+        };
+      })
+      .filter((line): line is { cargo_name: string; quantity: number; item_description: string | null } => line != null);
 
     onSubmit({
       vessel_name: vesselName.trim(),
       voyage_number: voyageNumber.trim(),
       shipper: shipperName.trim(),
       loadport_name: findMatchingOption(loadportOptions, loadport.trim()) ?? loadport.trim(),
-      total_quantity: qty,
+      cargo_lines: payloadCargoLines,
     });
   }
 
@@ -1726,7 +1965,13 @@ function CreateShipmentModal({
           <button type="button" className={styles.modalCancelBtn} onClick={handleClose} disabled={saving}>
             Cancel
           </button>
-          <button type="submit" form="create-shipment-form" className={styles.createBtn} disabled={saving}>
+          <button
+            type="submit"
+            form="create-shipment-form"
+            className={styles.createBtn}
+            data-tour="export-bulking-create-submit"
+            disabled={saving}
+          >
             {saving ? "Creating…" : "Create & Open →"}
           </button>
         </>
@@ -1803,19 +2048,94 @@ function CreateShipmentModal({
         </div>
 
         <div className={styles.formField}>
-          <label className={`${styles.formLabel} ${styles.formLabelRequired}`}>Total quantity (MT)</label>
-          <input
-            className={`${styles.formInput} ${styles.quantityInput}${fieldErrors.total_quantity ? ` ${styles.formInputError}` : ""}`}
-            type="text"
-            inputMode="decimal"
-            placeholder="0"
-            value={totalQuantityDisplay}
-            onChange={(e) => { handleQuantityChange(e); if (fieldErrors.total_quantity) setFieldErrors((p) => { const n = { ...p }; delete n.total_quantity; return n; }); }}
-          />
-          {fieldErrors.total_quantity
-            ? <span className={styles.fieldError}>{fieldErrors.total_quantity}</span>
-            : <span className={styles.formHint}>Enter metric tonnes. Use numbers only.</span>
-          }
+          <div className={styles.createCargoHeader}>
+            <label className={`${styles.formLabel} ${styles.formLabelRequired}`}>Cargo lines</label>
+            {cargoTotalMt > 0 ? (
+              <span className={styles.createCargoTotal}>Total: {formatThousands(String(cargoTotalMt))} MT</span>
+            ) : null}
+          </div>
+          <div className={styles.createCargoList}>
+            {cargoLines.map((line, idx) => (
+              <div key={line._key} className={styles.createCargoRow}>
+                <div className={styles.createCargoRowFields}>
+                  <div className={styles.createCargoField}>
+                    <label className={styles.createCargoFieldLabel} htmlFor={`create-cargo-commodity-${line._key}`}>
+                      Commodity
+                    </label>
+                    <ComboboxSelect
+                      id={`create-cargo-commodity-${line._key}`}
+                      options={commodityOptions}
+                      value={line.cargo_name}
+                      onChange={(val) => {
+                        const canonical = resolveCommodityShortName(val, commodityList);
+                        updateCargoLine(idx, { cargo_name: canonical });
+                        if (fieldErrors[`cargo_${idx}_commodity`] || fieldErrors.cargo_lines) {
+                          setFieldErrors((p) => {
+                            const next = { ...p };
+                            delete next[`cargo_${idx}_commodity`];
+                            delete next.cargo_lines;
+                            return next;
+                          });
+                        }
+                      }}
+                      placeholder="Select commodity…"
+                      allowEmpty
+                      emptyLabel="— Select —"
+                      inputClassName={`${styles.formInput}${fieldErrors[`cargo_${idx}_commodity`] ? ` ${styles.formInputError}` : ""}`}
+                      aria-label={`Commodity line ${idx + 1}`}
+                    />
+                    {fieldErrors[`cargo_${idx}_commodity`] ? (
+                      <span className={styles.fieldError}>{fieldErrors[`cargo_${idx}_commodity`]}</span>
+                    ) : null}
+                  </div>
+                  <div className={styles.createCargoField}>
+                    <label className={styles.createCargoFieldLabel} htmlFor={`create-cargo-qty-${line._key}`}>
+                      Quantity (MT)
+                    </label>
+                    <input
+                      id={`create-cargo-qty-${line._key}`}
+                      className={`${styles.formInput} ${styles.quantityInput}${fieldErrors[`cargo_${idx}_quantity`] ? ` ${styles.formInputError}` : ""}`}
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="0"
+                      value={line.quantity}
+                      onChange={(e) => {
+                        handleCargoQuantityChange(idx, e.target.value);
+                        if (fieldErrors[`cargo_${idx}_quantity`] || fieldErrors.cargo_lines) {
+                          setFieldErrors((p) => {
+                            const next = { ...p };
+                            delete next[`cargo_${idx}_quantity`];
+                            delete next.cargo_lines;
+                            return next;
+                          });
+                        }
+                      }}
+                    />
+                    {fieldErrors[`cargo_${idx}_quantity`] ? (
+                      <span className={styles.fieldError}>{fieldErrors[`cargo_${idx}_quantity`]}</span>
+                    ) : null}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className={styles.createCargoRemoveBtn}
+                  onClick={() => removeCargoLine(idx)}
+                  title="Remove cargo line"
+                  aria-label={`Remove cargo line ${idx + 1}`}
+                >
+                  <X size={16} strokeWidth={2.5} aria-hidden />
+                </button>
+              </div>
+            ))}
+          </div>
+          <button type="button" className={styles.createCargoAddBtn} onClick={addCargoLine}>
+            + Add cargo line
+          </button>
+          {fieldErrors.cargo_lines ? (
+            <span className={styles.fieldError}>{fieldErrors.cargo_lines}</span>
+          ) : (
+            <span className={styles.formHint}>Select commodity and quantity per cargo line. Destination port and country are completed later by the documentation team.</span>
+          )}
         </div>
       </form>
     </Modal>

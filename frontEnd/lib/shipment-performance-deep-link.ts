@@ -54,6 +54,15 @@ export function buildShipmentPerformanceDeepLinkHref(
 /** Raw `current_status` value (e.g. CUSTOMS_CLEARANCE). */
 export const PERFORMANCE_STATUS_QUERY_PARAM = "performance_status";
 
+/** Dashboard KPI: shipments still open (not delivered, not closed). */
+export const ACTIVE_PIPELINE_QUERY_PARAM = "active_pipeline";
+
+export function buildShipmentListActivePipelineLink(): string {
+  const p = new URLSearchParams();
+  p.set(ACTIVE_PIPELINE_QUERY_PARAM, "true");
+  return `/dashboard/shipments?${p.toString()}`;
+}
+
 /** Matches backend: not delivered, ETA before today (UTC calendar). */
 export const PERFORMANCE_ETA_LATE_QUERY_PARAM = "performance_eta_late";
 

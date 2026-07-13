@@ -9,6 +9,10 @@ import { createServer } from "./server.js";
 import { logger } from "./utils/logger.js";
 import { PoIntakeRepository } from "./modules/po-intake/repositories/po-intake.repository.js";
 import { createPoApiClient, startPoPolling } from "./integration/saaS/index.js";
+import {
+  startShipmentEtaReminderJob,
+  stopShipmentEtaReminderJob,
+} from "./integration/jobs/shipment-eta-reminder-job.js";
 
 let stopCoupaStagingIntegrationFn: (() => void) | null = null;
 
@@ -27,6 +31,10 @@ async function main(): Promise<void> {
     const repo = new PoIntakeRepository();
     const client = createPoApiClient(config.poPolling.saasApiBaseUrl);
     startPoPolling(repo, client, config.poPolling.intervalMs);
+  }
+
+  if (config.etaReminder.enabled) {
+    startShipmentEtaReminderJob(config.etaReminder.runHourJakarta, config.etaReminder.runMinuteJakarta);
   }
 
   if (config.coupa.enabled) {
@@ -83,6 +91,7 @@ process.on("SIGTERM", async () => {
   logger.info("SIGTERM received, stopping polling and closing DB");
   const { stopPoPolling } = await import("./integration/saaS/index.js");
   stopPoPolling();
+  stopShipmentEtaReminderJob();
   stopCoupaStagingIntegrationFn?.();
   await closeDb();
   process.exit(0);

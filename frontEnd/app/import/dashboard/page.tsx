@@ -1,5 +1,5 @@
-import { DashboardContent } from "./DashboardContent";
+import { DashboardContent } from "@/app/dashboard/DashboardContent";
 
-export default function DashboardPage() {
+export default function ImportDashboardPage() {
   return <DashboardContent />;
 }

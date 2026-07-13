@@ -12,5 +12,8 @@ export function getGuideTourRouteForPathname(pathname: string): GuideTourRoute |
   if (shipmentDetail && shipmentDetail[1] !== "") return "shipmentDetail";
   const poDetail = /^\/import\/po\/([^/]+)$/.exec(p);
   if (poDetail && poDetail[1] !== "new") return "poDetail";
+  if (p === "/export/bulking") return "exportBulkingList";
+  const exportBulkingDetail = /^\/export\/bulking\/([^/]+)$/.exec(p);
+  if (exportBulkingDetail && exportBulkingDetail[1] !== "") return "exportBulkingDetail";
   return null;
 }

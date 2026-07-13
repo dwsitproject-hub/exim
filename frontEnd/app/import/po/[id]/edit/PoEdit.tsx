@@ -20,22 +20,16 @@ import {
 import { formatPoLineQtyDisplay } from "@/lib/po-line-qty";
 import { INCOTERM_OPTIONS } from "@/lib/incoterms";
 import {
+  PT_OPTION_LABELS,
   PO_ITEM_UNIT_OPTIONS,
+  canonicalizePtLabel,
+  getPlantConfigForPt,
 } from "@/lib/po-create-constants";
-import {
-  listShippersMaster,
-  resolveShipperShortName,
-  getPlantsForShortName,
-  findShipperMasterMatch,
-  formatPtOptionLabel,
-  type ShipperMaster,
-} from "@/services/shipper-service";
 import { parseYesNoSelectValue } from "@/lib/yes-no-field";
 import { can } from "@/lib/permissions";
 import { anyLinkedShipmentBlocksPoEdit, PO_EDIT_BLOCKED_BY_SHIPMENT_MESSAGE } from "@/lib/po-shipment-edit-lock";
 import { isApiError } from "@/types/api";
 import type { PoDetail as PoDetailType, UpdatePoPayload } from "@/types/po";
-import { ItemDescriptionInput } from "../../new/ItemDescriptionInput";
 import styles from "../../new/CreatePo.module.css";
 
 type EditPoFormState = {
@@ -90,14 +84,19 @@ function coerceApiNumber(value: unknown): number | null {
   return null;
 }
 
-function detailToForm(detail: PoDetailType, masters: ShipperMaster[]): EditPoFormState {
-  const pt = resolveShipperShortName(detail.pt, masters);
+function detailToForm(detail: PoDetailType): EditPoFormState {
+  const pt = canonicalizePtLabel(detail.pt);
+  const pc = pt ? getPlantConfigForPt(pt) : null;
   let plant = detail.plant?.trim() ?? "";
-  const plants = pt ? getPlantsForShortName(masters, pt) : [];
-  if (plants.length === 1) {
-    plant = plants[0]!;
-  } else if (plant && plants.length > 0) {
-    const hit = plants.find((p) => p.localeCompare(plant, undefined, { sensitivity: "accent" }) === 0);
+  if (plant.toUpperCase() === "KIJING / TJ PURA") {
+    plant = "TANJUNG PURA";
+  }
+  if (pc?.mode === "fixed") {
+    plant = pc.plant;
+  } else if (pc?.mode === "none") {
+    plant = "";
+  } else if (pc?.mode === "select" && plant) {
+    const hit = pc.plants.find((p) => p.localeCompare(plant, undefined, { sensitivity: "accent" }) === 0);
     if (hit) plant = hit;
   }
 
@@ -142,7 +141,6 @@ export function PoEdit({ id }: { id: string }) {
   const [detail, setDetail] = useState<PoDetailType | null>(null);
   const [editLocked, setEditLocked] = useState(false);
   const [form, setForm] = useState<EditPoFormState | null>(null);
-  const [shipperMasters, setShipperMasters] = useState<ShipperMaster[]>([]);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -150,21 +148,19 @@ export function PoEdit({ id }: { id: string }) {
     if (!accessToken || !id) return;
     setLoading(true);
     setLoadError(null);
-    Promise.all([getPoDetail(id, accessToken), listShippersMaster(accessToken)])
-      .then(([poRes, masterRes]) => {
-        const masters = !isApiError(masterRes) ? masterRes.data ?? [] : [];
-        setShipperMasters(masters);
-        if (isApiError(poRes)) {
-          setLoadError(poRes.message);
+    getPoDetail(id, accessToken)
+      .then((res) => {
+        if (isApiError(res)) {
+          setLoadError(res.message);
           setDetail(null);
           setForm(null);
           return;
         }
-        const d = poRes.data ?? null;
+        const d = res.data ?? null;
         setDetail(d);
         if (d) {
           setEditLocked(anyLinkedShipmentBlocksPoEdit(d.linked_shipments ?? []));
-          setForm(detailToForm(d, masters));
+          setForm(detailToForm(d));
         } else {
           setForm(null);
         }
@@ -186,15 +182,19 @@ export function PoEdit({ id }: { id: string }) {
   }
 
   function handlePtChange(pt: string) {
-    const plants = getPlantsForShortName(shipperMasters, pt);
+    const ptKey = canonicalizePtLabel(pt);
+    const config = ptKey ? getPlantConfigForPt(ptKey) : null;
     setForm((prev) => {
       if (!prev) return prev;
-      return { ...prev, pt, plant: plants.length === 1 ? plants[0]! : "" };
+      let plant = "";
+      if (config?.mode === "fixed") plant = config.plant;
+      return { ...prev, pt: ptKey || pt.trim(), plant };
     });
   }
 
-  const plantOptions = form?.pt ? getPlantsForShortName(shipperMasters, form.pt) : [];
-  const ptInKnownList = form?.pt ? !!findShipperMasterMatch(form.pt, shipperMasters) : false;
+  const ptKey = form?.pt ? canonicalizePtLabel(form.pt) : "";
+  const plantConfig = ptKey ? getPlantConfigForPt(ptKey) : null;
+  const ptInKnownList = form?.pt ? (PT_OPTION_LABELS as readonly string[]).includes(form.pt) : false;
 
   function updateItem<K extends keyof ItemFormLine>(index: number, field: K, value: ItemFormLine[K]) {
     setForm((prev) => {
@@ -245,11 +245,11 @@ export function PoEdit({ id }: { id: string }) {
       setSubmitError("Please select PT.");
       return;
     }
-    if (plantOptions.length > 1 && !form.plant?.trim()) {
+    if (plantConfig?.mode === "select" && !form.plant?.trim()) {
       setSubmitError("Please select Plant.");
       return;
     }
-    if (plantOptions.length === 0 && form.pt.trim() && !form.plant?.trim()) {
+    if (!plantConfig && form.pt.trim() && !form.plant?.trim()) {
       setSubmitError("Plant is required.");
       return;
     }
@@ -289,7 +289,7 @@ export function PoEdit({ id }: { id: string }) {
       supplier_name: form.supplier_name.trim(),
       delivery_location: form.delivery_location.trim(),
       kawasan_berikat: form.kawasan_berikat,
-      pt: resolveShipperShortName(form.pt.trim(), shipperMasters),
+      pt: canonicalizePtLabel(form.pt.trim()),
       items: completeItems.map((it) => {
         const qty = parseOptionalDecimal(it.qtyText);
         const value = parseOptionalDecimal(it.priceText);
@@ -316,7 +316,7 @@ export function PoEdit({ id }: { id: string }) {
           return;
         }
         pushToast("Purchase Order updated.", "success");
-        router.push(`/import/po/${id}`);
+        router.push(`/dashboard/po/${id}`);
       })
       .finally(() => setSubmitting(false));
   }
@@ -329,7 +329,7 @@ export function PoEdit({ id }: { id: string }) {
   if (loading) {
     return (
       <section className={styles.section}>
-        <PageHeader title="Edit Purchase Order" backHref={`/import/po/${id}`} backLabel="Purchase Order" />
+        <PageHeader title="Edit Purchase Order" backHref={`/dashboard/po/${id}`} backLabel="Purchase Order" />
         <LoadingSkeleton lines={6} />
       </section>
     );
@@ -338,9 +338,9 @@ export function PoEdit({ id }: { id: string }) {
   if (loadError) {
     return (
       <section className={styles.section}>
-        <PageHeader title="Edit Purchase Order" backHref="/import/po" backLabel="Purchase Order" />
+        <PageHeader title="Edit Purchase Order" backHref="/dashboard/po" backLabel="Purchase Order" />
         <p className={styles.formError}>{loadError}</p>
-        <Link href={`/import/po/${id}`}>Back to detail</Link>
+        <Link href={`/dashboard/po/${id}`}>Back to detail</Link>
       </section>
     );
   }
@@ -348,9 +348,9 @@ export function PoEdit({ id }: { id: string }) {
   if (!allowed) {
     return (
       <section className={styles.section}>
-        <PageHeader title="Edit Purchase Order" backHref={`/import/po/${id}`} backLabel="Purchase Order" />
+        <PageHeader title="Edit Purchase Order" backHref={`/dashboard/po/${id}`} backLabel="Purchase Order" />
         <p className={styles.formError}>You do not have permission to edit Purchase Orders.</p>
-        <Link href={`/import/po/${id}`}>Back to detail</Link>
+        <Link href={`/dashboard/po/${id}`}>Back to detail</Link>
       </section>
     );
   }
@@ -359,7 +359,7 @@ export function PoEdit({ id }: { id: string }) {
 
   return (
     <section className={styles.section}>
-      <PageHeader title="Edit Purchase Order" backHref={`/import/po/${id}`} backLabel={detail?.po_number ?? "PO"} />
+      <PageHeader title="Edit Purchase Order" backHref={`/dashboard/po/${id}`} backLabel={detail?.po_number ?? "PO"} />
 
       {editLocked && <p className={styles.formError}>{PO_EDIT_BLOCKED_BY_SHIPMENT_MESSAGE}</p>}
 
@@ -388,16 +388,16 @@ export function PoEdit({ id }: { id: string }) {
                     {form.pt}
                   </option>
                 )}
-                {shipperMasters.map((master) => (
-                  <option key={master.id} value={master.short_name}>
-                    {formatPtOptionLabel(master.short_name, shipperMasters)}
+                {PT_OPTION_LABELS.map((label) => (
+                  <option key={label} value={label}>
+                    {label}
                   </option>
                 ))}
               </select>
             </div>
             <div className={styles.field}>
               <label className={styles.fieldLabel} htmlFor="plant">
-                Plant *
+                Plant {plantConfig?.mode !== "none" ? "*" : ""}
               </label>
               {!form.pt && (
                 <input
@@ -411,18 +411,18 @@ export function PoEdit({ id }: { id: string }) {
                   aria-label="Plant"
                 />
               )}
-              {form.pt && plantOptions.length === 1 && (
+              {form.pt && plantConfig?.mode === "fixed" && (
                 <input
                   id="plant"
                   type="text"
                   className={styles.formInput}
-                  value={plantOptions[0]}
+                  value={plantConfig.plant}
                   readOnly
                   disabled={formDisabled}
                   aria-label="Plant"
                 />
               )}
-              {form.pt && plantOptions.length > 1 && (
+              {form.pt && plantConfig?.mode === "select" && (
                 <select
                   id="plant"
                   className={styles.formSelect}
@@ -434,17 +434,30 @@ export function PoEdit({ id }: { id: string }) {
                 >
                   <option value="">— Select plant —</option>
                   {form.plant &&
-                    !plantOptions.some(
-                      (p) => p.localeCompare(form.plant ?? "", undefined, { sensitivity: "accent" }) === 0,
-                    ) && <option value={form.plant}>{form.plant}</option>}
-                  {plantOptions.map((p) => (
+                    !plantConfig.plants.some(
+                      (p) => p.localeCompare(form.plant ?? "", undefined, { sensitivity: "accent" }) === 0
+                    ) && (
+                      <option value={form.plant}>{form.plant}</option>
+                    )}
+                  {plantConfig.plants.map((p) => (
                     <option key={p} value={p}>
                       {p}
                     </option>
                   ))}
                 </select>
               )}
-              {form.pt && plantOptions.length === 0 && (
+              {form.pt && plantConfig?.mode === "none" && (
+                <input
+                  id="plant"
+                  type="text"
+                  className={styles.formInput}
+                  value="—"
+                  readOnly
+                  disabled
+                  aria-label="Plant not applicable"
+                />
+              )}
+              {form.pt && !plantConfig && (
                 <input
                   id="plant"
                   type="text"
@@ -564,16 +577,15 @@ export function PoEdit({ id }: { id: string }) {
         </Card>
 
         <Card className={styles.cardSpacing}>
-          <h2 className={styles.itemsSectionTitle}>
-            Line items
-            <span className={styles.itemsSectionMeta}>Currency: {poCurrency}</span>
+          <h2 className={styles.sectionTitle}>
+            Items
+            <span className={styles.currencyBadge}>Currency: {poCurrency}</span>
           </h2>
 
           <div className={styles.itemsTableWrap}>
             <table className={styles.itemsTable}>
               <thead>
                 <tr>
-                  <th className={`${styles.itemsTh} ${styles.itemsThNum}`}>#</th>
                   <th className={styles.itemsTh}>Description</th>
                   <th className={`${styles.itemsTh} ${styles.thMetricsGroup}`} colSpan={3}>
                     <div className={styles.metricsHeaderInner}>
@@ -591,13 +603,15 @@ export function PoEdit({ id }: { id: string }) {
                   const total = getItemLineTotal(item);
                   return (
                     <tr key={item.lineId ?? `new-${index}`}>
-                      <td className={`${styles.itemsTd} ${styles.itemsTdNum}`}>{index + 1}</td>
-                      <td className={`${styles.itemsTd} ${styles.itemsTdDesc}`}>
-                        <ItemDescriptionInput
+                      <td className={styles.itemsTd}>
+                        <textarea
                           className={styles.itemDescriptionInput}
                           value={item.item_description ?? ""}
-                          onChange={(v) => updateItem(index, "item_description", v)}
+                          onChange={(e) => updateItem(index, "item_description", e.target.value)}
+                          placeholder="Item description"
+                          rows={3}
                           disabled={formDisabled}
+                          aria-label="Item description"
                         />
                       </td>
                       <td className={`${styles.itemsTd} ${styles.tdMetricsGroup}`} colSpan={3}>
@@ -689,7 +703,7 @@ export function PoEdit({ id }: { id: string }) {
           <Button type="submit" variant="primary" disabled={formDisabled}>
             {submitting ? "Saving…" : "Save changes"}
           </Button>
-          <Link href={`/import/po/${id}`}>
+          <Link href={`/dashboard/po/${id}`}>
             <Button type="button" variant="secondary" disabled={submitting}>
               Cancel
             </Button>

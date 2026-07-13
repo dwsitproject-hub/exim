@@ -169,7 +169,15 @@ export function validateUpdateShipmentBody(
   if (closedAtRaw != null && typeof closedAtRaw === "string") data.closed_at = closedAtRaw.trim();
   if (typeof body?.close_reason === "string") data.close_reason = body.close_reason.trim() || undefined;
 
-  const boolFields = ["unit_20ft", "unit_40ft", "unit_package", "unit_20_iso_tank"] as const;
+  const boolFields = [
+    "unit_20ft",
+    "unit_40ft",
+    "unit_package",
+    "unit_20_iso_tank",
+    "unit_40_hc",
+    "unit_20_fr",
+    "unit_40_fr",
+  ] as const;
   for (const key of boolFields) {
     const v = body?.[key];
     if (v === undefined) continue;
@@ -195,6 +203,12 @@ export function validateUpdateShipmentBody(
   if (pkg !== undefined) data.package_count = pkg;
   const cIso = parseCount(body?.container_count_20_iso_tank, "container_count_20_iso_tank");
   if (cIso !== undefined) data.container_count_20_iso_tank = cIso;
+  const c40Hc = parseCount(body?.container_count_40_hc, "container_count_40_hc");
+  if (c40Hc !== undefined) data.container_count_40_hc = c40Hc;
+  const c20Fr = parseCount(body?.container_count_20_fr, "container_count_20_fr");
+  if (c20Fr !== undefined) data.container_count_20_fr = c20Fr;
+  const c40Fr = parseCount(body?.container_count_40_fr, "container_count_40_fr");
+  if (c40Fr !== undefined) data.container_count_40_fr = c40Fr;
 
   if (errors.length > 0) return { ok: false, errors };
 

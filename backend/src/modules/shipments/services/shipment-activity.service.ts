@@ -48,10 +48,16 @@ const SHIPMENT_UPDATE_FIELD_LABELS: Record<string, string> = {
   unit_40ft: "40′ container",
   unit_package: "Package",
   unit_20_iso_tank: "20′ ISO tank",
+  unit_40_hc: "40′ HC",
+  unit_20_fr: "20′ FR",
+  unit_40_fr: "40′ FR",
   container_count_20ft: "20′ count",
   container_count_40ft: "40′ count",
   package_count: "Package count",
   container_count_20_iso_tank: "20′ ISO tank count",
+  container_count_40_hc: "40′ HC count",
+  container_count_20_fr: "20′ FR count",
+  container_count_40_fr: "40′ FR count",
 };
 
 function formatShipmentUpdateFields(keys: string[]): string {
@@ -178,6 +184,7 @@ export class ShipmentActivityService {
       type: e.type,
       title: e.title,
       detail: e.detail,
+      field_changes: e.field_changes,
       actor: e.actor,
       occurred_at: e.at.toISOString(),
     }));

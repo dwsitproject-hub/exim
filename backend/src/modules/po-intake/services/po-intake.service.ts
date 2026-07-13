@@ -10,6 +10,7 @@ import type { LinkedShipmentByIntake } from "../../shipments/repositories/shipme
 import type { UserRepository } from "../../auth/repositories/user.repository.js";
 import { AppError } from "../../../middlewares/errorHandler.js";
 import { syncPoIntakeStatus } from "./po-intake-status-sync.service.js";
+import { evaluatePoIntakeReclaimEligibility } from "./po-intake-reclaim.js";
 import type {
   CreatePoIntakeDto,
   PoCsvImportErrorRow,
@@ -106,17 +107,6 @@ function parseRequiredNumber(raw: string, field: string, row: number, poNumber: 
     return null;
   }
   return n;
-}
-
-async function generateExternalId(repo: PoIntakeRepository, poNumber: string): Promise<string> {
-  const base = `CSV-${poNumber.trim().toUpperCase().replace(/\s+/g, "-")}`;
-  let candidate = base;
-  let seq = 1;
-  while (await repo.existsByExternalId(candidate)) {
-    seq += 1;
-    candidate = `${base}-${seq}`;
-  }
-  return candidate;
 }
 
 /** node-pg returns DECIMAL/NUMERIC as strings — coerce so JSON clients get real numbers. */
@@ -227,13 +217,14 @@ export class PoIntakeService {
     private readonly userRepo?: UserRepository
   ) {}
 
-  /** Create intake (ingestion or test-create). Prevents duplicate by external_id. */
+  /** Create intake (SaaS ingestion or manual create). Duplicate check applies when external_id is present. */
   async create(
     dto: CreatePoIntakeDto,
     options?: { skipDuplicateCheck?: boolean; createdByUserId?: string | null }
   ): Promise<CreatePoIntakeResponse> {
-    if (!options?.skipDuplicateCheck) {
-      const exists = await this.repo.existsByExternalId(dto.external_id);
+    const externalId = dto.external_id?.trim() || null;
+    if (externalId && !options?.skipDuplicateCheck) {
+      const exists = await this.repo.existsByExternalId(externalId);
       if (exists) {
         throw new AppError("Duplicate PO intake: external_id already exists", 409);
       }
@@ -242,7 +233,7 @@ export class PoIntakeService {
     if (dupPo) {
       throw new AppError("Purchase Order number already exists. PO numbers must be unique.", 409);
     }
-    const row = await this.repo.create(dto, "NEW_PO_DETECTED", options?.createdByUserId);
+    const row = await this.repo.create({ ...dto, external_id: externalId }, "NEW_PO_DETECTED", options?.createdByUserId);
     await this.repo.insertItems(row.id, dto.items);
     return {
       id: row.id,
@@ -521,10 +512,8 @@ export class PoIntakeService {
       }
 
       try {
-        const externalId = await generateExternalId(this.repo, sample.po_number);
         await this.repo.createWithItemsInTransaction(
           {
-            external_id: externalId,
             po_number: sample.po_number,
             supplier_name: sample.supplier_name,
             plant: sample.plant,
@@ -643,18 +632,20 @@ export class PoIntakeService {
 
     if (row.intake_status !== "NEW_PO_DETECTED") {
       const linkedShipments = this.mappingRepo ? await this.mappingRepo.findActiveShipmentsByIntakeId(id) : [];
-      const allDelivered =
-        linkedShipments.length > 0 &&
-        linkedShipments.every((s) => s.current_status === "DELIVERED");
       const items = await this.repo.findItemsByIntakeId(id);
       let totalReceived = 0;
       let totalPoQty = 0;
       for (const it of items) {
-        totalPoQty += it.qty ?? 0;
+        totalPoQty += coercePgNumeric(it.qty) ?? 0;
         totalReceived += await this.lineReceivedRepo.getTotalReceivedByIntakeItem(id, it.id);
       }
-      const hasRemaining = totalPoQty > 0 && totalReceived < totalPoQty;
-      if (!allDelivered || !hasRemaining) {
+      const eligibility = evaluatePoIntakeReclaimEligibility({
+        intakeStatus: row.intake_status,
+        linkedShipments,
+        totalPoQty,
+        totalReceived,
+      });
+      if (!eligibility.allowed) {
         throw new AppError("PO intake not available for claim", 409);
       }
     }

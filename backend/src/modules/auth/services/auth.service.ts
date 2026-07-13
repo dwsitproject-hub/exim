@@ -179,8 +179,41 @@ export class AuthService {
       throw new AppError("Reset link has expired", 400);
     }
     const passwordHash = await this.hashPassword(newPassword);
-    await this.userRepo.updatePassword(row.user_id, passwordHash);
+    await this.userRepo.updatePassword(row.user_id, passwordHash, true);
     await this.passwordResetTokenRepo.deleteByToken(token);
+  }
+
+  async changePassword(userId: string, newPassword: string, currentPassword?: string): Promise<AuthUser> {
+    const user = await this.userRepo.findByIdAny(userId);
+    if (!user || !user.is_active) {
+      throw new AppError("User not found or inactive", 401);
+    }
+
+    if (user.must_change_password) {
+      // User just signed in with the temporary password — no need to re-enter it.
+    } else {
+      if (!currentPassword) {
+        throw new AppError("Current password is required", 400);
+      }
+      const match = await bcrypt.compare(currentPassword, user.password_hash);
+      if (!match) {
+        throw new AppError("Current password is incorrect", 401);
+      }
+    }
+
+    const sameAsCurrent = await bcrypt.compare(newPassword, user.password_hash);
+    if (sameAsCurrent) {
+      throw new AppError("New password must be different from current password", 400);
+    }
+
+    const passwordHash = await this.hashPassword(newPassword);
+    await this.userRepo.updatePassword(userId, passwordHash, true);
+
+    const updated = await this.userRepo.findById(userId);
+    if (!updated) {
+      throw new AppError("User not found", 404);
+    }
+    return userRowToAuthUser(updated);
   }
 
   private signAccessToken(user: AuthUser): string {

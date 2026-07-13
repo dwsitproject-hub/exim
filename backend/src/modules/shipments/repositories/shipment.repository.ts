@@ -2,7 +2,7 @@
  * Shipment repository: database access only.
  */
 
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { getPool } from "../../../db/index.js";
 import { classificationFilterSqlVariants } from "../../../shared/product-classification.js";
 import type {
@@ -37,7 +37,9 @@ export class ShipmentRepository {
     closed_at, close_reason, remarks, created_at, updated_at,
     pib_type, no_request_pib, ppjk_mkl, nopen, nopen_date, ship_by, bl_awb, insurance_no, coo, incoterm_amount, incoterm_currency, cbm, net_weight_mt, gross_weight_mt, bm, ppn_amount, pph_amount, kawasan_berikat, surveyor,
     product_classification,
-    unit_20ft, unit_40ft, unit_package, unit_20_iso_tank, container_count_20ft, container_count_40ft, package_count, container_count_20_iso_tank,
+    unit_20ft, unit_40ft, unit_package, unit_20_iso_tank, unit_40_hc, unit_20_fr, unit_40_fr,
+    container_count_20ft, container_count_40ft, package_count, container_count_20_iso_tank,
+    container_count_40_hc, container_count_20_fr, container_count_40_fr,
     deleted_at, deleted_by`;
 
   async create(dto: CreateShipmentDto, shipmentNo: string): Promise<ShipmentRow> {
@@ -203,10 +205,17 @@ export class ShipmentRepository {
         `(
           s.shipment_no ILIKE $${idx}
           OR s.vendor_name ILIKE $${idx}
+          OR s.bl_awb ILIKE $${idx}
           OR EXISTS (
             SELECT 1 FROM shipment_po_mapping m
             JOIN Import_purchase_order i ON i.id = m.intake_id AND m.decoupled_at IS NULL
             WHERE m.shipment_id = s.id AND i.po_number ILIKE $${idx}
+          )
+          OR EXISTS (
+            SELECT 1 FROM shipment_po_mapping m
+            WHERE m.shipment_id = s.id
+              AND m.decoupled_at IS NULL
+              AND m.invoice_no ILIKE $${idx}
           )
         )`
       );
@@ -468,7 +477,7 @@ export class ShipmentRepository {
         JOIN Import_purchase_order_items it ON it.import_purchase_order_id = m.intake_id
         WHERE m.shipment_id = s.id AND m.decoupled_at IS NULL
         AND COALESCE(it.qty, 0) > COALESCE((
-          SELECT SUM(r.received_qty) FROM shipment_po_line_received r WHERE r.item_id = it.id
+          SELECT SUM(r.received_qty) FROM shipment_po_line_received r WHERE r.item_id = it.id AND r.deleted_at IS NULL
         ), 0)
       )`);
     }
@@ -489,8 +498,9 @@ export class ShipmentRepository {
         s.etd, s.eta, s.atd, s.ata, s.depo, s.depo_location, s.current_status, s.closed_at, s.close_reason, s.remarks, s.created_at, s.updated_at,
         s.pib_type, s.no_request_pib, s.ppjk_mkl, s.nopen, s.nopen_date, s.ship_by, s.bl_awb, s.insurance_no, s.coo,
         s.incoterm_amount, s.incoterm_currency, s.cbm, s.net_weight_mt, s.gross_weight_mt, s.bm, s.ppn_amount, s.pph_amount, s.kawasan_berikat, s.surveyor, s.product_classification,
-        s.unit_20ft, s.unit_40ft, s.unit_package, s.unit_20_iso_tank, s.container_count_20ft, s.container_count_40ft,
-        s.package_count, s.container_count_20_iso_tank
+        s.unit_20ft, s.unit_40ft, s.unit_package, s.unit_20_iso_tank, s.unit_40_hc, s.unit_20_fr, s.unit_40_fr,
+        s.container_count_20ft, s.container_count_40ft,
+        s.package_count, s.container_count_20_iso_tank, s.container_count_40_hc, s.container_count_20_fr, s.container_count_40_fr
        FROM shipments s WHERE ${where} ${this.buildShipmentListOrderBy(query)} LIMIT $${idx} OFFSET $${idx + 1}`,
       params
     );
@@ -627,7 +637,7 @@ export class ShipmentRepository {
     };
   }
 
-  async update(id: string, dto: UpdateShipmentDto): Promise<ShipmentRow | null> {
+  async update(id: string, dto: UpdateShipmentDto, client?: PoolClient): Promise<ShipmentRow | null> {
     const updates: string[] = ["updated_at = NOW()"];
     const params: unknown[] = [];
     let idx = 1;
@@ -821,6 +831,30 @@ export class ShipmentRepository {
         params.push(null);
       }
     }
+    if (dto.unit_40_hc !== undefined) {
+      updates.push(`unit_40_hc = $${idx++}`);
+      params.push(dto.unit_40_hc);
+      if (dto.unit_40_hc === false) {
+        updates.push(`container_count_40_hc = $${idx++}`);
+        params.push(null);
+      }
+    }
+    if (dto.unit_20_fr !== undefined) {
+      updates.push(`unit_20_fr = $${idx++}`);
+      params.push(dto.unit_20_fr);
+      if (dto.unit_20_fr === false) {
+        updates.push(`container_count_20_fr = $${idx++}`);
+        params.push(null);
+      }
+    }
+    if (dto.unit_40_fr !== undefined) {
+      updates.push(`unit_40_fr = $${idx++}`);
+      params.push(dto.unit_40_fr);
+      if (dto.unit_40_fr === false) {
+        updates.push(`container_count_40_fr = $${idx++}`);
+        params.push(null);
+      }
+    }
     if (dto.container_count_20ft !== undefined && dto.unit_20ft !== false) {
       updates.push(`container_count_20ft = $${idx++}`);
       params.push(dto.container_count_20ft);
@@ -837,9 +871,22 @@ export class ShipmentRepository {
       updates.push(`container_count_20_iso_tank = $${idx++}`);
       params.push(dto.container_count_20_iso_tank);
     }
+    if (dto.container_count_40_hc !== undefined && dto.unit_40_hc !== false) {
+      updates.push(`container_count_40_hc = $${idx++}`);
+      params.push(dto.container_count_40_hc);
+    }
+    if (dto.container_count_20_fr !== undefined && dto.unit_20_fr !== false) {
+      updates.push(`container_count_20_fr = $${idx++}`);
+      params.push(dto.container_count_20_fr);
+    }
+    if (dto.container_count_40_fr !== undefined && dto.unit_40_fr !== false) {
+      updates.push(`container_count_40_fr = $${idx++}`);
+      params.push(dto.container_count_40_fr);
+    }
     if (params.length === 0) return this.findById(id);
     params.push(id);
-    const result = await this.pool.query<ShipmentRow>(
+    const db: Pool | PoolClient = client ?? this.pool;
+    const result = await db.query<ShipmentRow>(
       `UPDATE shipments SET ${updates.join(", ")} WHERE id = $${idx} AND deleted_at IS NULL RETURNING ${this.selectColumns}`,
       params
     );
@@ -854,8 +901,13 @@ export class ShipmentRepository {
     return result.rows[0] ?? null;
   }
 
-  async updateCurrentStatus(id: string, currentStatus: string): Promise<ShipmentRow | null> {
-    const result = await this.pool.query<ShipmentRow>(
+  async updateCurrentStatus(
+    id: string,
+    currentStatus: string,
+    client?: PoolClient
+  ): Promise<ShipmentRow | null> {
+    const db: Pool | PoolClient = client ?? this.pool;
+    const result = await db.query<ShipmentRow>(
       `UPDATE shipments SET current_status = $1, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL RETURNING ${this.selectColumns}`,
       [currentStatus, id]
     );

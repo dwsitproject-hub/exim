@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction } from "express";
 import { sendSuccess, sendError } from "../../../shared/response.js";
 import { ExportBulkingService } from "../services/export-bulking.service.js";
 import { ExportBulkingRepository } from "../repositories/export-bulking.repository.js";
+import { mergeFilterTokens } from "../../../shared/http-query-multi.js";
 import type { ListExportBulkingQuery } from "../dto/index.js";
 
 const repo = new ExportBulkingRepository();
@@ -9,6 +10,14 @@ const service = new ExportBulkingService(repo);
 
 function userIdFromRequest(req: Request): string | undefined {
   return req.user?.id ?? req.user?.email ?? undefined;
+}
+
+function actorFromRequest(req: Request): string {
+  const name = req.user?.name?.trim();
+  if (name) return name;
+  const email = req.user?.email?.trim();
+  if (email) return email;
+  return "Unknown user";
 }
 
 function userUuidFromRequest(req: Request): string | undefined {
@@ -24,18 +33,31 @@ function parseListQuery(req: Request): ListExportBulkingQuery {
   const page = q.page != null ? parseInt(String(q.page), 10) : undefined;
   const limit = q.limit != null ? parseInt(String(q.limit), 10) : undefined;
 
-  let statuses: string[] | undefined;
-  if (typeof q.statuses === "string") {
-    statuses = q.statuses.split(",").map((s) => s.trim()).filter(Boolean);
-  } else if (Array.isArray(q.statuses)) {
-    statuses = (q.statuses as string[]).filter(Boolean);
-  }
-
   return {
     page: Number.isNaN(page) ? undefined : page,
     limit: Number.isNaN(limit) ? undefined : limit,
     search: typeof q.search === "string" ? q.search : undefined,
-    statuses,
+    statuses: mergeFilterTokens(q, "statuses", "statuses_in"),
+    shipment_nos: mergeFilterTokens(q, "shipment_no", "shipment_nos_in"),
+    vessel_names: mergeFilterTokens(q, "vessel_name", "vessel_names_in"),
+    voyage_numbers: mergeFilterTokens(q, "voyage_number", "voyage_numbers_in"),
+    shippers: mergeFilterTokens(q, "shipper", "shippers_in"),
+    loadport_names: mergeFilterTokens(q, "loadport_name", "loadport_names_in"),
+    cargo_names: mergeFilterTokens(q, "cargo_name", "cargo_names_in"),
+    cargo_line_labels: mergeFilterTokens(q, "cargo_line_label", "cargo_line_labels_in"),
+    total_qty_labels: mergeFilterTokens(q, "total_qty_label", "total_qty_labels_in"),
+    laycan_labels: mergeFilterTokens(q, "laycan_label", "laycan_labels_in"),
+    cargo_readiness_labels: mergeFilterTokens(q, "cargo_readiness_label", "cargo_readiness_labels_in"),
+    demurrage_rate_labels: mergeFilterTokens(q, "demurrage_rate_label", "demurrage_rate_labels_in"),
+    eta_dates: mergeFilterTokens(q, "eta_date", "eta_dates_in"),
+    pic_documentation_names: mergeFilterTokens(q, "pic_documentation_name", "pic_documentation_names_in"),
+    si_numbers: mergeFilterTokens(q, "si_number", "si_numbers_in"),
+    invoice_numbers: mergeFilterTokens(q, "invoice_number", "invoice_numbers_in"),
+    pl_numbers: mergeFilterTokens(q, "pl_number", "pl_numbers_in"),
+    peb_nos: mergeFilterTokens(q, "peb_no", "peb_nos_in"),
+    peb_dates: mergeFilterTokens(q, "peb_date", "peb_dates_in"),
+    bl_nos: mergeFilterTokens(q, "bl_no", "bl_nos_in"),
+    bl_dates: mergeFilterTokens(q, "bl_date", "bl_dates_in"),
     sort_by: typeof q.sort_by === "string" && q.sort_by.trim() ? q.sort_by.trim() : undefined,
     sort_dir: q.sort_dir === "asc" || q.sort_dir === "desc" ? q.sort_dir : undefined,
     assignment_filter:
@@ -144,7 +166,7 @@ export async function getFullDetail(req: Request, res: Response, next: NextFunct
 
 export async function update(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const data = await service.update(req.params.id, req.body);
+    const data = await service.update(req.params.id, req.body, actorFromRequest(req));
     if (!data) {
       sendError(res, "Shipment not found", { statusCode: 404 });
       return;
@@ -260,7 +282,12 @@ export async function upsertSapLines(req: Request, res: Response, next: NextFunc
       sendError(res, "lines array is required", { statusCode: 400 });
       return;
     }
-    const data = await service.upsertSapLines(req.params.id, lines);
+    const spr = req.body?.spr;
+    const data = await service.upsertSapLines(
+      req.params.id,
+      lines,
+      spr === undefined ? undefined : (typeof spr === "string" ? spr.trim() || null : null),
+    );
     sendSuccess(res, data, { message: "SAP lines saved" });
   } catch (e) {
     next(e);
@@ -548,7 +575,7 @@ export async function regenerateSINumber(req: Request, res: Response, next: Next
       sendError(res, "Authentication required", { statusCode: 401 });
       return;
     }
-    const data = await service.regenerateShippingInstructionNumber(req.params.siId, userId);
+    const data = await service.regenerateShippingInstructionNumber(req.params.id, req.params.siId, userId);
     if (!data) {
       sendError(res, "Shipping instruction not found", { statusCode: 404 });
       return;
@@ -566,7 +593,7 @@ export async function regenerateInvoiceNumber(req: Request, res: Response, next:
       sendError(res, "Authentication required", { statusCode: 401 });
       return;
     }
-    const data = await service.regenerateInvoiceNumber(req.params.invId, userId);
+    const data = await service.regenerateInvoiceNumber(req.params.id, req.params.invId, userId);
     if (!data) {
       sendError(res, "Invoice not found", { statusCode: 404 });
       return;
@@ -584,7 +611,7 @@ export async function regeneratePackingListNumber(req: Request, res: Response, n
       sendError(res, "Authentication required", { statusCode: 401 });
       return;
     }
-    const data = await service.regeneratePackingListNumber(req.params.plId, userId);
+    const data = await service.regeneratePackingListNumber(req.params.id, req.params.plId, userId);
     if (!data) {
       sendError(res, "Packing list not found", { statusCode: 404 });
       return;

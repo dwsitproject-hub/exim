@@ -14,13 +14,25 @@ export type DocSlotVisibility =
   | "product_chemical";
 
 export type ShipmentDocSlot =
-  | { document_type: string; label: string; statuses?: undefined; per_linked_po?: boolean; showWhen?: DocSlotVisibility }
+  | {
+      document_type: string;
+      label: string;
+      statuses?: undefined;
+      per_linked_po?: boolean;
+      showWhen?: DocSlotVisibility;
+      /** Skip PIB / PO upload ordering (e.g. Other). */
+      noUploadPrerequisites?: boolean;
+      /** Allow any file type in the file picker. */
+      allowAnyFile?: boolean;
+    }
   | {
       document_type: string;
       label: string;
       statuses: readonly ("DRAFT" | "FINAL")[];
       per_linked_po?: boolean;
       showWhen?: DocSlotVisibility;
+      noUploadPrerequisites?: boolean;
+      allowAnyFile?: boolean;
     };
 
 /** Ordered: PO → Commercial Invoice → Packing List → BL, then the rest. */
@@ -43,6 +55,11 @@ export const SHIPMENT_DOCUMENT_SLOTS: ShipmentDocSlot[] = [
   { document_type: "MSDS", label: "MSDS", showWhen: "product_chemical" },
   { document_type: "B3", label: "B3", showWhen: "product_chemical" },
   { document_type: "DG", label: "Dangerous Goods (DG)", showWhen: "product_chemical" },
+  {
+    document_type: "OTHER",
+    label: "Other",
+    allowAnyFile: true,
+  },
 ];
 
 export type ShipmentDetailForDocSlots = {

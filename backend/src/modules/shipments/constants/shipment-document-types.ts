@@ -23,6 +23,8 @@ export const SHIPMENT_DOCUMENT_TYPES = [
   "BPN",
   "INBOUND_CHARGE",
   "BUKTI_BAYAR",
+  /** Miscellaneous files not covered by a named category; multiple uploads allowed. */
+  "OTHER",
 ] as const;
 
 export type ShipmentDocumentType = (typeof SHIPMENT_DOCUMENT_TYPES)[number];

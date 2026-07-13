@@ -7,7 +7,8 @@ import { getPool } from "../../../db/index.js";
 
 export interface ShipmentUpdateLogRow {
   id: string;
-  shipment_id: string;
+  shipment_id: string | null;
+  export_bulking_shipment_id: string | null;
   changed_by: string;
   changed_at: Date;
   fields_changed: string[];
@@ -21,7 +22,8 @@ export interface ShipmentUpdateFieldChange {
 }
 
 export interface CreateShipmentUpdateLogInput {
-  shipmentId: string;
+  shipmentId?: string;
+  exportBulkingShipmentId?: string;
   changedBy: string;
   fieldsChanged: string[];
   fieldChanges?: ShipmentUpdateFieldChange[];
@@ -61,19 +63,28 @@ export class ShipmentUpdateLogRepository {
   }
 
   async create(input: CreateShipmentUpdateLogInput): Promise<ShipmentUpdateLogRow> {
+    const hasImport = !!input.shipmentId?.trim();
+    const hasBulking = !!input.exportBulkingShipmentId?.trim();
+    if (hasImport === hasBulking) {
+      throw new Error(
+        "ShipmentUpdateLogRepository.create: provide exactly one of shipmentId or exportBulkingShipmentId",
+      );
+    }
     const result = await this.pool.query<{
       id: string;
-      shipment_id: string;
+      shipment_id: string | null;
+      export_bulking_shipment_id: string | null;
       changed_by: string;
       changed_at: Date;
       fields_changed: unknown;
       field_changes: unknown;
     }>(
-      `INSERT INTO shipment_update_log (shipment_id, changed_by, fields_changed, field_changes)
-       VALUES ($1, $2, $3::jsonb, $4::jsonb)
-       RETURNING id, shipment_id, changed_by, changed_at, fields_changed, field_changes`,
+      `INSERT INTO shipment_update_log (shipment_id, export_bulking_shipment_id, changed_by, fields_changed, field_changes)
+       VALUES ($1, $2, $3, $4::jsonb, $5::jsonb)
+       RETURNING id, shipment_id, export_bulking_shipment_id, changed_by, changed_at, fields_changed, field_changes`,
       [
-        input.shipmentId,
+        input.shipmentId ?? null,
+        input.exportBulkingShipmentId ?? null,
         input.changedBy,
         JSON.stringify(input.fieldsChanged),
         JSON.stringify(input.fieldChanges ?? []),
@@ -91,17 +102,41 @@ export class ShipmentUpdateLogRepository {
   async findByShipmentId(shipmentId: string): Promise<ShipmentUpdateLogRow[]> {
     const result = await this.pool.query<{
       id: string;
-      shipment_id: string;
+      shipment_id: string | null;
+      export_bulking_shipment_id: string | null;
       changed_by: string;
       changed_at: Date;
       fields_changed: unknown;
       field_changes: unknown;
     }>(
-      `SELECT id, shipment_id, changed_by, changed_at, fields_changed, field_changes
+      `SELECT id, shipment_id, export_bulking_shipment_id, changed_by, changed_at, fields_changed, field_changes
        FROM shipment_update_log
        WHERE shipment_id = $1
        ORDER BY changed_at ASC`,
       [shipmentId]
+    );
+    return result.rows.map((r) => ({
+      ...r,
+      fields_changed: parseFieldsChanged(r.fields_changed),
+      field_changes: parseFieldChanges(r.field_changes),
+    }));
+  }
+
+  async findByExportBulkingShipmentId(exportBulkingShipmentId: string): Promise<ShipmentUpdateLogRow[]> {
+    const result = await this.pool.query<{
+      id: string;
+      shipment_id: string | null;
+      export_bulking_shipment_id: string | null;
+      changed_by: string;
+      changed_at: Date;
+      fields_changed: unknown;
+      field_changes: unknown;
+    }>(
+      `SELECT id, shipment_id, export_bulking_shipment_id, changed_by, changed_at, fields_changed, field_changes
+       FROM shipment_update_log
+       WHERE export_bulking_shipment_id = $1
+       ORDER BY changed_at ASC`,
+      [exportBulkingShipmentId]
     );
     return result.rows.map((r) => ({
       ...r,

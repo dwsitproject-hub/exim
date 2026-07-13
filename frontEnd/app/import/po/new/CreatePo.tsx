@@ -284,7 +284,6 @@ export function CreatePo() {
     }
 
     const payload: CreateTestPoPayload = {
-      external_id: `test-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
       po_number: form.po_number.trim(),
       supplier_name: form.supplier_name.trim(),
       delivery_location: form.delivery_location.trim(),

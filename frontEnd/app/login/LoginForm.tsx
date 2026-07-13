@@ -7,7 +7,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { Input, Button } from "@/components/forms";
 import { AuthShell, authBackLinkClassName, authForgotLinkWrapClassName } from "@/components/auth";
 import { Alert } from "@/components/feedback";
-import { DEFAULT_AFTER_LOGIN_PATH } from "@/lib/constants";
+import { DEFAULT_AFTER_LOGIN_PATH, CHANGE_PASSWORD_PATH } from "@/lib/constants";
 import { useToast } from "@/components/providers/ToastProvider";
 import styles from "./LoginForm.module.css";
 
@@ -23,7 +23,7 @@ export function LoginForm() {
 
   useEffect(() => {
     if (initialized && user) {
-      window.location.replace(from);
+      window.location.replace(user.must_change_password ? CHANGE_PASSWORD_PATH : from);
     }
   }, [initialized, user, from]);
 
@@ -33,8 +33,11 @@ export function LoginForm() {
     setFieldErrors({});
     const result = await login(email, password);
     if (result.ok) {
-      pushToast("Signed in successfully.", "success");
-      window.location.href = from;
+      pushToast(
+        result.user?.must_change_password ? "Please set a new password to continue." : "Signed in successfully.",
+        "success"
+      );
+      window.location.href = result.user?.must_change_password ? CHANGE_PASSWORD_PATH : from;
       return;
     }
     const errMsg = result.error ?? "Login failed";

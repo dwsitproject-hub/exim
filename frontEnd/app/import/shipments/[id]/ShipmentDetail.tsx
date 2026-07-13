@@ -29,6 +29,7 @@ import {
   listShipmentDocuments,
   uploadShipmentDocument,
   deleteShipmentDocument,
+  fetchShipmentDocumentBlob,
 } from "@/services/shipments-service";
 import { getPoDetail, lookupPoByPoNumber } from "@/services/po-service";
 import { Card } from "@/components/cards";
@@ -44,6 +45,7 @@ import {
   TableHeaderCell,
 } from "@/components/tables";
 import { Button, ComboboxSelect } from "@/components/forms";
+import { Modal } from "@/components/overlays";
 import { useToast } from "@/components/providers/ToastProvider";
 import { ShipmentNoteMentionTextarea } from "@/components/shipments/ShipmentNoteMentionTextarea";
 import { renderNoteWithMentions } from "@/lib/render-note-mentions";
@@ -90,6 +92,13 @@ import type { PoDetail, PoItemSummary } from "@/types/po";
 import { config } from "@/lib/config";
 import { getCountryOptions } from "@/lib/countries";
 import { getVisibleShipmentDocumentSlots } from "@/lib/shipment-document-slots";
+import {
+  canPreviewShipmentDocument,
+  getShipmentDocumentPreviewMode,
+  type ShipmentDocumentPreviewMode,
+  createShipmentDocumentPreviewUrl,
+  revokeShipmentDocumentPreviewUrl,
+} from "@/lib/shipment-document-preview";
 import {
   canUploadPO,
   isPOUploaded,
@@ -579,6 +588,7 @@ function ShipmentDocUploadControl({
   onFile,
   labelTitle,
   buttonLabel = "Upload",
+  accept = SHIPMENT_DOC_FILE_ACCEPT,
 }: {
   disabled: boolean;
   isUploading: boolean;
@@ -586,6 +596,8 @@ function ShipmentDocUploadControl({
   /** Shown on hover when disabled (native tooltip). */
   labelTitle?: string;
   buttonLabel?: string;
+  /** File input accept attribute; unrestricted uploads use any MIME type. */
+  accept?: string;
 }) {
   const inputId = useId();
   return (
@@ -594,7 +606,7 @@ function ShipmentDocUploadControl({
         id={inputId}
         type="file"
         className={styles.shipmentDocFileInputHidden}
-        accept={SHIPMENT_DOC_FILE_ACCEPT}
+        accept={accept}
         disabled={disabled}
         tabIndex={-1}
         onChange={(e) => {
@@ -728,6 +740,10 @@ export function ShipmentDetail({ id }: { id: string }) {
   const [newStatus, setNewStatus] = useState("");
   const [remarks, setRemarks] = useState("");
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [deliveredDateModalOpen, setDeliveredDateModalOpen] = useState(false);
+  const [deliveredDateDraft, setDeliveredDateDraft] = useState("");
+  const [deliveredDateError, setDeliveredDateError] = useState<string | null>(null);
+  const [pendingStatusUpdate, setPendingStatusUpdate] = useState<{ status: string; remarks?: string } | null>(null);
   const [coupleModal, setCoupleModal] = useState(false);
   const [coupleModalError, setCoupleModalError] = useState<string | null>(null);
   const [coupleIntakeIds, setCoupleIntakeIds] = useState("");
@@ -743,6 +759,11 @@ export function ShipmentDetail({ id }: { id: string }) {
   const [shipmentDocuments, setShipmentDocuments] = useState<ShipmentDocumentListItem[]>([]);
   const [uploadingDocSlotKey, setUploadingDocSlotKey] = useState<string | null>(null);
   const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
+  const [previewDoc, setPreviewDoc] = useState<ShipmentDocumentListItem | null>(null);
+  const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null);
+  const [previewMode, setPreviewMode] = useState<ShipmentDocumentPreviewMode | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
   const [savingNote, setSavingNote] = useState(false);
   const [isUpdatingShipment, setIsUpdatingShipment] = useState(false);
@@ -779,10 +800,16 @@ export function ShipmentDetail({ id }: { id: string }) {
   const [editUnit40ft, setEditUnit40ft] = useState(false);
   const [editUnitPackage, setEditUnitPackage] = useState(false);
   const [editUnit20IsoTank, setEditUnit20IsoTank] = useState(false);
+  const [editUnit40Hc, setEditUnit40Hc] = useState(false);
+  const [editUnit20Fr, setEditUnit20Fr] = useState(false);
+  const [editUnit40Fr, setEditUnit40Fr] = useState(false);
   const [editContainerCount20ft, setEditContainerCount20ft] = useState("");
   const [editContainerCount40ft, setEditContainerCount40ft] = useState("");
   const [editPackageCount, setEditPackageCount] = useState("");
   const [editContainerCount20IsoTank, setEditContainerCount20IsoTank] = useState("");
+  const [editContainerCount40Hc, setEditContainerCount40Hc] = useState("");
+  const [editContainerCount20Fr, setEditContainerCount20Fr] = useState("");
+  const [editContainerCount40Fr, setEditContainerCount40Fr] = useState("");
   const [editIncotermAmount, setEditIncotermAmount] = useState("");
   const [editIncotermCurrency, setEditIncotermCurrency] = useState<FreightChargeCurrency>("IDR");
   const [editBmTotal, setEditBmTotal] = useState("");
@@ -830,6 +857,21 @@ export function ShipmentDetail({ id }: { id: string }) {
 
   /** Block shipment document upload/delete when status is DELIVERED (not based on closed/delivered date alone). */
   const shipmentDocumentsLockedByDeliveredStatus = detail?.current_status === "DELIVERED";
+
+  useEffect(() => {
+    return () => revokeShipmentDocumentPreviewUrl(previewBlobUrl);
+  }, [previewBlobUrl]);
+
+  const closeDocumentPreview = useCallback(() => {
+    setPreviewDoc(null);
+    setPreviewMode(null);
+    setPreviewError(null);
+    setPreviewLoading(false);
+    setPreviewBlobUrl((prev) => {
+      revokeShipmentDocumentPreviewUrl(prev);
+      return null;
+    });
+  }, []);
 
   const load = useCallback(() => {
     if (!accessToken || !id) return;
@@ -1018,12 +1060,18 @@ export function ShipmentDetail({ id }: { id: string }) {
     setEditUnit40ft(detail.unit_40ft === true);
     setEditUnitPackage(detail.unit_package === true);
     setEditUnit20IsoTank(detail.unit_20_iso_tank === true);
+    setEditUnit40Hc(detail.unit_40_hc === true);
+    setEditUnit20Fr(detail.unit_20_fr === true);
+    setEditUnit40Fr(detail.unit_40_fr === true);
     setEditContainerCount20ft(detail.container_count_20ft != null ? String(detail.container_count_20ft) : "");
     setEditContainerCount40ft(detail.container_count_40ft != null ? String(detail.container_count_40ft) : "");
     setEditPackageCount(detail.package_count != null ? String(detail.package_count) : "");
     setEditContainerCount20IsoTank(
       detail.container_count_20_iso_tank != null ? String(detail.container_count_20_iso_tank) : ""
     );
+    setEditContainerCount40Hc(detail.container_count_40_hc != null ? String(detail.container_count_40_hc) : "");
+    setEditContainerCount20Fr(detail.container_count_20_fr != null ? String(detail.container_count_20_fr) : "");
+    setEditContainerCount40Fr(detail.container_count_40_fr != null ? String(detail.container_count_40_fr) : "");
     setEditIncotermAmount(
       detail.incoterm_amount != null
         ? formatPriceInputWithCommas(
@@ -1068,27 +1116,54 @@ export function ShipmentDetail({ id }: { id: string }) {
     setActionError(null);
   }
 
-  function handleUpdateStatus(e: React.FormEvent) {
-    e.preventDefault();
-    if (isUpdatingShipment) return;
-    if (!canUpdateStatus) return;
-    if (!accessToken || !id || !newStatus.trim()) return;
+  function performStatusUpdate(statusToApply: string, remarksValue?: string, closedAt?: string) {
+    if (!accessToken || !id) return;
     setActionError(null);
     setUpdatingStatus(true);
-    const statusToApply = newStatus.trim();
-    updateShipmentStatus(id, statusToApply, remarks.trim() || undefined, accessToken)
+    updateShipmentStatus(id, statusToApply, remarksValue, accessToken, closedAt)
       .then((res) => {
         if (isApiError(res)) {
           setActionError(res.message);
           pushToast(res.message, "error");
           return;
         }
+        setDeliveredDateModalOpen(false);
+        setPendingStatusUpdate(null);
+        setDeliveredDateDraft("");
+        setDeliveredDateError(null);
         setNewStatus("");
         setRemarks("");
         pushToast(`Status updated to ${formatStatusLabel(statusToApply)}.`, "success");
         load();
       })
       .finally(() => setUpdatingStatus(false));
+  }
+
+  function handleUpdateStatus(e: React.FormEvent) {
+    e.preventDefault();
+    if (isUpdatingShipment) return;
+    if (!canUpdateStatus) return;
+    if (!accessToken || !id || !newStatus.trim()) return;
+    setActionError(null);
+    const statusToApply = newStatus.trim();
+    if (statusToApply === "DELIVERED") {
+      setPendingStatusUpdate({ status: statusToApply, remarks: remarks.trim() || undefined });
+      setDeliveredDateDraft("");
+      setDeliveredDateError(null);
+      setDeliveredDateModalOpen(true);
+      return;
+    }
+    performStatusUpdate(statusToApply, remarks.trim() || undefined);
+  }
+
+  function handleConfirmDeliveredDate() {
+    if (!pendingStatusUpdate) return;
+    const date = deliveredDateDraft.trim();
+    if (!date) {
+      setDeliveredDateError("Delivered date is required.");
+      return;
+    }
+    performStatusUpdate(pendingStatusUpdate.status, pendingStatusUpdate.remarks, date);
   }
 
   const INTAKE_UUID_RE =
@@ -1392,7 +1467,7 @@ export function ShipmentDetail({ id }: { id: string }) {
       pushToast(documentRestrictionToastMessage(block), "error");
       return;
     }
-    if (!isAcceptedShipmentDocFile(file)) {
+    if (documentType !== "OTHER" && !isAcceptedShipmentDocFile(file)) {
       pushToast("This file type is not accepted. Use PDF, Word, Excel, or an image.", "error");
       return;
     }
@@ -1424,29 +1499,7 @@ export function ShipmentDetail({ id }: { id: string }) {
 
   function handleShipmentDocumentDownload(doc: ShipmentDocumentListItem) {
     if (!id) return;
-    const base = config.apiBaseUrl.replace(/\/$/, "");
-    const url = `${base}/shipments/${id}/documents/${doc.id}/download`;
-    const downloadWithAuth = () =>
-      fetch(url, {
-        credentials: "include",
-      });
-
-    downloadWithAuth()
-      .then(async (r) => {
-        if (r.status === 401) {
-          const refreshUrl = `${base}/auth/refresh`;
-          const refresh = await fetch(refreshUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({}),
-            credentials: "include",
-          });
-          if (!refresh.ok) throw new Error("download failed");
-          r = await downloadWithAuth();
-        }
-        if (!r.ok) throw new Error("download failed");
-        return r.blob();
-      })
+    fetchShipmentDocumentBlob(id, doc.id)
       .then((blob) => {
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
@@ -1459,6 +1512,29 @@ export function ShipmentDetail({ id }: { id: string }) {
         setActionError("Failed to download document");
         pushToast("Failed to download document.", "error");
       });
+  }
+
+  function handleShipmentDocumentPreview(doc: ShipmentDocumentListItem) {
+    if (!id || !canPreviewShipmentDocument(doc)) return;
+    setPreviewBlobUrl((prev) => {
+      revokeShipmentDocumentPreviewUrl(prev);
+      return null;
+    });
+    setPreviewDoc(doc);
+    const mode = getShipmentDocumentPreviewMode(doc);
+    setPreviewMode(mode);
+    setPreviewLoading(true);
+    setPreviewError(null);
+    fetchShipmentDocumentBlob(id, doc.id)
+      .then((blob) => createShipmentDocumentPreviewUrl(blob, mode))
+      .then((url) => {
+        setPreviewBlobUrl(url);
+      })
+      .catch(() => {
+        setPreviewError("Failed to load document preview.");
+        pushToast("Failed to load document preview.", "error");
+      })
+      .finally(() => setPreviewLoading(false));
   }
 
   function handleShipmentDocumentDelete(docId: string) {
@@ -1492,6 +1568,18 @@ export function ShipmentDetail({ id }: { id: string }) {
           </span>
         </div>
         <div className={styles.shipmentDocFileActions}>
+          {canPreviewShipmentDocument(doc) && (
+            <Button
+              type="button"
+              variant="secondary"
+              className={styles.docIconBtn}
+              onClick={() => handleShipmentDocumentPreview(doc)}
+              aria-label={`Preview ${doc.original_file_name}`}
+              title="Preview"
+            >
+              <span aria-hidden>👁</span>
+            </Button>
+          )}
           <Button
             type="button"
             variant="secondary"
@@ -1541,10 +1629,16 @@ export function ShipmentDetail({ id }: { id: string }) {
       setEditUnit40ft(false);
       setEditUnitPackage(false);
       setEditUnit20IsoTank(false);
+      setEditUnit40Hc(false);
+      setEditUnit20Fr(false);
+      setEditUnit40Fr(false);
       setEditContainerCount20ft("");
       setEditContainerCount40ft("");
       setEditPackageCount("");
       setEditContainerCount20IsoTank("");
+      setEditContainerCount40Hc("");
+      setEditContainerCount20Fr("");
+      setEditContainerCount40Fr("");
       setEditCbm("");
       return;
     }
@@ -1554,17 +1648,29 @@ export function ShipmentDetail({ id }: { id: string }) {
       setEditUnit40ft(false);
       setEditUnitPackage(false);
       setEditUnit20IsoTank(false);
+      setEditUnit40Hc(false);
+      setEditUnit20Fr(false);
+      setEditUnit40Fr(false);
       setEditContainerCount20ft("");
       setEditContainerCount40ft("");
       setEditPackageCount("");
       setEditContainerCount20IsoTank("");
+      setEditContainerCount40Hc("");
+      setEditContainerCount20Fr("");
+      setEditContainerCount40Fr("");
     } else if (next === "LCL") {
       setEditUnit20ft(false);
       setEditUnit40ft(false);
       setEditUnit20IsoTank(false);
+      setEditUnit40Hc(false);
+      setEditUnit20Fr(false);
+      setEditUnit40Fr(false);
       setEditContainerCount20ft("");
       setEditContainerCount40ft("");
       setEditContainerCount20IsoTank("");
+      setEditContainerCount40Hc("");
+      setEditContainerCount20Fr("");
+      setEditContainerCount40Fr("");
     } else if (next === "FCL") {
       setEditUnitPackage(false);
       setEditPackageCount("");
@@ -1618,11 +1724,14 @@ export function ShipmentDetail({ id }: { id: string }) {
     const sb = (d.ship_by ?? "").trim();
     if (sb === "Bulk") return "—";
     if (sb === "LCL") {
-      if (d.unit_package === true) {
-        const cnt = d.package_count != null ? ` × ${d.package_count}` : "";
-        return `Package${cnt}`;
+      const parts: string[] = [];
+      if (d.package_count != null) {
+        parts.push(`${d.package_count.toLocaleString()} packages`);
       }
-      return "—";
+      if (d.cbm != null) {
+        parts.push(`${formatDecimal(d.cbm)} m³`);
+      }
+      return parts.length > 0 ? parts.join(", ") : "—";
     }
     if (sb === "FCL") {
       const parts: string[] = [];
@@ -1639,6 +1748,21 @@ export function ShipmentDetail({ id }: { id: string }) {
       if (d.unit_20_iso_tank === true) {
         parts.push(
           `20${inch} ISO Tank${d.container_count_20_iso_tank != null ? ` × ${d.container_count_20_iso_tank}` : ""}`.trim()
+        );
+      }
+      if (d.unit_40_hc === true) {
+        parts.push(
+          `40${inch} HC${d.container_count_40_hc != null ? ` × ${d.container_count_40_hc}` : ""}`.trim()
+        );
+      }
+      if (d.unit_20_fr === true) {
+        parts.push(
+          `20${inch} FR${d.container_count_20_fr != null ? ` × ${d.container_count_20_fr}` : ""}`.trim()
+        );
+      }
+      if (d.unit_40_fr === true) {
+        parts.push(
+          `40${inch} FR${d.container_count_40_fr != null ? ` × ${d.container_count_40_fr}` : ""}`.trim()
         );
       }
       return parts.length > 0 ? parts.join(", ") : "—";
@@ -1663,6 +1787,15 @@ export function ShipmentDetail({ id }: { id: string }) {
       parts.push(
         `20${inch} ISO Tank${d.container_count_20_iso_tank != null ? ` × ${d.container_count_20_iso_tank}` : ""}`.trim()
       );
+    }
+    if (d.unit_40_hc === true) {
+      parts.push(`40${inch} HC${d.container_count_40_hc != null ? ` × ${d.container_count_40_hc}` : ""}`.trim());
+    }
+    if (d.unit_20_fr === true) {
+      parts.push(`20${inch} FR${d.container_count_20_fr != null ? ` × ${d.container_count_20_fr}` : ""}`.trim());
+    }
+    if (d.unit_40_fr === true) {
+      parts.push(`40${inch} FR${d.container_count_40_fr != null ? ` × ${d.container_count_40_fr}` : ""}`.trim());
     }
     return parts.length > 0 ? parts.join(", ") : "—";
   }
@@ -1791,7 +1924,10 @@ export function ShipmentDetail({ id }: { id: string }) {
       ata: editAta.trim() || detail.ata,
       nopen: editNopen.trim() || detail.nopen,
       nopen_date: editNopenDate.trim() || detail.nopen_date,
-      closed_at: editClosedAt.trim() || detail.closed_at,
+      closed_at:
+        detail.current_status === "DELIVERED"
+          ? editClosedAt.trim() || detail.closed_at
+          : detail.closed_at,
       linked_pos: linkedPosEff,
     };
   }, [
@@ -2375,9 +2511,13 @@ export function ShipmentDetail({ id }: { id: string }) {
     let containerCount40ft: number | null = null;
     let packageCount: number | null = null;
     let containerCount20Iso: number | null = null;
+    let containerCount40Hc: number | null = null;
+    let containerCount20Fr: number | null = null;
+    let containerCount40Fr: number | null = null;
 
     const methodForSave = (editShipmentMethod.trim() || detail.shipment_method || "").trim();
     const sea = isShipmentMethodSea(methodForSave);
+    const sb = sea ? editShipBy.trim() : "";
 
     if (sea && editUnit20ft) {
       const v = parseOptInt(
@@ -2401,7 +2541,14 @@ export function ShipmentDetail({ id }: { id: string }) {
       }
       containerCount40ft = v;
     }
-    if (sea && editUnitPackage) {
+    if (sea && sb === "LCL") {
+      const v = parseOptInt(editPackageCount, "Number of packages must be a non-negative whole number.");
+      if (v === false) {
+        setSavingDetails(false);
+        return;
+      }
+      packageCount = v;
+    } else if (sea && editUnitPackage) {
       const v = parseOptInt(editPackageCount, "Number of packages must be a non-negative whole number.");
       if (v === false) {
         setSavingDetails(false);
@@ -2420,8 +2567,40 @@ export function ShipmentDetail({ id }: { id: string }) {
       }
       containerCount20Iso = v;
     }
+    if (sea && editUnit40Hc) {
+      const v = parseOptInt(
+        editContainerCount40Hc,
+        "Number of 40 HC containers must be a non-negative whole number."
+      );
+      if (v === false) {
+        setSavingDetails(false);
+        return;
+      }
+      containerCount40Hc = v;
+    }
+    if (sea && editUnit20Fr) {
+      const v = parseOptInt(
+        editContainerCount20Fr,
+        "Number of 20 FR containers must be a non-negative whole number."
+      );
+      if (v === false) {
+        setSavingDetails(false);
+        return;
+      }
+      containerCount20Fr = v;
+    }
+    if (sea && editUnit40Fr) {
+      const v = parseOptInt(
+        editContainerCount40Fr,
+        "Number of 40 FR containers must be a non-negative whole number."
+      );
+      if (v === false) {
+        setSavingDetails(false);
+        return;
+      }
+      containerCount40Fr = v;
+    }
 
-    const sb = sea ? editShipBy.trim() : "";
     if (sea && !sb) {
       const msg = "Ship by is required when Ship via is Sea.";
       setActionError(msg);
@@ -2463,10 +2642,16 @@ export function ShipmentDetail({ id }: { id: string }) {
           unit_40ft: false,
           unit_package: false,
           unit_20_iso_tank: false,
+          unit_40_hc: false,
+          unit_20_fr: false,
+          unit_40_fr: false,
           container_count_20ft: null as number | null,
           container_count_40ft: null as number | null,
           package_count: null as number | null,
           container_count_20_iso_tank: null as number | null,
+          container_count_40_hc: null as number | null,
+          container_count_20_fr: null as number | null,
+          container_count_40_fr: null as number | null,
         }
       : sb === "Bulk"
         ? {
@@ -2474,21 +2659,33 @@ export function ShipmentDetail({ id }: { id: string }) {
             unit_40ft: false,
             unit_package: false,
             unit_20_iso_tank: false,
+            unit_40_hc: false,
+            unit_20_fr: false,
+            unit_40_fr: false,
             container_count_20ft: null as number | null,
             container_count_40ft: null as number | null,
             package_count: null as number | null,
             container_count_20_iso_tank: null as number | null,
+            container_count_40_hc: null as number | null,
+            container_count_20_fr: null as number | null,
+            container_count_40_fr: null as number | null,
           }
         : sb === "LCL"
           ? {
               unit_20ft: false,
               unit_40ft: false,
               unit_20_iso_tank: false,
-              unit_package: editUnitPackage,
+              unit_40_hc: false,
+              unit_20_fr: false,
+              unit_40_fr: false,
+              unit_package: packageCount != null,
               container_count_20ft: null as number | null,
               container_count_40ft: null as number | null,
               container_count_20_iso_tank: null as number | null,
-              package_count: editUnitPackage ? packageCount : null,
+              container_count_40_hc: null as number | null,
+              container_count_20_fr: null as number | null,
+              container_count_40_fr: null as number | null,
+              package_count: packageCount,
             }
           : sb === "FCL"
             ? {
@@ -2497,19 +2694,31 @@ export function ShipmentDetail({ id }: { id: string }) {
                 unit_20ft: editUnit20ft,
                 unit_40ft: editUnit40ft,
                 unit_20_iso_tank: editUnit20IsoTank,
+                unit_40_hc: editUnit40Hc,
+                unit_20_fr: editUnit20Fr,
+                unit_40_fr: editUnit40Fr,
                 container_count_20ft: editUnit20ft ? containerCount20ft : null,
                 container_count_40ft: editUnit40ft ? containerCount40ft : null,
                 container_count_20_iso_tank: editUnit20IsoTank ? containerCount20Iso : null,
+                container_count_40_hc: editUnit40Hc ? containerCount40Hc : null,
+                container_count_20_fr: editUnit20Fr ? containerCount20Fr : null,
+                container_count_40_fr: editUnit40Fr ? containerCount40Fr : null,
               }
             : {
                 unit_20ft: editUnit20ft,
                 unit_40ft: editUnit40ft,
                 unit_package: editUnitPackage,
                 unit_20_iso_tank: editUnit20IsoTank,
+                unit_40_hc: editUnit40Hc,
+                unit_20_fr: editUnit20Fr,
+                unit_40_fr: editUnit40Fr,
                 container_count_20ft: editUnit20ft ? containerCount20ft : null,
                 container_count_40ft: editUnit40ft ? containerCount40ft : null,
                 package_count: editUnitPackage ? packageCount : null,
                 container_count_20_iso_tank: editUnit20IsoTank ? containerCount20Iso : null,
+                container_count_40_hc: editUnit40Hc ? containerCount40Hc : null,
+                container_count_20_fr: editUnit20Fr ? containerCount20Fr : null,
+                container_count_40_fr: editUnit40Fr ? containerCount40Fr : null,
               };
 
     const payload = {
@@ -2558,7 +2767,9 @@ export function ShipmentDetail({ id }: { id: string }) {
             : null,
       net_weight_mt: editNetWeightMt.trim() ? Number(editNetWeightMt) : undefined,
       gross_weight_mt: editGrossWeightMt.trim() ? Number(editGrossWeightMt) : undefined,
-      closed_at: editClosedAt.trim() || undefined,
+      ...(detail.current_status === "DELIVERED" && editClosedAt.trim()
+        ? { closed_at: editClosedAt.trim() }
+        : {}),
       ...(!dutyCalculationSkipped
         ? {
             bm: parseDutyTotalAmountInput(editBmTotal) ?? 0,
@@ -3379,37 +3590,32 @@ export function ShipmentDetail({ id }: { id: string }) {
                 ) : editShipBy === "Bulk" ? (
                   <span className={styles.fieldValue}>—</span>
                 ) : editShipBy === "LCL" ? (
-                  <div>
-                    <div className={styles.unitCheckboxRow}>
-                      <label className={styles.unitCheckboxLabel}>
-                        <input
-                          type="checkbox"
-                          checked={editUnitPackage}
-                          onChange={(e) => {
-                            const v = e.target.checked;
-                            setEditUnitPackage(v);
-                            if (!v) setEditPackageCount("");
-                          }}
-                        />
-                        Package
-                      </label>
+                  <div className={styles.unitCountRow}>
+                    <div className={styles.unitCountField}>
+                      <span className={styles.fieldLabel}>Number of packages</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step={1}
+                        className={styles.input}
+                        value={editPackageCount}
+                        onChange={(e) => setEditPackageCount(e.target.value)}
+                        placeholder="e.g. 10"
+                      />
                     </div>
-                    {editUnitPackage && (
-                      <div className={styles.unitCountRow}>
-                        <div className={styles.unitCountField}>
-                          <span className={styles.fieldLabel}>Number of packages</span>
-                          <input
-                            type="number"
-                            min={0}
-                            step={1}
-                            className={styles.input}
-                            value={editPackageCount}
-                            onChange={(e) => setEditPackageCount(e.target.value)}
-                            placeholder="e.g. 10"
-                          />
-                        </div>
-                      </div>
-                    )}
+                    <div className={styles.unitCountField}>
+                      <span className={styles.fieldLabel}>CBM (m³)</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.000001"
+                        className={styles.input}
+                        value={editCbm}
+                        onChange={(e) => setEditCbm(normalizeDecimalInput(e.target.value))}
+                        placeholder="e.g. 12.5"
+                        aria-label="CBM cubic metres"
+                      />
+                    </div>
                   </div>
                 ) : editShipBy === "FCL" ? (
                   <div>
@@ -3450,8 +3656,49 @@ export function ShipmentDetail({ id }: { id: string }) {
                         />
                         20″ ISO Tank
                       </label>
+                      <label className={styles.unitCheckboxLabel}>
+                        <input
+                          type="checkbox"
+                          checked={editUnit40Hc}
+                          onChange={(e) => {
+                            const v = e.target.checked;
+                            setEditUnit40Hc(v);
+                            if (!v) setEditContainerCount40Hc("");
+                          }}
+                        />
+                        40 HC
+                      </label>
+                      <label className={styles.unitCheckboxLabel}>
+                        <input
+                          type="checkbox"
+                          checked={editUnit20Fr}
+                          onChange={(e) => {
+                            const v = e.target.checked;
+                            setEditUnit20Fr(v);
+                            if (!v) setEditContainerCount20Fr("");
+                          }}
+                        />
+                        20 FR
+                      </label>
+                      <label className={styles.unitCheckboxLabel}>
+                        <input
+                          type="checkbox"
+                          checked={editUnit40Fr}
+                          onChange={(e) => {
+                            const v = e.target.checked;
+                            setEditUnit40Fr(v);
+                            if (!v) setEditContainerCount40Fr("");
+                          }}
+                        />
+                        40 FR
+                      </label>
                     </div>
-                    {(editUnit20ft || editUnit40ft || editUnit20IsoTank) && (
+                    {(editUnit20ft ||
+                      editUnit40ft ||
+                      editUnit20IsoTank ||
+                      editUnit40Hc ||
+                      editUnit20Fr ||
+                      editUnit40Fr) && (
                       <div className={styles.unitCountRow}>
                         {editUnit20ft && (
                           <div className={styles.unitCountField}>
@@ -3459,6 +3706,7 @@ export function ShipmentDetail({ id }: { id: string }) {
                             <input
                               type="number"
                               min={0}
+                              max={99}
                               step={1}
                               className={styles.input}
                               value={editContainerCount20ft}
@@ -3473,6 +3721,7 @@ export function ShipmentDetail({ id }: { id: string }) {
                             <input
                               type="number"
                               min={0}
+                              max={99}
                               step={1}
                               className={styles.input}
                               value={editContainerCount40ft}
@@ -3487,10 +3736,56 @@ export function ShipmentDetail({ id }: { id: string }) {
                             <input
                               type="number"
                               min={0}
+                              max={99}
                               step={1}
                               className={styles.input}
                               value={editContainerCount20IsoTank}
                               onChange={(e) => setEditContainerCount20IsoTank(e.target.value)}
+                              placeholder="e.g. 1"
+                            />
+                          </div>
+                        )}
+                        {editUnit40Hc && (
+                          <div className={styles.unitCountField}>
+                            <span className={styles.fieldLabel}>Number of 40 HC containers</span>
+                            <input
+                              type="number"
+                              min={0}
+                              max={99}
+                              step={1}
+                              className={styles.input}
+                              value={editContainerCount40Hc}
+                              onChange={(e) => setEditContainerCount40Hc(e.target.value)}
+                              placeholder="e.g. 1"
+                            />
+                          </div>
+                        )}
+                        {editUnit20Fr && (
+                          <div className={styles.unitCountField}>
+                            <span className={styles.fieldLabel}>Number of 20 FR containers</span>
+                            <input
+                              type="number"
+                              min={0}
+                              max={99}
+                              step={1}
+                              className={styles.input}
+                              value={editContainerCount20Fr}
+                              onChange={(e) => setEditContainerCount20Fr(e.target.value)}
+                              placeholder="e.g. 1"
+                            />
+                          </div>
+                        )}
+                        {editUnit40Fr && (
+                          <div className={styles.unitCountField}>
+                            <span className={styles.fieldLabel}>Number of 40 FR containers</span>
+                            <input
+                              type="number"
+                              min={0}
+                              max={99}
+                              step={1}
+                              className={styles.input}
+                              value={editContainerCount40Fr}
+                              onChange={(e) => setEditContainerCount40Fr(e.target.value)}
                               placeholder="e.g. 1"
                             />
                           </div>
@@ -3730,27 +4025,6 @@ export function ShipmentDetail({ id }: { id: string }) {
             <span className={styles.fieldLabel}>Total Invoice amount</span>
             <span className={styles.fieldValue}>{formatRupiah(detail.total_items_amount)}</span>
           </div>
-          {isShipmentMethodSea(isUpdatingShipment ? editShipmentMethod.trim() || detail.shipment_method : detail.shipment_method) &&
-          (isUpdatingShipment ? editShipBy : detail.ship_by)?.trim() === "LCL" ? (
-            <div className={styles.field}>
-              <span className={styles.fieldLabel}>CBM</span>
-              {isUpdatingShipment ? (
-                <input
-                  type="number"
-                  min={0}
-                  step="0.000001"
-                  className={styles.input}
-                  value={editCbm}
-                  onChange={(e) => setEditCbm(normalizeDecimalInput(e.target.value))}
-                  aria-label="CBM (cubic metres)"
-                />
-              ) : (
-                <span className={styles.fieldValue}>
-                  {detail.cbm != null ? formatDecimal(detail.cbm) : "—"}
-                </span>
-              )}
-            </div>
-          ) : null}
           <div className={styles.field}>
             <span className={styles.fieldLabel}>Net weight (MT)</span>
             {isUpdatingShipment ? (
@@ -4191,7 +4465,7 @@ export function ShipmentDetail({ id }: { id: string }) {
         <div className={styles.grid}>
           <div className={statusFieldClass("closed_at")} data-status-field="closed_at">
             <span className={styles.fieldLabel}>Delivered at</span>
-            {isUpdatingShipment ? (
+            {isUpdatingShipment && detail.current_status === "DELIVERED" ? (
               <input type="date" className={styles.input} value={editClosedAt} onChange={(e) => setEditClosedAt(e.target.value)} />
             ) : (
               <span className={styles.fieldValue}>{formatDayMonthYear(detail.closed_at)}</span>
@@ -4378,12 +4652,17 @@ export function ShipmentDetail({ id }: { id: string }) {
                   .join(" ")}
               >
               {(() => {
-                const blockReason = getShipmentDocumentUploadBlockReason({
-                  shipment: detail,
-                  documentType: slot.document_type,
-                  documents: shipmentDocuments,
-                  shipmentStatusDelivered: shipmentDocumentsLockedByDeliveredStatus,
-                });
+                const blockReason = slot.noUploadPrerequisites
+                  ? shipmentDocumentsLockedByDeliveredStatus
+                    ? ("delivered" as DocumentUploadBlockReason)
+                    : null
+                  : getShipmentDocumentUploadBlockReason({
+                      shipment: detail,
+                      documentType: slot.document_type,
+                      documents: shipmentDocuments,
+                      shipmentStatusDelivered: shipmentDocumentsLockedByDeliveredStatus,
+                    });
+                const fileAccept = slot.allowAnyFile ? "*/*" : SHIPMENT_DOC_FILE_ACCEPT;
                 const uploadTitle = getShipmentDocUploadButtonTitle(slot.document_type, blockReason);
                 const showSlotLock = blockReason !== null;
                 const subShell = (locked: boolean) =>
@@ -4394,7 +4673,9 @@ export function ShipmentDetail({ id }: { id: string }) {
                 const uploadOff = (key: string) => blockReason !== null || uploadBusy(key);
 
                 const prereqHintPib =
-                  !shipmentDocumentsLockedByDeliveredStatus && !canUploadPO(detail) ? (
+                  !slot.noUploadPrerequisites &&
+                  !shipmentDocumentsLockedByDeliveredStatus &&
+                  !canUploadPO(detail) ? (
                     <p className={styles.shipmentDocLockedHint} role="note">
                       {slot.document_type === "PO"
                         ? "Set and save PIB type in General Information before uploading PO documents."
@@ -4402,6 +4683,7 @@ export function ShipmentDetail({ id }: { id: string }) {
                     </p>
                   ) : null;
                 const prereqHintPo =
+                  !slot.noUploadPrerequisites &&
                   !shipmentDocumentsLockedByDeliveredStatus &&
                   canUploadPO(detail) &&
                   !isPOUploaded(shipmentDocuments) &&
@@ -4458,6 +4740,7 @@ export function ShipmentDetail({ id }: { id: string }) {
                                         isUploading={uploadBusy(slotKey)}
                                         labelTitle={uploadTitle}
                                         buttonLabel={slot.document_type === "PO" ? "Upload PO" : "Upload"}
+                                        accept={fileAccept}
                                         onFile={(f) => handleShipmentDocumentUpload(slot.document_type, null, f, po.intake_id)}
                                       />
                                     )}
@@ -4508,6 +4791,7 @@ export function ShipmentDetail({ id }: { id: string }) {
                                     disabled={uploadOff(slotKey)}
                                     isUploading={uploadBusy(slotKey)}
                                     labelTitle={uploadTitle}
+                                    accept={fileAccept}
                                     onFile={(f) => handleShipmentDocumentUpload(slot.document_type, st, f)}
                                   />
                                 )}
@@ -4533,6 +4817,7 @@ export function ShipmentDetail({ id }: { id: string }) {
                               disabled={uploadOff(shipmentDocSlotKey(slot.document_type, null))}
                               isUploading={uploadBusy(shipmentDocSlotKey(slot.document_type, null))}
                               labelTitle={uploadTitle}
+                              accept={fileAccept}
                               onFile={(f) => handleShipmentDocumentUpload(slot.document_type, null, f)}
                             />
                           )}
@@ -4557,6 +4842,42 @@ export function ShipmentDetail({ id }: { id: string }) {
       </div>
         </>
       )}
+
+      <Modal
+        open={previewDoc != null}
+        title={previewDoc?.original_file_name ?? "Document preview"}
+        onClose={closeDocumentPreview}
+        size="wide"
+        footer={
+          previewDoc ? (
+            <div className={styles.docPreviewModalFooter}>
+              <Button type="button" variant="secondary" onClick={closeDocumentPreview}>
+                Close
+              </Button>
+              <Button type="button" variant="primary" onClick={() => handleShipmentDocumentDownload(previewDoc)}>
+                Download
+              </Button>
+            </div>
+          ) : undefined
+        }
+      >
+        {previewLoading && <p className={styles.docPreviewLoading}>Loading preview…</p>}
+        {!previewLoading && previewError && <p className={styles.docPreviewUnsupported}>{previewError}</p>}
+        {!previewLoading && !previewError && previewBlobUrl && previewMode === "pdf" && (
+          <iframe
+            className={styles.docPreviewFrame}
+            src={previewBlobUrl}
+            title={previewDoc?.original_file_name ?? "Document preview"}
+          />
+        )}
+        {!previewLoading && !previewError && previewBlobUrl && previewMode === "image" && (
+          <img
+            className={styles.docPreviewImage}
+            src={previewBlobUrl}
+            alt={previewDoc?.original_file_name ?? "Document preview"}
+          />
+        )}
+      </Modal>
 
       {deleteConfirmOpen && canEditShipment && (
         <div
@@ -4588,6 +4909,78 @@ export function ShipmentDetail({ id }: { id: string }) {
                 variant="secondary"
                 onClick={() => setDeleteConfirmOpen(false)}
                 disabled={deletingShipment}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deliveredDateModalOpen && pendingStatusUpdate && (
+        <div
+          className={styles.modalOverlay}
+          onClick={() => {
+            if (updatingStatus) return;
+            setDeliveredDateModalOpen(false);
+            setPendingStatusUpdate(null);
+            setDeliveredDateDraft("");
+            setDeliveredDateError(null);
+          }}
+        >
+          <div
+            className={styles.modal}
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delivered-date-modal-title"
+          >
+            <h3 id="delivered-date-modal-title" className={styles.modalTitle}>
+              Delivered date required
+            </h3>
+            <p className={styles.modalHint}>
+              Enter the date this shipment was delivered. The status will not change until you confirm with a valid date.
+            </p>
+            <label className={styles.field}>
+              <span className={styles.fieldLabel}>Delivered date</span>
+              <input
+                type="date"
+                className={styles.input}
+                value={deliveredDateDraft}
+                onChange={(e) => {
+                  setDeliveredDateDraft(e.target.value);
+                  if (deliveredDateError) setDeliveredDateError(null);
+                }}
+                aria-invalid={deliveredDateError ? true : undefined}
+                aria-describedby={deliveredDateError ? "delivered-date-modal-error" : undefined}
+                autoFocus
+              />
+            </label>
+            {deliveredDateError && (
+              <p id="delivered-date-modal-error" className={styles.error} role="alert">
+                {deliveredDateError}
+              </p>
+            )}
+            <div className={styles.modalActions}>
+              <Button
+                type="button"
+                variant="primary"
+                onClick={handleConfirmDeliveredDate}
+                disabled={updatingStatus}
+              >
+                {updatingStatus ? "Updating…" : "Confirm delivered"}
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => {
+                  if (updatingStatus) return;
+                  setDeliveredDateModalOpen(false);
+                  setPendingStatusUpdate(null);
+                  setDeliveredDateDraft("");
+                  setDeliveredDateError(null);
+                }}
+                disabled={updatingStatus}
               >
                 Cancel
               </Button>

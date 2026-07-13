@@ -137,7 +137,7 @@ export class DashboardRepository {
         INNER JOIN shipment_po_mapping m
           ON m.shipment_id = b.shipment_id AND m.decoupled_at IS NULL
         INNER JOIN shipment_po_line_received r
-          ON r.shipment_id = m.shipment_id AND r.intake_id = m.intake_id
+          ON r.shipment_id = m.shipment_id AND r.intake_id = m.intake_id AND r.deleted_at IS NULL
         INNER JOIN Import_purchase_order_items it
           ON it.id = r.item_id AND it.import_purchase_order_id = r.intake_id
         INNER JOIN Import_purchase_order po
@@ -246,7 +246,7 @@ export class DashboardRepository {
         INNER JOIN shipment_po_mapping m
           ON m.shipment_id = b.shipment_id AND m.decoupled_at IS NULL
         INNER JOIN shipment_po_line_received r
-          ON r.shipment_id = m.shipment_id AND r.intake_id = m.intake_id
+          ON r.shipment_id = m.shipment_id AND r.intake_id = m.intake_id AND r.deleted_at IS NULL
         INNER JOIN Import_purchase_order_items it
           ON it.id = r.item_id AND it.import_purchase_order_id = r.intake_id
         INNER JOIN Import_purchase_order i ON i.id = r.intake_id
@@ -320,7 +320,7 @@ export class DashboardRepository {
         INNER JOIN shipment_po_mapping m
           ON m.shipment_id = b.shipment_id AND m.decoupled_at IS NULL
         INNER JOIN shipment_po_line_received r
-          ON r.shipment_id = m.shipment_id AND r.intake_id = m.intake_id
+          ON r.shipment_id = m.shipment_id AND r.intake_id = m.intake_id AND r.deleted_at IS NULL
         INNER JOIN Import_purchase_order_items it
           ON it.id = r.item_id AND it.import_purchase_order_id = r.intake_id
         INNER JOIN Import_purchase_order po ON po.id = r.intake_id
@@ -404,7 +404,7 @@ export class DashboardRepository {
         INNER JOIN shipment_po_mapping m
           ON m.shipment_id = b.shipment_id AND m.decoupled_at IS NULL
         INNER JOIN shipment_po_line_received r
-          ON r.shipment_id = m.shipment_id AND r.intake_id = m.intake_id
+          ON r.shipment_id = m.shipment_id AND r.intake_id = m.intake_id AND r.deleted_at IS NULL
         INNER JOIN Import_purchase_order_items it
           ON it.id = r.item_id AND it.import_purchase_order_id = r.intake_id
         INNER JOIN Import_purchase_order i ON i.id = r.intake_id

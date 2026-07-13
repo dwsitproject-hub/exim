@@ -2,6 +2,9 @@
  * Shared route and app constants — single source for paths used in middleware and client.
  */
 
+/** Path for first-login / forced password change. */
+export const CHANGE_PASSWORD_PATH = "/change-password";
+
 /** Login path — used for redirects and route protection. */
 export const LOGIN_PATH = "/login";
 

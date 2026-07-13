@@ -24,7 +24,7 @@ export function UserEdit({ userId }: { userId: string }) {
   const [row, setRow] = useState<UserAdmin | null>(null);
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState<string>(USER_ROLE_OPTIONS[2]!);
+  const [role, setRole] = useState<string>("IMPORT_OFFICER");
   const [isActive, setIsActive] = useState(true);
   const [overrides, setOverrides] = useState<Set<string>>(() => new Set());
   const [error, setError] = useState<string | null>(null);
@@ -160,12 +160,14 @@ export function UserEdit({ userId }: { userId: string }) {
           <p style={{ margin: 0, fontSize: 16 }}>{row.email}</p>
         </div>
         <Input
-          label="New password (optional)"
+          label="Temporary password (optional)"
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           autoComplete="new-password"
           minLength={password ? 8 : undefined}
+          placeholder="Leave blank to keep current password"
+          helperText="When set, user must choose a new password on next sign-in."
         />
         <div>
           <label htmlFor="edit-user-role" className={styles.fieldLabel}>

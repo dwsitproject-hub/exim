@@ -14,6 +14,8 @@ export interface CreateUserInput {
   role: string;
   /** When true, user can sign in immediately (admin-provisioned). */
   emailVerified?: boolean;
+  /** When true, user must set a new password on next login (admin-provisioned). */
+  mustChangePassword?: boolean;
   permissionOverrides?: string[];
 }
 
@@ -29,9 +31,14 @@ export interface UpdateUserAdminInput {
   is_active?: boolean;
   permission_overrides?: string[];
   password_hash?: string;
+  must_change_password?: boolean;
 }
 
 export class UserRepository {
+  private static readonly USER_COLUMNS = `id, email, password_hash, name, role, is_active, email_verified_at,
+              COALESCE(permission_overrides, '{}') AS permission_overrides, must_change_password,
+              created_at, updated_at`;
+
   private get pool(): Pool {
     return getPool();
   }
@@ -45,8 +52,7 @@ export class UserRepository {
 
   async findByEmail(email: string): Promise<UserRow | null> {
     const result = await this.pool.query<UserRow>(
-      `SELECT id, email, password_hash, name, role, is_active, email_verified_at,
-              COALESCE(permission_overrides, '{}') AS permission_overrides, created_at, updated_at
+      `SELECT ${UserRepository.USER_COLUMNS}
        FROM users WHERE LOWER(email) = LOWER($1) AND is_active = true LIMIT 1`,
       [email]
     );
@@ -56,8 +62,7 @@ export class UserRepository {
 
   async findById(id: string): Promise<UserRow | null> {
     const result = await this.pool.query<UserRow>(
-      `SELECT id, email, password_hash, name, role, is_active, email_verified_at,
-              COALESCE(permission_overrides, '{}') AS permission_overrides, created_at, updated_at
+      `SELECT ${UserRepository.USER_COLUMNS}
        FROM users WHERE id = $1 AND is_active = true LIMIT 1`,
       [id]
     );
@@ -68,8 +73,7 @@ export class UserRepository {
   /** Any status — for admin duplicate check. */
   async findByEmailAny(email: string): Promise<UserRow | null> {
     const result = await this.pool.query<UserRow>(
-      `SELECT id, email, password_hash, name, role, is_active, email_verified_at,
-              COALESCE(permission_overrides, '{}') AS permission_overrides, created_at, updated_at
+      `SELECT ${UserRepository.USER_COLUMNS}
        FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1`,
       [email]
     );
@@ -80,8 +84,7 @@ export class UserRepository {
   /** Includes inactive — for admin detail/update. */
   async findByIdAny(id: string): Promise<UserRow | null> {
     const result = await this.pool.query<UserRow>(
-      `SELECT id, email, password_hash, name, role, is_active, email_verified_at,
-              COALESCE(permission_overrides, '{}') AS permission_overrides, created_at, updated_at
+      `SELECT ${UserRepository.USER_COLUMNS}
        FROM users WHERE id = $1 LIMIT 1`,
       [id]
     );
@@ -92,12 +95,12 @@ export class UserRepository {
   async create(input: CreateUserInput): Promise<UserRow> {
     const emailVerifiedAt = input.emailVerified === true ? new Date() : null;
     const overrides = input.permissionOverrides ?? [];
+    const mustChangePassword = input.mustChangePassword !== false;
     const result = await this.pool.query<UserRow>(
-      `INSERT INTO users (id, email, password_hash, name, role, is_active, email_verified_at, permission_overrides, created_at, updated_at)
-       VALUES (gen_random_uuid(), $1, $2, $3, $4, true, $5, $6::text[], NOW(), NOW())
-       RETURNING id, email, password_hash, name, role, is_active, email_verified_at,
-                 COALESCE(permission_overrides, '{}') AS permission_overrides, created_at, updated_at`,
-      [input.email, input.passwordHash, input.name, input.role, emailVerifiedAt, overrides]
+      `INSERT INTO users (id, email, password_hash, name, role, is_active, email_verified_at, permission_overrides, must_change_password, created_at, updated_at)
+       VALUES (gen_random_uuid(), $1, $2, $3, $4, true, $5, $6::text[], $7, NOW(), NOW())
+       RETURNING ${UserRepository.USER_COLUMNS}`,
+      [input.email, input.passwordHash, input.name, input.role, emailVerifiedAt, overrides, mustChangePassword]
     );
     if (!result.rows[0]) {
       throw new Error("UserRepository.create: no row returned");
@@ -112,10 +115,14 @@ export class UserRepository {
     );
   }
 
-  async updatePassword(userId: string, passwordHash: string): Promise<void> {
+  async updatePassword(userId: string, passwordHash: string, clearMustChangePassword = false): Promise<void> {
     await this.pool.query(
-      `UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`,
-      [passwordHash, userId]
+      `UPDATE users
+       SET password_hash = $1,
+           must_change_password = CASE WHEN $3 THEN false ELSE must_change_password END,
+           updated_at = NOW()
+       WHERE id = $2`,
+      [passwordHash, userId, clearMustChangePassword]
     );
   }
 
@@ -123,8 +130,7 @@ export class UserRepository {
     const search = params.search?.trim();
     const hasSearch = Boolean(search);
     const result = await this.pool.query<UserRow>(
-      `SELECT id, email, password_hash, name, role, is_active, email_verified_at,
-              COALESCE(permission_overrides, '{}') AS permission_overrides, created_at, updated_at
+      `SELECT ${UserRepository.USER_COLUMNS}
        FROM users
        WHERE NOT ($1::boolean) OR LOWER(name) LIKE '%' || LOWER($2) || '%' OR LOWER(email) LIKE '%' || LOWER($2) || '%'
        ORDER BY created_at DESC
@@ -169,6 +175,12 @@ export class UserRepository {
     if (input.password_hash !== undefined) {
       sets.push(`password_hash = $${i++}`);
       values.push(input.password_hash);
+      sets.push(`must_change_password = $${i++}`);
+      values.push(true);
+    }
+    if (input.must_change_password !== undefined) {
+      sets.push(`must_change_password = $${i++}`);
+      values.push(input.must_change_password);
     }
 
     if (!sets.length) {
@@ -181,8 +193,7 @@ export class UserRepository {
     const result = await this.pool.query<UserRow>(
       `UPDATE users SET ${sets.join(", ")}
        WHERE id = $${i}
-       RETURNING id, email, password_hash, name, role, is_active, email_verified_at,
-                 COALESCE(permission_overrides, '{}') AS permission_overrides, created_at, updated_at`,
+       RETURNING ${UserRepository.USER_COLUMNS}`,
       values
     );
     const row = result.rows[0];
@@ -210,8 +221,7 @@ export class UserRepository {
 
   async listActiveUsers(): Promise<UserRow[]> {
     const result = await this.pool.query<UserRow>(
-      `SELECT id, email, password_hash, name, role, is_active, email_verified_at,
-              COALESCE(permission_overrides, '{}') AS permission_overrides, created_at, updated_at
+      `SELECT ${UserRepository.USER_COLUMNS}
        FROM users
        WHERE is_active = true`,
     );

@@ -148,12 +148,18 @@ export interface ShipmentDetail {
   unit_40ft: boolean;
   unit_package: boolean;
   unit_20_iso_tank: boolean;
+  unit_40_hc: boolean;
+  unit_20_fr: boolean;
+  unit_40_fr: boolean;
   container_count_20ft: number | null;
   container_count_40ft: number | null;
   /** LCL: package quantity when unit_package is true */
   package_count: number | null;
   /** FCL: 20′ ISO tank quantity when unit_20_iso_tank is true */
   container_count_20_iso_tank: number | null;
+  container_count_40_hc: number | null;
+  container_count_20_fr: number | null;
+  container_count_40_fr: number | null;
   /** Total invoice in IDR: linked POs share currency & rate — IDR/RP = Σ(qty×price); else Σ(qty×price) × group rate. */
   total_items_amount: number;
   /** BM total (IDR), user-entered on shipment. */

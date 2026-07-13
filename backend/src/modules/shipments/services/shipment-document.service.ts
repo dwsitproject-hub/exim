@@ -15,6 +15,7 @@ import {
   buildFilingPathContext,
   buildShipmentDocumentDirectoryPrefix,
 } from "../utils/shipment-document-storage-path.js";
+import { decodeMultipartFileName, repairMojibakeFileName } from "../../../shared/upload-filename.js";
 
 function safeFileName(name: string): string {
   const n = name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 200);
@@ -55,7 +56,7 @@ function toListItem(row: {
     status: row.status,
     intake_id: row.intake_id ?? null,
     po_number: row.po_number ?? null,
-    original_file_name: row.original_file_name,
+    original_file_name: repairMojibakeFileName(row.original_file_name),
     mime_type: row.mime_type,
     size_bytes: parseInt(row.size_bytes, 10) || 0,
     uploaded_by: row.uploaded_by,
@@ -96,6 +97,20 @@ export class ShipmentDocumentService {
       throw new AppError("Cannot upload documents when shipment status is DELIVERED", 409);
     }
 
+    if (documentType !== "PO") {
+      if (!(shipment.pib_type ?? "").trim()) {
+        throw new AppError("Set PIB type on the shipment before uploading documents", 400, [
+          { field: "pib_type", message: "PIB type is required before uploading documents" },
+        ]);
+      }
+      const hasPo = await this.docRepo.existsByShipmentIdAndDocumentType(shipmentId, "PO");
+      if (!hasPo) {
+        throw new AppError("Upload PO before uploading other documents", 409, [
+          { field: "document_type", message: "PO document must be uploaded first" },
+        ]);
+      }
+    }
+
     let resolvedIntakeId: string | null = intakeId;
     if (shipmentDocumentRequiresIntakeId(documentType)) {
       if (!intakeId) {
@@ -119,10 +134,11 @@ export class ShipmentDocumentService {
     // (coupled_at ASC): same supplier → one folder with combined PO numbers.
     const linked = await this.mappingRepo.findActiveByShipmentId(shipmentId);
     const filingCtx = buildFilingPathContext(shipment, intakeRow, linked);
-    const directoryPrefix = buildShipmentDocumentDirectoryPrefix(shipment, filingCtx);
+    const directoryPrefix = buildShipmentDocumentDirectoryPrefix(shipment, filingCtx, documentType);
 
     const id = uuidv4();
-    const fileName = safeFileName(originalName || "file");
+    const displayName = decodeMultipartFileName(originalName || "file");
+    const fileName = safeFileName(displayName);
     const st = await stat(tempFilePath);
     const { storageKey } = await this.storage.uploadFromPath(tempFilePath, {
       documentId: shipmentId,
@@ -138,7 +154,7 @@ export class ShipmentDocumentService {
       documentType,
       status,
       intakeId: resolvedIntakeId,
-      originalFileName: originalName || fileName,
+      originalFileName: displayName,
       storageKey,
       mimeType: mimeType ?? null,
       sizeBytes: st.size,
@@ -157,7 +173,7 @@ export class ShipmentDocumentService {
     if (!result) throw new AppError("File not found on storage", 404);
     return {
       stream: result.stream,
-      fileName: row.original_file_name,
+      fileName: repairMojibakeFileName(row.original_file_name),
       mimeType: row.mime_type ?? result.mimeType,
     };
   }

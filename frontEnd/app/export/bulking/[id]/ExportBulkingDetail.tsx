@@ -28,10 +28,12 @@ import {
   Send,
   BadgeCheck,
   Coins,
+  Trash2,
   X,
 } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
+import { useSessionPersistedState } from "@/hooks/use-session-persisted-state";
 import { can } from "@/lib/permissions";
 import {
   buildBulkingListReturnUrl,
@@ -43,13 +45,19 @@ import {
   isExportOperationsOnly,
 } from "@/lib/export-workspace";
 import { duplicateDocNumberMessage } from "@/lib/export-document-numbers";
+import { exportBulkingActivityTypeLabel } from "@/lib/activity-log-labels";
 import { PageHeader } from "@/components/navigation";
+import { DetailInfoPanelToggle } from "@/components/layout/DetailInfoPanelToggle";
+import { ActivityLogRibbon } from "@/components/activity-log";
 import { Card } from "@/components/cards";
 import { ComboboxSelect } from "@/components/forms/ComboboxSelect/ComboboxSelect";
 import { LoadingSkeleton } from "@/components/feedback";
 import { StatusBadge } from "@/components/badges/StatusBadge";
 import { useToast } from "@/components/providers/ToastProvider";
+import { useRegisterGuideTourHooks } from "@/components/guide-tour";
+import { flushSync } from "react-dom";
 import { isApiError } from "@/types/api";
+import type { ActivityLogItem } from "@/types/activity-log";
 import {
   formatExportBulkingStatus,
   EXPORT_BULKING_STATUSES,
@@ -76,6 +84,7 @@ import {
 import {
   buildSapLineDrafts,
   distinctSoNosFromShipment,
+  resolveShipmentSpr,
   sapDraftsToUpsertPayload,
   type SapLineDraft,
 } from "@/lib/export-sap-lines";
@@ -113,6 +122,7 @@ import {
   updatePackingList,
   deletePackingList,
   getStatusEvents,
+  getExportBulkingActivityLog,
 } from "@/services/export-bulking-service";
 import {
   listShippers,
@@ -132,14 +142,12 @@ import { ComboboxSelectCreatable } from "@/components/forms/ComboboxSelect/Combo
 import { DateRangeField } from "@/components/forms/DateRangeField";
 import { Modal } from "@/components/overlays";
 import { InvoiceDocument } from "@/components/export-bulking/InvoiceDocument";
-import { InvoiceAllocationPanel } from "@/components/export-bulking/InvoiceAllocationPanel";
 import {
   InvoiceAmendPrompt,
   InvoiceAuditModal,
   InvoiceDiffModal,
   InvoiceFinalizeModal,
 } from "@/components/export-bulking/InvoiceWorkflowModals";
-import { InvoiceStatusBadge } from "@/components/export-bulking/InvoiceAllocationPanel";
 import {
   PackingListDocument,
   type PackingListDocumentPreview,
@@ -178,11 +186,13 @@ import {
 } from "@/lib/export-bulking-quantity";
 import {
   type BlSplitDraft,
+  type BlSplitMode,
   BL_SPLIT_COUNT_OPTIONS,
   blSplitDraftsEqual,
   blSplitDraftsFromEntries,
   blSplitDraftsFromLegacy,
   blSplitEntriesFromDrafts,
+  blSplitModesForCargo,
   blSplitsCloseToTarget,
   blSplitsExceedTarget,
   effectiveSiLineQuantityFromBlSplits,
@@ -191,6 +201,19 @@ import {
   sumBlSplitQuantities,
 } from "@/lib/bl-split";
 import { findMatchingOption } from "@/lib/string-match";
+import {
+  validateLoadingDatetimeForm,
+  shipmentHasLiquidCargo,
+  type LoadingDatetimeForm,
+} from "@/lib/export-bulking-loading-validation";
+import {
+  inferReconciliationBlSource,
+  parseQuantityInput as parseReconQuantityInput,
+  resolveInheritedBlFigure,
+  type ReconciliationBlSource,
+  type ReconciliationLineDraft,
+} from "@/lib/export-bulking-reconciliation";
+import { QuantityReconciliationTable } from "@/components/export-bulking/QuantityReconciliationTable";
 import {
   formatMoneyDisplay,
   formatNumberDisplay as formatNumericDisplay,
@@ -248,13 +271,15 @@ function cargoQuantitySum(cargoLines: CargoLine[]): number {
   return cargoLines.reduce((sum, l) => sum + (l.quantity ?? 0), 0);
 }
 
-/** Shipment total: explicit field, else sum of cargo line quantities. */
+/** Shipment total quantity — sum of cargo line quantities. */
 function resolveShipmentTotalQuantity(data: Pick<ExportBulkingShipmentDetail, "total_quantity" | "cargo_lines">): number | null {
-  if (data.total_quantity != null && !Number.isNaN(Number(data.total_quantity))) {
-    return Number(data.total_quantity);
-  }
   const sum = cargoQuantitySum(data.cargo_lines);
-  return sum > 0 ? sum : null;
+  if (sum > 0) return sum;
+  if (data.total_quantity != null && !Number.isNaN(Number(data.total_quantity))) {
+    const n = Number(data.total_quantity);
+    if (n > 0) return n;
+  }
+  return null;
 }
 
 function formatQuantityFieldValue(value: number | null | undefined): string {
@@ -281,68 +306,6 @@ function parseQuantityInput(raw: string): number | null {
   if (!cleaned) return null;
   const n = Number(cleaned);
   return Number.isNaN(n) ? null : n;
-}
-
-async function syncCargoLinesFromTotalQuantity(
-  shipmentId: string,
-  totalQty: number,
-  cargoLines: CargoLine[],
-  previousTotal: number | null,
-  accessToken: string,
-): Promise<{ ok: boolean; message?: string }> {
-  if (cargoLines.length === 0) {
-    const res = await upsertCargoLines(
-      shipmentId,
-      [
-        {
-          line_order: 1,
-          cargo_name: "Cargo 1",
-          quantity: totalQty,
-          unit: "MT",
-          item_description: null,
-          destination_port: null,
-        },
-      ],
-      accessToken,
-    );
-    if (isApiError(res)) return { ok: false, message: res.message };
-    return { ok: true };
-  }
-
-  if (cargoLines.length === 1) {
-    const line = cargoLines[0];
-    const lineQty = line.quantity != null ? Number(line.quantity) : null;
-    const shouldSync =
-      lineQty == null ||
-      lineQty === 0 ||
-      (previousTotal != null && lineQty === previousTotal);
-    if (!shouldSync) return { ok: true };
-
-    const res = await upsertCargoLines(
-      shipmentId,
-      [
-        {
-          id: line.id,
-          line_order: line.line_order,
-          cargo_name: line.cargo_name?.trim() || "Cargo 1",
-          quantity: totalQty,
-          unit: line.unit?.trim() || "MT",
-          item_description: line.item_description,
-          destination_port: line.destination_port,
-          destination_country: line.destination_country,
-          country_area: line.country_area,
-          quantity_delivered: line.quantity_delivered ?? null,
-          bl_figure: line.bl_figure ?? null,
-          ship_figure: line.ship_figure ?? null,
-        },
-      ],
-      accessToken,
-    );
-    if (isApiError(res)) return { ok: false, message: res.message };
-    return { ok: true };
-  }
-
-  return { ok: true };
 }
 
 function nextStatus(current: string): string | null {
@@ -386,7 +349,7 @@ function StatusStepper({
   const voyageCompletionLabels = getMissingVoyageCompletionLabels(data);
 
   return (
-    <div className={styles.stepperWrap}>
+    <div className={styles.stepperWrap} data-tour="export-bulking-status-stepper">
       <div className={styles.stepper}>
         {EXPORT_BULKING_STATUSES.map((s, i) => {
           const isDone = i < currentIdx;
@@ -418,6 +381,7 @@ function StatusStepper({
           <button
             type="button"
             className={styles.btnPrimary}
+            data-tour="export-bulking-advance-status"
             onClick={onAdvance}
             disabled={!canAdvance}
             title={
@@ -496,7 +460,7 @@ function SummarySidebar({
   data: ExportBulkingShipmentDetail;
   showDocDetails?: boolean;
 }) {
-  const cargoCounted = data.cargo_lines.reduce((sum, l) => sum + (l.quantity ?? 0), 0);
+  const totalQty = resolveShipmentTotalQuantity(data);
 
   return (
     <div className={styles.sidebarCard}>
@@ -509,11 +473,7 @@ function SummarySidebar({
         <div className={styles.summaryRow}>
           <span className={styles.summaryLabel}>Total Quantity</span>
           <strong className={styles.summaryValue}>
-            {data.total_quantity != null
-              ? `${formatNumericDisplay(data.total_quantity)} MT`
-              : cargoCounted > 0
-                ? `${formatNumericDisplay(cargoCounted)} MT`
-                : "—"}
+            {totalQty != null ? `${formatNumericDisplay(totalQty)} MT` : "—"}
           </strong>
         </div>
         {showDocDetails ? (
@@ -665,7 +625,7 @@ function DemurrageSimulationSidebar({ data }: { data: ExportBulkingShipmentDetai
   }, [data.npe_date]);
 
   // These three are always read from the shipment record — not editable in the simulation.
-  const qty = data.total_quantity;
+  const qty = resolveShipmentTotalQuantity(data);
   const laytimeRate = data.laytime_rate_mtph;
   const demurrageRate = data.demurrage_rate_pdpr;
 
@@ -851,6 +811,8 @@ interface SectionProps {
   toast: ReturnType<typeof useToast>;
   saveTrigger: number;
   onDirtyChange: (key: string, dirty: boolean) => void;
+  /** When false, destination port/country and PE fields stay read-only (documentation team). */
+  canEditDestinations?: boolean;
 }
 
 type SectionCoreProps = Omit<SectionProps, "open" | "onToggle">;
@@ -938,8 +900,8 @@ function SectionShell({
         </h2>
         {actions && <div onClick={(e) => e.stopPropagation()}>{actions}</div>}
       </div>
-      <div className={`${styles.sectionBody} ${open ? "" : styles.sectionCollapsed}`}>
-        {children}
+      <div className={styles.sectionBody}>
+        {open ? children : null}
       </div>
     </section>
   );
@@ -953,7 +915,6 @@ function GeneralSection({ data, accessToken, open, onToggle, onSaved, toast, sav
     voyage_number: data.voyage_number ?? "",
     shipper: data.shipper ?? "",
     loadport_name: data.loadport_name ?? "",
-    total_quantity: formatQuantityFieldValue(resolveShipmentTotalQuantity(data)),
     remarks: data.remarks ?? "",
   }), [data]);
 
@@ -1041,8 +1002,6 @@ function GeneralSection({ data, accessToken, open, onToggle, onSaved, toast, sav
 
   const handleSave = useCallback(async () => {
     setSaving(true);
-    const qty = parseQuantityInput(form.total_quantity);
-    const previousTotal = data.total_quantity != null ? Number(data.total_quantity) : null;
     const res = await updateExportBulkingShipment(data.id, {
       vessel_name: form.vessel_name,
       voyage_number: form.voyage_number,
@@ -1050,7 +1009,6 @@ function GeneralSection({ data, accessToken, open, onToggle, onSaved, toast, sav
       loadport_name: form.loadport_name.trim()
         ? findMatchingOption(loadportOptions, form.loadport_name) ?? form.loadport_name.trim()
         : null,
-      total_quantity: qty != null && qty > 0 ? qty : null,
       remarks: form.remarks,
     }, accessToken);
     if (isApiError(res)) {
@@ -1059,28 +1017,13 @@ function GeneralSection({ data, accessToken, open, onToggle, onSaved, toast, sav
       return;
     }
 
-    if (qty != null && qty > 0) {
-      const sync = await syncCargoLinesFromTotalQuantity(
-        data.id,
-        qty,
-        data.cargo_lines,
-        previousTotal,
-        accessToken,
-      );
-      if (!sync.ok) {
-        toast.pushToast(sync.message ?? "Failed to sync cargo quantity", "error");
-        setSaving(false);
-        return;
-      }
-    }
-
     toast.pushToast("General information saved", "success");
     onSaved({
       patch: listItemToDetailPatch(res.data),
-      refetch: qty != null && qty > 0 ? "silent" : "none",
+      refetch: "none",
     });
     setSaving(false);
-  }, [data.id, data.cargo_lines, data.total_quantity, form, loadportOptions, accessToken, toast, onSaved]);
+  }, [data.id, form, loadportOptions, accessToken, toast, onSaved]);
 
   const handleSaveRef = useRef(handleSave);
   handleSaveRef.current = handleSave;
@@ -1093,17 +1036,7 @@ function GeneralSection({ data, accessToken, open, onToggle, onSaved, toast, sav
   const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
     setForm((prev) => ({ ...prev, [key]: e.target.value }));
 
-  const setTotalQuantity = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const raw = e.target.value.replace(/[^0-9.,]/g, "");
-    const normalized = raw.replace(/,/g, "");
-    if (!normalized) {
-      setForm((prev) => ({ ...prev, total_quantity: "" }));
-      return;
-    }
-    const intPart = normalized.split(".")[0] ?? "";
-    const formatted = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-    setForm((prev) => ({ ...prev, total_quantity: formatted }));
-  };
+  const derivedTotalQty = resolveShipmentTotalQuantity(data);
 
   return (
     <SectionShell
@@ -1157,20 +1090,11 @@ function GeneralSection({ data, accessToken, open, onToggle, onSaved, toast, sav
             )}
           </div>
           <div className={styles.field}>
-            <label className={styles.fieldLabel}>Total Quantity (MT)</label>
-            <input
-              className={styles.fieldInput}
-              type="text"
-              inputMode="decimal"
-              value={form.total_quantity}
-              onChange={setTotalQuantity}
-              placeholder="e.g. 5,000"
-              title={
-                data.total_quantity == null && cargoQuantitySum(data.cargo_lines) > 0
-                  ? "Prefilled from cargo line quantities — save to persist as shipment total"
-                  : undefined
-              }
-            />
+            <span className={styles.fieldLabel}>Total Quantity (MT)</span>
+            <span className={`${styles.fieldInput} ${styles.fieldInputReadonly}`}>
+              {derivedTotalQty != null ? `${formatQuantityDisplay(derivedTotalQty)} MT` : "—"}
+            </span>
+            <span className={styles.fieldMuted}>Calculated from cargo line at Document tab</span>
           </div>
           <div className={styles.field} style={{ gridColumn: "1 / -1" }}>
             <label className={styles.fieldLabel}>Remarks</label>
@@ -1208,6 +1132,7 @@ const NOMINATION_FIELD_LABELS: Record<string, string> = {
   surveyor: "Surveyor",
   surveyor_reason: "Reason use Surveyor",
   agent: "Agent",
+  length_over_all: "Length Over All",
   laytime_rate_mtph: "Laytime Rate (MT/PH)",
   demurrage_rate_pdpr: "Demurrage Rate (PD/PR)",
 };
@@ -1227,6 +1152,7 @@ type NominationForm = {
   surveyor: string;
   surveyor_reason: string;
   agent: string;
+  length_over_all: string;
   laytime_rate_mtph: string;
   demurrage_rate_pdpr: string;
 };
@@ -1245,6 +1171,7 @@ function buildNominationForm(d: ExportBulkingShipmentDetail): NominationForm {
   f.surveyor = d.surveyor ?? "";
   f.surveyor_reason = d.surveyor_reason ?? "";
   f.agent = d.agent ?? "";
+  f.length_over_all = formatNumericFieldValue(d.length_over_all);
   f.laytime_rate_mtph = formatNumericFieldValue(d.laytime_rate_mtph);
   f.demurrage_rate_pdpr = formatMoneyFieldValue(d.demurrage_rate_pdpr);
   return f as NominationForm;
@@ -1416,6 +1343,7 @@ function NominationSection({ data, accessToken, open, onToggle, onSaved, toast, 
       : null;
     body.laytime_rate_mtph = parseQuantityInput(form.laytime_rate_mtph);
     body.demurrage_rate_pdpr = parseQuantityInput(form.demurrage_rate_pdpr);
+    body.length_over_all = parseQuantityInput(form.length_over_all);
     const res = await updateExportBulkingShipment(data.id, body, accessToken);
     if (isApiError(res)) toast.pushToast(res.message, "error");
     else { toast.pushToast("Nomination details saved", "success"); onSaved({ patch: listItemToDetailPatch(res.data), refetch: "none" }); }
@@ -1482,6 +1410,19 @@ function NominationSection({ data, accessToken, open, onToggle, onSaved, toast, 
                 type="datetime-local"
                 value={form.eta}
                 onChange={set("eta")}
+              />
+            </div>
+            <div className={styles.field}>
+              <label className={styles.fieldLabel}>{NOMINATION_FIELD_LABELS.length_over_all}</label>
+              <input
+                className={styles.fieldInput}
+                type="number"
+                step="any"
+                min="0"
+                inputMode="decimal"
+                value={form.length_over_all}
+                onChange={set("length_over_all")}
+                placeholder="e.g. 225"
               />
             </div>
           </div>
@@ -1637,7 +1578,17 @@ function cargoToLocal(c: CargoLine): LocalCargoLine {
   };
 }
 
-function CargoSection({ data, accessToken, open, onToggle, onSaved, toast, saveTrigger, onDirtyChange }: SectionProps) {
+function CargoSection({
+  data,
+  accessToken,
+  open,
+  onToggle,
+  onSaved,
+  toast,
+  saveTrigger,
+  onDirtyChange,
+  canEditDestinations = true,
+}: SectionProps) {
   const [lines, setLines] = useState<LocalCargoLine[]>(() => data.cargo_lines.map(cargoToLocal));
   const [saving, setSaving] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
@@ -1675,17 +1626,13 @@ function CargoSection({ data, accessToken, open, onToggle, onSaved, toast, saveT
   }, [lines, data, onDirtyChange]);
 
   const addRow = () => {
-    const seedQty =
-      data.total_quantity != null && data.total_quantity > 0
-        ? formatQuantityFieldValue(data.total_quantity)
-        : "";
     setLines((prev) => [
       ...prev,
       {
         _key: `new-${++cargoKeyCounter}`,
         id: "",
         cargo_name: "",
-        quantity: prev.length === 0 ? seedQty : "",
+        quantity: "",
         unit: CARGO_UNIT_MT,
         destination_port: "",
         destination_country: "",
@@ -1727,6 +1674,15 @@ function CargoSection({ data, accessToken, open, onToggle, onSaved, toast, saveT
         ? resolveCommodityShortName(l.cargo_name, commodityList)
         : l.cargo_name;
       const commodity = findCommodityMatch(cargoName, commodityList);
+      const destinationPort = canEditDestinations ? (l.destination_port || null) : (orig?.destination_port ?? null);
+      const destinationCountry = canEditDestinations ? (l.destination_country || null) : (orig?.destination_country ?? null);
+      const countryArea = canEditDestinations
+        ? (l.destination_country?.trim() ? getCountryArea(l.destination_country) : (l.country_area || null))
+        : (orig?.country_area ?? null);
+      const peNo = canEditDestinations ? (l.pe_no.trim() || null) : (orig?.pe_no ?? null);
+      const peDate = canEditDestinations
+        ? (l.pe_date ? new Date(l.pe_date).toISOString() : null)
+        : (orig?.pe_date ?? null);
       return {
         ...(l.id ? { id: l.id } : {}),
         line_order: idx + 1,
@@ -1734,21 +1690,30 @@ function CargoSection({ data, accessToken, open, onToggle, onSaved, toast, saveT
         quantity: parseQuantityInput(l.quantity),
         unit: CARGO_UNIT_MT,
         item_description: commodity?.name ?? null,
-        destination_port: l.destination_port || null,
-        destination_country: l.destination_country || null,
-        country_area: l.destination_country?.trim() ? getCountryArea(l.destination_country) : (l.country_area || null),
+        destination_port: destinationPort,
+        destination_country: destinationCountry,
+        country_area: countryArea,
         quantity_delivered: orig?.quantity_delivered ?? null,
         bl_figure: orig?.bl_figure ?? null,
         ship_figure: orig?.ship_figure ?? null,
-        pe_no: l.pe_no.trim() || null,
-        pe_date: l.pe_date ? new Date(l.pe_date).toISOString() : null,
+        pe_no: peNo,
+        pe_date: peDate,
       };
     });
     const res = await upsertCargoLines(data.id, payload, accessToken);
     if (isApiError(res)) toast.pushToast(res.message, "error");
-    else { toast.pushToast("Cargo lines saved", "success"); onSaved({ cargo_lines: res.data, refetch: "none" }); }
+    else {
+      const savedLines = (res as { data: CargoLine[] }).data ?? [];
+      const totalQty = savedLines.reduce((sum, line) => sum + (line.quantity ?? 0), 0);
+      toast.pushToast("Cargo lines saved", "success");
+      onSaved({
+        cargo_lines: savedLines,
+        patch: { total_quantity: totalQty > 0 ? totalQty : null },
+        refetch: "none",
+      });
+    }
     setSaving(false);
-  }, [data.id, data.cargo_lines, lines, commodityList, accessToken, toast, onSaved]);
+  }, [data.id, data.cargo_lines, lines, commodityList, accessToken, toast, onSaved, canEditDestinations]);
 
   const handleSaveRef = useRef(handleSave);
   handleSaveRef.current = handleSave;
@@ -1767,6 +1732,9 @@ function CargoSection({ data, accessToken, open, onToggle, onSaved, toast, saveT
       onToggle={onToggle}
       dirty={isDirty}
     >
+        {!canEditDestinations ? (
+          <p className={styles.cargoDocsHint}>Destination port, country, and PE details are completed by the documentation team.</p>
+        ) : null}
         {lines.length === 0 ? (
           <p className={styles.emptyMsg}>No cargo lines yet.</p>
         ) : (
@@ -1848,32 +1816,44 @@ function CargoSection({ data, accessToken, open, onToggle, onSaved, toast, saveT
 
                   <div className={styles.cargoLineCardRow}>
                     <div className={styles.field}>
-                      <label className={styles.fieldLabel} htmlFor={`cargo-port-${line._key}`}>
+                      <label className={styles.fieldLabel} htmlFor={canEditDestinations ? `cargo-port-${line._key}` : undefined}>
                         Dest Port
                       </label>
-                      <input
-                        id={`cargo-port-${line._key}`}
-                        className={styles.fieldInput}
-                        value={line.destination_port}
-                        onChange={(e) => updateCell(idx, "destination_port", e.target.value)}
-                      />
+                      {canEditDestinations ? (
+                        <input
+                          id={`cargo-port-${line._key}`}
+                          className={styles.fieldInput}
+                          value={line.destination_port}
+                          onChange={(e) => updateCell(idx, "destination_port", e.target.value)}
+                        />
+                      ) : (
+                        <span className={`${styles.fieldInput} ${styles.fieldInputReadonly}`}>
+                          {line.destination_port.trim() || "—"}
+                        </span>
+                      )}
                     </div>
                     <div className={styles.field}>
-                      <label className={styles.fieldLabel} htmlFor={`cargo-country-${line._key}`}>
+                      <label className={styles.fieldLabel} htmlFor={canEditDestinations ? `cargo-country-${line._key}` : undefined}>
                         Dest Country
                       </label>
-                      <select
-                        id={`cargo-country-${line._key}`}
-                        className={styles.fieldInput}
-                        value={line.destination_country}
-                        onChange={(e) => updateDestinationCountry(idx, e.target.value)}
-                      >
-                        {getCountryOptions(line.destination_country).map((name) => (
-                          <option key={name || "__empty"} value={name}>
-                            {name || "— Select —"}
-                          </option>
-                        ))}
-                      </select>
+                      {canEditDestinations ? (
+                        <select
+                          id={`cargo-country-${line._key}`}
+                          className={styles.fieldInput}
+                          value={line.destination_country}
+                          onChange={(e) => updateDestinationCountry(idx, e.target.value)}
+                        >
+                          {getCountryOptions(line.destination_country).map((name) => (
+                            <option key={name || "__empty"} value={name}>
+                              {name || "— Select —"}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className={`${styles.fieldInput} ${styles.fieldInputReadonly}`}>
+                          {line.destination_country.trim() || "—"}
+                        </span>
+                      )}
                     </div>
                     <div className={styles.field}>
                       <span className={styles.fieldLabel}>Area</span>
@@ -1886,23 +1866,31 @@ function CargoSection({ data, accessToken, open, onToggle, onSaved, toast, saveT
                     </div>
                     <div className={styles.field}>
                       <span className={styles.fieldLabel}>PE No / Date</span>
-                      <div className={styles.cargoPeSplit}>
-                        <input
-                          className={styles.fieldInput}
-                          type="text"
-                          placeholder="PE No"
-                          value={line.pe_no}
-                          onChange={(e) => updateCell(idx, "pe_no", e.target.value)}
-                          aria-label={`PE number row ${idx + 1}`}
-                        />
-                        <input
-                          className={styles.fieldInput}
-                          type="date"
-                          value={line.pe_date}
-                          onChange={(e) => updateCell(idx, "pe_date", e.target.value)}
-                          aria-label={`PE date row ${idx + 1}`}
-                        />
-                      </div>
+                      {canEditDestinations ? (
+                        <div className={styles.cargoPeSplit}>
+                          <input
+                            className={styles.fieldInput}
+                            type="text"
+                            placeholder="PE No"
+                            value={line.pe_no}
+                            onChange={(e) => updateCell(idx, "pe_no", e.target.value)}
+                            aria-label={`PE number row ${idx + 1}`}
+                          />
+                          <input
+                            className={styles.fieldInput}
+                            type="date"
+                            value={line.pe_date}
+                            onChange={(e) => updateCell(idx, "pe_date", e.target.value)}
+                            aria-label={`PE date row ${idx + 1}`}
+                          />
+                        </div>
+                      ) : (
+                        <span className={`${styles.fieldInput} ${styles.fieldInputReadonly}`}>
+                          {line.pe_no.trim() || line.pe_date
+                            ? `${line.pe_no.trim() || "—"}${line.pe_date ? ` · ${line.pe_date}` : ""}`
+                            : "—"}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -2034,7 +2022,7 @@ function buildSiPreviewFromDraft(
         bl_split_qty: blSum != null && !Number.isNaN(blSum) ? blSum : null,
         bl_splits: blEntries.length > 0 ? blEntries : null,
         bl_split_text: blEntries.length > 0 ? formatBlSplitDocumentText(blEntries) : null,
-        destination_port: c?.destination_port?.trim() || r.destination_port.trim() || null,
+        destination_port: r.destination_port.trim() || c?.destination_port?.trim() || null,
       };
     });
   return {
@@ -2082,6 +2070,104 @@ function siLineOverrideFromRows(lineRows: SiLineRow[]): { cargo_line_id: string;
     }));
 }
 
+function siNavTabLabel(si: ShippingInstruction): string {
+  const num = si.si_number?.trim();
+  return num ? `SI #${num}` : "SI (Draft)";
+}
+
+type DocDeleteTarget = { id: string; label: string } | null;
+
+function DocDeleteConfirmModal({
+  open,
+  entityName,
+  label,
+  deleting,
+  onClose,
+  onConfirm,
+}: {
+  open: boolean;
+  entityName: string;
+  label: string;
+  deleting: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <Modal
+      open={open}
+      title={`Delete ${entityName}?`}
+      onClose={deleting ? () => {} : onClose}
+      footer={
+        <>
+          <button type="button" className={styles.btnSecondary} onClick={onClose} disabled={deleting}>
+            Cancel
+          </button>
+          <button type="button" className={styles.btnDanger} onClick={onConfirm} disabled={deleting}>
+            {deleting ? "Deleting…" : "Delete"}
+          </button>
+        </>
+      }
+    >
+      <p>
+        Are you sure you want to delete <strong>{label}</strong>? This action cannot be undone.
+      </p>
+    </Modal>
+  );
+}
+
+function DocSidebarNavItem({
+  tabId,
+  panelId,
+  label,
+  status,
+  isActive,
+  isDirty,
+  onSelect,
+  onDelete,
+  showDelete = true,
+}: {
+  tabId: string;
+  panelId: string;
+  label: string;
+  status: string;
+  isActive: boolean;
+  isDirty: boolean;
+  onSelect: () => void;
+  onDelete: () => void;
+  showDelete?: boolean;
+}) {
+  return (
+    <li className={styles.siNavItemRow} role="presentation">
+      <button
+        type="button"
+        role="tab"
+        id={tabId}
+        aria-selected={isActive}
+        aria-controls={panelId}
+        className={`${styles.siNavItem} ${isActive ? styles.siNavItemActive : ""} ${isDirty ? styles.siNavItemDirty : ""}`}
+        onClick={onSelect}
+      >
+        <span className={styles.siNavItemLabel}>{label}</span>
+        <span className={styles.siNavItemStatus}>({status})</span>
+      </button>
+      {showDelete && (
+        <button
+          type="button"
+          className={styles.siNavDeleteBtn}
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+          aria-label={`Delete ${label}`}
+          title={`Delete ${label}`}
+        >
+          <Trash2 size={14} strokeWidth={2} aria-hidden />
+        </button>
+      )}
+    </li>
+  );
+}
+
 function SISection({
   data,
   accessToken,
@@ -2094,13 +2180,64 @@ function SISection({
 }: SectionProps) {
   const { setCardDirty, registerSave } = useAggregatedSectionSave("si", saveTrigger, onDirtyChange);
   const [creating, setCreating] = useState(false);
+  const [activeSiId, setActiveSiId] = useState(() => data.shipping_instructions[0]?.id ?? "");
+  const [dirtyTabIds, setDirtyTabIds] = useState<Set<string>>(() => new Set());
+  const [deleteTarget, setDeleteTarget] = useState<DocDeleteTarget>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const sis = data.shipping_instructions;
+
+  useEffect(() => {
+    if (!sis.length) {
+      setActiveSiId("");
+      return;
+    }
+    if (!sis.some((s) => s.id === activeSiId)) {
+      setActiveSiId(sis[sis.length - 1]?.id ?? "");
+    }
+  }, [sis, activeSiId]);
+
+  const handleCardDirty = useCallback(
+    (id: string, dirty: boolean) => {
+      setCardDirty(id, dirty);
+      setDirtyTabIds((prev) => {
+        const next = new Set(prev);
+        if (dirty) next.add(id);
+        else next.delete(id);
+        return next;
+      });
+    },
+    [setCardDirty],
+  );
 
   const handleCreate = async () => {
     setCreating(true);
     const res = await createShippingInstruction(data.id, {}, accessToken);
     if (isApiError(res)) toast.pushToast(res.message, "error");
-    else { toast.pushToast("Shipping instruction created", "success"); onSaved({ refetch: "silent" }); }
+    else {
+      toast.pushToast("Shipping instruction created", "success");
+      if (res.data?.id) setActiveSiId(res.data.id);
+      onSaved({ refetch: "silent" });
+    }
     setCreating(false);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    const res = await deleteShippingInstruction(data.id, deleteTarget.id, accessToken);
+    if (isApiError(res)) toast.pushToast(res.message, "error");
+    else {
+      toast.pushToast("Shipping instruction deleted", "success");
+      setDirtyTabIds((prev) => {
+        const next = new Set(prev);
+        next.delete(deleteTarget.id);
+        return next;
+      });
+      onSaved({ refetch: "silent" });
+    }
+    setDeleting(false);
+    setDeleteTarget(null);
   };
 
   return (
@@ -2110,35 +2247,86 @@ function SISection({
       anchorId="export-section-si"
       open={open}
       onToggle={onToggle}
-      actions={
-        <button className={styles.btnSecondary} onClick={handleCreate} disabled={creating}>
-          {creating ? "Creating…" : "+ Add Shipping Instruction"}
-        </button>
-      }
     >
-      {data.shipping_instructions.length === 0 ? (
-        <p className={styles.emptyMsg}>No shipping instructions.</p>
-      ) : (
-        data.shipping_instructions.map((si) => (
-          <SICard
-            key={si.id}
-            si={si}
-            shipmentId={data.id}
-            shipment={data}
-            accessToken={accessToken}
-            onSaved={onSaved}
-            toast={toast}
-            saveTrigger={saveTrigger}
-            onDirtyChange={(dirty) => setCardDirty(si.id, dirty)}
-            registerSave={(fn) => registerSave(si.id, fn)}
-          />
-        ))
-      )}
+      <div className={styles.siShell}>
+        <nav className={styles.siSidebar} aria-label="Shipping instructions">
+          <ul className={styles.siNavList} role="tablist">
+            {sis.map((si) => (
+              <DocSidebarNavItem
+                key={si.id}
+                tabId={`si-tab-${si.id}`}
+                panelId={`si-panel-${si.id}`}
+                label={siNavTabLabel(si)}
+                status={si.status?.trim() || "Draft"}
+                isActive={si.id === activeSiId}
+                isDirty={dirtyTabIds.has(si.id)}
+                onSelect={() => setActiveSiId(si.id)}
+                onDelete={() => setDeleteTarget({ id: si.id, label: siNavTabLabel(si) })}
+              />
+            ))}
+          </ul>
+          <div className={styles.siSidebarAdd}>
+            <button
+              type="button"
+              className={styles.siSidebarAddBtn}
+              onClick={handleCreate}
+              disabled={creating}
+            >
+              {creating ? "Creating…" : "+ Add Shipping Instruction"}
+            </button>
+          </div>
+        </nav>
+        <div className={styles.siWorkspace}>
+          {sis.length === 0 ? (
+            <div className={styles.siWorkspaceEmpty}>
+              <p className={styles.emptyMsg}>No shipping instructions yet. Use &ldquo;+ Add Shipping Instruction&rdquo; in the sidebar.</p>
+            </div>
+          ) : (
+            sis.map((si) => (
+              <div
+                key={si.id}
+                id={`si-panel-${si.id}`}
+                role="tabpanel"
+                aria-labelledby={`si-tab-${si.id}`}
+                className={si.id === activeSiId ? styles.siWorkspacePane : styles.siWorkspacePaneHidden}
+                hidden={si.id !== activeSiId}
+              >
+                <SIFormWorkspace
+                  si={si}
+                  shipmentId={data.id}
+                  shipment={data}
+                  accessToken={accessToken}
+                  onSaved={onSaved}
+                  toast={toast}
+                  saveTrigger={saveTrigger}
+                  onDirtyChange={(dirty) => handleCardDirty(si.id, dirty)}
+                  registerSave={(fn) => registerSave(si.id, fn)}
+                />
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      <DocDeleteConfirmModal
+        open={deleteTarget != null}
+        entityName="shipping instruction"
+        label={deleteTarget?.label ?? ""}
+        deleting={deleting}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={() => void handleConfirmDelete()}
+      />
     </SectionShell>
   );
 }
 
-function SICard({
+function defaultBlSplitsForCargo(cargo: CargoLine | undefined, commodities: Commodity[]): BlSplitDraft[] {
+  const modes = blSplitModesForCargo(cargo, commodities);
+  const mode: BlSplitMode = modes.includes("Exact") ? "Exact" : "Balance";
+  return [newBlSplitDraft(cargo?.quantity, mode)];
+}
+
+function SIFormWorkspace({
   si,
   shipmentId,
   shipment,
@@ -2159,11 +2347,19 @@ function SICard({
   onDirtyChange?: (dirty: boolean) => void;
   registerSave?: (fn: () => Promise<void>) => void;
 }) {
-  const [expanded, setExpanded] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [deleting, setDeleting] = useState(false);
   const [showDocumentPreview, setShowDocumentPreview] = useState(false);
+  const [commodityList, setCommodityList] = useState<Commodity[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void listCommodities(accessToken).then((res) => {
+      if (!cancelled && !isApiError(res)) setCommodityList(res.data ?? []);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken]);
 
   const cargoById = useMemo(
     () => new Map(shipment.cargo_lines.map((c) => [c.id, c])),
@@ -2203,6 +2399,7 @@ function SICard({
       return (
         row.cargo_line_id !== o.cargo_line_id ||
         row.quantity !== o.quantity ||
+        row.destination_port !== o.destination_port ||
         !blSplitDraftsEqual(row.bl_splits, o.bl_splits)
       );
     });
@@ -2260,7 +2457,7 @@ function SICard({
               cargo_line_id: cargoLineId,
               description_of_goods: c?.item_description ?? "",
               quantity: c ? formatQuantityFieldValue(c.quantity) : "",
-              bl_splits: c?.quantity != null ? [newBlSplitDraft(c.quantity)] : [newBlSplitDraft()],
+              bl_splits: defaultBlSplitsForCargo(c, commodityList),
               destination_port: c?.destination_port ?? "",
             },
       ),
@@ -2291,9 +2488,12 @@ function SICard({
         const entries = blSplitEntriesFromDrafts(row.bl_splits);
         const allocated = sumBlSplitQuantities(entries);
         const remaining = lineQty != null ? Math.max(0, lineQty - allocated) : null;
+        const linked = row.cargo_line_id ? cargoById.get(row.cargo_line_id) : undefined;
+        const modes = blSplitModesForCargo(linked, commodityList);
+        const mode: BlSplitMode = modes.includes("Balance") ? "Balance" : modes[0];
         return {
           ...row,
-          bl_splits: [...row.bl_splits, newBlSplitDraft(remaining)],
+          bl_splits: [...row.bl_splits, newBlSplitDraft(remaining, mode)],
         };
       }),
     );
@@ -2381,6 +2581,13 @@ function SICard({
       toast.pushToast("B/L split total cannot exceed the line quantity", "error");
       return;
     }
+    const rowInvalidBlSplit = lineRows
+      .filter((r) => r.cargo_line_id.trim())
+      .find((r) => blSplitEntriesFromDrafts(r.bl_splits).length !== r.bl_splits.length);
+    if (rowInvalidBlSplit) {
+      toast.pushToast("Complete count, quantity, and split type for each B/L split row", "error");
+      return;
+    }
     const rowMissingQty = lineRows
       .filter((r) => r.cargo_line_id.trim())
       .find((r) => {
@@ -2407,7 +2614,7 @@ function SICard({
           bl_split_qty: blSum ?? qty,
           bl_splits: blEntries,
           bl_split_text: blEntries.length > 0 ? formatBlSplitDocumentText(blEntries) : null,
-          destination_port: c?.destination_port?.trim() || r.destination_port.trim() || null,
+          destination_port: r.destination_port.trim() || c?.destination_port?.trim() || null,
         };
       });
     const res = await updateShippingInstruction(
@@ -2449,344 +2656,345 @@ function SICard({
     if (siDirtyRef.current) void handleSaveRef.current();
   }, [saveTrigger]);
 
-  const handleDelete = async () => {
-    setDeleting(true);
-    const res = await deleteShippingInstruction(shipmentId, si.id, accessToken);
-    if (isApiError(res)) toast.pushToast(res.message, "error");
-    else {
-      toast.pushToast("Shipping instruction deleted", "success");
-      onSaved({ refetch: "silent" });
-    }
-    setDeleting(false);
-    setConfirmDelete(false);
-  };
-
   return (
-    <div className={styles.subItemCard}>
-      <div className={styles.subItemHeader} onClick={() => setExpanded((p) => !p)}>
-        <ChevronIcon open={expanded} />
-        <div className={styles.subItemHeaderText}>
-          <h3 className={styles.subItemTitle}>
-            Shipping Instruction: {si.si_number || "(untitled)"}
-          </h3>
-          <p className={styles.siCargoLinkLine} title="Cargo lines linked to this shipping instruction">
-            <span className={styles.siCargoLinkLabel}>Cargo (container) linkage:</span>{" "}
-            <span className={styles.siCargoLinkEm}>{linkedCargoSummary}</span>
-          </p>
-        </div>
-        <span className={styles.docStatusBadge}>{si.status}</span>
-      </div>
-      {expanded && (
-        <div className={styles.subItemBody}>
-          <Card>
-            <div className={styles.fieldGrid}>
-              <div className={styles.field}>
-                <label className={styles.fieldLabel}>Shipping Instruction Number</label>
-                <input
-                  className={`${styles.fieldInput} ${siNumberError ? styles.fieldInputInvalid : ""}`}
-                  value={form.si_number}
-                  onChange={setFormField("si_number")}
-                  aria-invalid={Boolean(siNumberError)}
-                  aria-describedby={siNumberError ? `si-number-error-${si.id}` : undefined}
-                />
-                {siNumberError ? (
-                  <span id={`si-number-error-${si.id}`} className={styles.fieldError} role="alert">
-                    {siNumberError}
-                  </span>
-                ) : (
-                  <span className={styles.fieldMuted}>Must be unique across all shipments.</span>
-                )}
-              </div>
-              <div className={`${styles.field} ${styles.fieldFullRow}`}>
-                <label className={styles.fieldLabel}>Messrs (forwarding agency)</label>
-                <textarea
-                  className={`${styles.fieldInput} ${styles.textareaInput}`}
-                  value={form.messrs}
-                  onChange={setFormField("messrs")}
-                  rows={3}
-                  aria-label="Messrs forwarding agency"
-                />
-              </div>
-              <div className={`${styles.field} ${styles.fieldFullRow}`}>
-                <label className={styles.fieldLabel}>Bill of Lading</label>
-                <select
-                  className={styles.fieldInput}
-                  aria-label="Bill of Lading"
-                  value={form.bill_of_lading_option}
-                  onChange={setFormField("bill_of_lading_option")}
-                >
-                  <option value="">— Select —</option>
-                  {SI_BILL_OF_LADING_OPTIONS.map((o) => (
-                    <option key={o} value={o}>{o}</option>
-                  ))}
-                  {form.bill_of_lading_option &&
-                    !SI_BILL_OF_LADING_OPTIONS.includes(form.bill_of_lading_option as (typeof SI_BILL_OF_LADING_OPTIONS)[number]) && (
-                      <option value={form.bill_of_lading_option}>{form.bill_of_lading_option} (saved)</option>
-                    )}
-                </select>
-              </div>
-              <div className={styles.field}>
-                <label className={styles.fieldLabel}>Consignee</label>
-                <input className={styles.fieldInput} value={form.consignee} onChange={setFormField("consignee")} />
-              </div>
-              <div className={`${styles.field} ${styles.fieldFullRow}`}>
-                <label className={styles.fieldLabel}>Notify Party</label>
-                <textarea
-                  className={`${styles.fieldInput} ${styles.textareaInput}`}
-                  value={form.notify_party}
-                  onChange={setFormField("notify_party")}
-                  rows={3}
-                  aria-label="Notify party"
-                />
-              </div>
-              <div className={`${styles.field} ${styles.fieldFullRow}`}>
-                <label className={styles.fieldLabel}>Freight</label>
-                <select className={styles.fieldInput} aria-label="Freight" value={form.freight} onChange={setFormField("freight")}>
-                  <option value="">— Select —</option>
-                  {SI_FREIGHT_OPTIONS.map((o) => (
-                    <option key={o} value={o}>{o}</option>
-                  ))}
-                  {form.freight && !SI_FREIGHT_OPTIONS.includes(form.freight as (typeof SI_FREIGHT_OPTIONS)[number]) && (
-                    <option value={form.freight}>{form.freight} (saved)</option>
-                  )}
-                </select>
-              </div>
-              <div className={styles.field}>
-                <label className={styles.fieldLabel}>Shipper</label>
-                <input
-                  className={`${styles.fieldInput} ${styles.fieldInputReadonly}`}
-                  readOnly
-                  title="Synced from General Information when you save this shipping instruction."
-                  value={shipment.shipper ?? ""}
-                />
-              </div>
-              <div className={styles.field}>
-                <label className={styles.fieldLabel}>NPWP</label>
-                <input className={styles.fieldInput} value={form.npwp} onChange={setFormField("npwp")} />
-              </div>
-              <div className={`${styles.field} ${styles.fieldFullRow}`}>
-                <label className={styles.fieldLabel}>B/L Indicated</label>
-                <textarea
-                  className={`${styles.fieldInput} ${styles.textareaInput}`}
-                  value={form.bl_indicated}
-                  onChange={setFormField("bl_indicated")}
-                  rows={3}
-                  aria-label="B/L indicated"
-                />
-              </div>
-            </div>
+    <>
+      <div className={styles.siWorkspaceScroll}>
+        <p className={styles.siWorkspaceCargoHint} title="Cargo lines linked to this shipping instruction">
+          <span className={styles.siCargoLinkLabel}>Cargo linkage:</span>{" "}
+          <span className={styles.siCargoLinkEm}>{linkedCargoSummary}</span>
+        </p>
 
-            <div className={styles.sectionGroupLabel}>Cargo Lines</div>
-            {lineRows.length === 0 && (
-              <p className={styles.emptyMsg}>No cargo lines linked. Use &ldquo;Add cargo line&rdquo; below.</p>
-            )}
-
-            {lineRows.map((row, idx) => {
-              const linked = row.cargo_line_id ? cargoById.get(row.cargo_line_id) : undefined;
-              const descDisplay = linked?.item_description?.trim() || row.description_of_goods || "";
-              const qtyDisplay = row.quantity;
-              const destDisplay = linked?.destination_port?.trim() || row.destination_port || "";
-
-              return (
-                <div key={row.rowKey} className={styles.siCargoRow}>
-                  {idx > 0 && <div className={styles.siCargoRowDivider} />}
-                  <div className={styles.siCargoRowHeading}>Cargo line {idx + 1}</div>
-                  <div className={styles.fieldGrid}>
-                    <div className={styles.field}>
-                      <label className={styles.fieldLabel}>Cargo</label>
-                      <ComboboxSelect
-                        options={cargoOptionLabelsForRow(shipment.cargo_lines, lineRows, idx)}
-                        value={cargoLabelFromId(shipment.cargo_lines, row.cargo_line_id)}
-                        onChange={(label) => applyCargoToRow(idx, cargoIdFromLabel(shipment.cargo_lines, label))}
-                        placeholder="Select cargo…"
-                        allowEmpty
-                        emptyLabel="— Select cargo —"
-                        aria-label={`Cargo line ${idx + 1}`}
-                        disabled={registeredCargoLines(shipment.cargo_lines).length === 0}
-                      />
-                    </div>
-                    <div className={styles.field}>
-                      <label className={styles.fieldLabel}>Description of goods</label>
-                      <input
-                        className={`${styles.fieldInput} ${styles.fieldInputReadonly}`}
-                        readOnly
-                        tabIndex={-1}
-                        value={descDisplay}
-                        placeholder="—"
-                      />
-                    </div>
-                    <div className={styles.field}>
-                      <label className={styles.fieldLabel}>Quantity (MT)</label>
-                      <input
-                        className={styles.fieldInput}
-                        type="text"
-                        inputMode="decimal"
-                        value={qtyDisplay}
-                        onChange={(e) => updateLineRow(idx, { quantity: e.target.value })}
-                        placeholder={linked?.quantity != null ? formatQuantityFieldValue(linked.quantity) : "—"}
-                        title={
-                          linked?.quantity != null
-                            ? `Cargo planned: ${formatNumericDisplay(linked.quantity)} MT`
-                            : undefined
-                        }
-                      />
-                    </div>
-                    <div className={styles.field}>
-                      <label className={styles.fieldLabel}>Loadport</label>
-                      <input
-                        className={`${styles.fieldInput} ${styles.fieldInputReadonly}`}
-                        readOnly
-                        tabIndex={-1}
-                        value={loadportDisplay === "—" ? "" : loadportDisplay}
-                        placeholder="—"
-                        title="From load port in General Information"
-                      />
-                    </div>
-                    <div className={styles.field}>
-                      <label className={styles.fieldLabel}>Destination port</label>
-                      <input
-                        className={`${styles.fieldInput} ${styles.fieldInputReadonly}`}
-                        readOnly
-                        tabIndex={-1}
-                        value={destDisplay}
-                        placeholder="—"
-                      />
-                    </div>
-                    <div className={`${styles.field} ${styles.fieldFullRow}`}>
-                      <label className={styles.fieldLabel}>B/L split</label>
-                      <div className={styles.blSplitList}>
-                        {row.bl_splits.map((split, splitIdx) => (
-                          <div key={split.rowKey} className={styles.blSplitRow}>
-                            <select
-                              className={`${styles.fieldInput} ${styles.blSplitCount}`}
-                              value={split.count}
-                              onChange={(e) => updateBlSplit(idx, splitIdx, { count: e.target.value })}
-                              aria-label={`B/L count, cargo line ${idx + 1}, split ${splitIdx + 1}`}
-                            >
-                              {BL_SPLIT_COUNT_OPTIONS.map((n) => (
-                                <option key={n} value={n}>{n}</option>
-                              ))}
-                            </select>
-                            <span className={styles.blSplitTimes} aria-hidden="true">X</span>
-                            <input
-                              className={`${styles.fieldInput} ${styles.blSplitQty}`}
-                              type="text"
-                              inputMode="decimal"
-                              value={split.quantity}
-                              onChange={(e) => updateBlSplit(idx, splitIdx, { quantity: e.target.value })}
-                              placeholder="Quantity (MT)"
-                              aria-label={`B/L quantity, cargo line ${idx + 1}, split ${splitIdx + 1}`}
-                            />
-                            <span className={styles.blSplitTimes}>MTS</span>
-                            {row.bl_splits.length > 1 && (
-                              <button
-                                type="button"
-                                className={styles.btnSecondary}
-                                onClick={() => removeBlSplit(idx, splitIdx)}
-                              >
-                                Remove
-                              </button>
-                            )}
-                          </div>
-                        ))}
-                        <button type="button" className={styles.btnSecondary} onClick={() => addBlSplit(idx)}>
-                          + Add B/L split
-                        </button>
-                        {(() => {
-                          const lineQty = parseQuantityInput(row.quantity);
-                          const entries = blSplitEntriesFromDrafts(row.bl_splits);
-                          const splitTotal = sumBlSplitQuantities(entries);
-                          const matched = blSplitsCloseToTarget(entries, lineQty);
-                          const exceeds = blSplitsExceedTarget(entries, lineQty);
-                          if (entries.length === 0 && lineQty == null) return null;
-                          if (entries.length === 0 && lineQty != null) {
-                            return (
-                              <span className={styles.fieldMuted}>
-                                Line quantity: {formatNumericDisplay(lineQty)} MT
-                              </span>
-                            );
-                          }
-                          return (
-                            <span className={styles.fieldMuted}>
-                              B/L split total: {formatNumericDisplay(splitTotal)} MT
-                              {lineQty != null && !matched && !exceeds && (
-                                <> — saved quantity follows B/L splits ({formatNumericDisplay(lineQty)} MT in field)</>
-                              )}
-                              {exceeds && lineQty != null && (
-                                <> — cannot exceed line quantity ({formatNumericDisplay(lineQty)} MT)</>
-                              )}
-                            </span>
-                          );
-                        })()}
-                      </div>
-                    </div>
-                    <div className={styles.field}>
-                      <button type="button" className={styles.btnSecondary} onClick={() => removeSiLineRow(idx)}>
-                        Remove cargo line
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-
-            {siAllocationSummaries.length > 0 && (
-              <div className={styles.fieldMuted} role="status">
-                {siAllocationSummaries.map((s) => (
-                  <div key={s.cargoId}>
-                    {s.cargoName}: {formatNumericDisplay(s.allocated)} / {formatNumericDisplay(s.planned)} MT
-                    {!s.matched && ` (${formatNumericDisplay(s.remaining)} MT remaining)`}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div className={styles.siLineToolbar}>
-              <button
-                type="button"
-                className={styles.btnSecondary}
-                onClick={addSiLineRow}
-                disabled={registeredCargoLines(shipment.cargo_lines).length === 0}
-              >
-                + Add cargo line
-              </button>
-              {shipment.cargo_lines.length === 0 && (
-                <span className={styles.fieldMuted}>Add cargo in Shipment Planning first.</span>
-              )}
-            </div>
-
-            <div className={styles.siDocumentPreviewActions}>
-              <button
-                type="button"
-                className={styles.btnSecondary}
-                onClick={() => setShowDocumentPreview(true)}
-              >
-                Preview shipping instruction
-              </button>
-              <span className={styles.fieldMuted}>
-                Printable document (first cargo line). Save before printing if others need the latest server copy.
+        <div className={`${styles.fieldGrid} ${styles.fieldGridSi}`}>
+          <div className={styles.field}>
+            <label className={styles.fieldLabel}>Shipping Instruction Number</label>
+            <input
+              className={`${styles.fieldInput} ${siNumberError ? styles.fieldInputInvalid : ""}`}
+              value={form.si_number}
+              onChange={setFormField("si_number")}
+              aria-invalid={Boolean(siNumberError)}
+              aria-describedby={siNumberError ? `si-number-error-${si.id}` : undefined}
+            />
+            {siNumberError ? (
+              <span id={`si-number-error-${si.id}`} className={styles.fieldError} role="alert">
+                {siNumberError}
               </span>
-            </div>
-
-            <div className={styles.actions}>
-              <button type="button" className={styles.btnPrimary} onClick={handleSave} disabled={saving || Boolean(siNumberError)}>
-                {saving ? "Saving…" : "Save Shipping Instruction"}
-              </button>
-              {confirmDelete ? (
-                <div className={styles.inlineConfirm}>
-                  <span>Delete this shipping instruction?</span>
-                  <button type="button" className={styles.btnDanger} onClick={handleDelete} disabled={deleting}>
-                    {deleting ? "Deleting…" : "Yes, delete"}
-                  </button>
-                  <button type="button" className={styles.btnSecondary} onClick={() => setConfirmDelete(false)}>Cancel</button>
-                </div>
-              ) : (
-                <button type="button" className={styles.btnDanger} onClick={() => setConfirmDelete(true)}>Delete Shipping Instruction</button>
+            ) : (
+              <span className={styles.fieldMuted}>Must be unique across all shipments.</span>
+            )}
+          </div>
+          <div className={styles.field}>
+            <label className={styles.fieldLabel}>Bill of Lading</label>
+            <select
+              className={styles.fieldInput}
+              aria-label="Bill of Lading"
+              value={form.bill_of_lading_option}
+              onChange={setFormField("bill_of_lading_option")}
+            >
+              <option value="">— Select —</option>
+              {SI_BILL_OF_LADING_OPTIONS.map((o) => (
+                <option key={o} value={o}>{o}</option>
+              ))}
+              {form.bill_of_lading_option &&
+                !SI_BILL_OF_LADING_OPTIONS.includes(form.bill_of_lading_option as (typeof SI_BILL_OF_LADING_OPTIONS)[number]) && (
+                  <option value={form.bill_of_lading_option}>{form.bill_of_lading_option} (saved)</option>
+                )}
+            </select>
+          </div>
+          <div className={`${styles.field} ${styles.fieldSiFull}`}>
+            <label className={styles.fieldLabel}>Messrs (forwarding agency)</label>
+            <textarea
+              className={`${styles.fieldInput} ${styles.textareaInput} ${styles.textareaCompact}`}
+              value={form.messrs}
+              onChange={setFormField("messrs")}
+              rows={3}
+              aria-label="Messrs forwarding agency"
+            />
+          </div>
+          <div className={`${styles.field} ${styles.fieldSiFull}`}>
+            <label className={styles.fieldLabel}>Consignee</label>
+            <textarea
+              className={`${styles.fieldInput} ${styles.textareaInput} ${styles.textareaCompact}`}
+              value={form.consignee}
+              onChange={setFormField("consignee")}
+              rows={3}
+              aria-label="Consignee"
+            />
+          </div>
+          <div className={`${styles.field} ${styles.fieldSiFull}`}>
+            <label className={styles.fieldLabel}>Notify Party</label>
+            <textarea
+              className={`${styles.fieldInput} ${styles.textareaInput} ${styles.textareaCompact}`}
+              value={form.notify_party}
+              onChange={setFormField("notify_party")}
+              rows={3}
+              aria-label="Notify party"
+            />
+          </div>
+          <div className={`${styles.field} ${styles.fieldSiFull}`}>
+            <label className={styles.fieldLabel}>Freight</label>
+            <select className={styles.fieldInput} aria-label="Freight" value={form.freight} onChange={setFormField("freight")}>
+              <option value="">— Select —</option>
+              {SI_FREIGHT_OPTIONS.map((o) => (
+                <option key={o} value={o}>{o}</option>
+              ))}
+              {form.freight && !SI_FREIGHT_OPTIONS.includes(form.freight as (typeof SI_FREIGHT_OPTIONS)[number]) && (
+                <option value={form.freight}>{form.freight} (saved)</option>
               )}
-            </div>
-          </Card>
+            </select>
+          </div>
+          <div className={styles.field}>
+            <label className={styles.fieldLabel}>Shipper</label>
+            <input
+              className={`${styles.fieldInput} ${styles.fieldInputReadonly}`}
+              readOnly
+              title="Synced from General Information when you save this shipping instruction."
+              value={shipment.shipper ?? ""}
+            />
+          </div>
+          <div className={styles.field}>
+            <label className={styles.fieldLabel}>NPWP</label>
+            <input className={styles.fieldInput} value={form.npwp} onChange={setFormField("npwp")} />
+          </div>
+          <div className={`${styles.field} ${styles.fieldSiFull}`}>
+            <label className={styles.fieldLabel}>B/L Indicated</label>
+            <textarea
+              className={`${styles.fieldInput} ${styles.textareaInput} ${styles.textareaCompact}`}
+              value={form.bl_indicated}
+              onChange={setFormField("bl_indicated")}
+              rows={3}
+              aria-label="B/L indicated"
+            />
+          </div>
         </div>
-      )}
+
+        <div className={styles.sectionGroupLabel}>Cargo Lines</div>
+        {lineRows.length === 0 && (
+          <p className={styles.emptyMsg}>No cargo lines linked. Use &ldquo;Add cargo line&rdquo; below.</p>
+        )}
+
+        {lineRows.map((row, idx) => {
+          const linked = row.cargo_line_id ? cargoById.get(row.cargo_line_id) : undefined;
+          const descDisplay = linked?.item_description?.trim() || row.description_of_goods || "";
+          const qtyDisplay = row.quantity;
+          const destCountry = linked?.destination_country?.trim() || "";
+          const blSplitModeOptions = blSplitModesForCargo(linked, commodityList);
+
+          return (
+            <div key={row.rowKey} className={styles.siCargoRow}>
+              {idx > 0 && <div className={styles.siCargoRowDivider} />}
+              <div className={styles.siCargoRowHeading}>Cargo line {idx + 1}</div>
+              <div className={styles.fieldGrid}>
+                <div className={styles.field}>
+                  <label className={styles.fieldLabel}>Cargo</label>
+                  <ComboboxSelect
+                    options={cargoOptionLabelsForRow(shipment.cargo_lines, lineRows, idx)}
+                    value={cargoLabelFromId(shipment.cargo_lines, row.cargo_line_id)}
+                    onChange={(label) => applyCargoToRow(idx, cargoIdFromLabel(shipment.cargo_lines, label))}
+                    placeholder="Select cargo…"
+                    allowEmpty
+                    emptyLabel="— Select cargo —"
+                    aria-label={`Cargo line ${idx + 1}`}
+                    disabled={registeredCargoLines(shipment.cargo_lines).length === 0}
+                  />
+                </div>
+                <div className={styles.field}>
+                  <label className={styles.fieldLabel}>Description of goods</label>
+                  <input
+                    className={`${styles.fieldInput} ${styles.fieldInputReadonly}`}
+                    readOnly
+                    tabIndex={-1}
+                    value={descDisplay}
+                    placeholder="—"
+                  />
+                </div>
+                <div className={styles.field}>
+                  <label className={styles.fieldLabel}>Quantity (MT)</label>
+                  <input
+                    className={styles.fieldInput}
+                    type="text"
+                    inputMode="decimal"
+                    value={qtyDisplay}
+                    onChange={(e) => updateLineRow(idx, { quantity: e.target.value })}
+                    placeholder={linked?.quantity != null ? formatQuantityFieldValue(linked.quantity) : "—"}
+                    title={
+                      linked?.quantity != null
+                        ? `Cargo planned: ${formatNumericDisplay(linked.quantity)} MT`
+                        : undefined
+                    }
+                  />
+                </div>
+                <div className={styles.field}>
+                  <label className={styles.fieldLabel}>Loadport</label>
+                  <input
+                    className={`${styles.fieldInput} ${styles.fieldInputReadonly}`}
+                    readOnly
+                    tabIndex={-1}
+                    value={loadportDisplay === "—" ? "" : loadportDisplay}
+                    placeholder="—"
+                    title="From load port in General Information"
+                  />
+                </div>
+                <div className={styles.field}>
+                  <label className={styles.fieldLabel}>Destination port</label>
+                  <input
+                    className={styles.fieldInput}
+                    value={row.destination_port}
+                    onChange={(e) => updateLineRow(idx, { destination_port: e.target.value })}
+                    placeholder={linked?.destination_port?.trim() || "—"}
+                    aria-label={`Destination port, cargo line ${idx + 1}`}
+                  />
+                  {destCountry ? (
+                    <span className={styles.fieldMuted}>Country: {destCountry}</span>
+                  ) : null}
+                </div>
+                <div className={`${styles.field} ${styles.fieldFullRow}`}>
+                  <label className={styles.fieldLabel}>B/L split</label>
+                  <div className={styles.blSplitList}>
+                    {row.bl_splits.map((split, splitIdx) => {
+                      const splitModeRaw = split.mode || "Balance";
+                      const splitMode = blSplitModeOptions.includes(splitModeRaw as BlSplitMode)
+                        ? splitModeRaw
+                        : blSplitModeOptions[0];
+                      return (
+                      <div key={split.rowKey} className={styles.blSplitRow}>
+                        <select
+                          className={`${styles.fieldInput} ${styles.blSplitCount}`}
+                          value={split.count || "1"}
+                          onChange={(e) => updateBlSplit(idx, splitIdx, { count: e.target.value })}
+                          aria-label={`B/L count, cargo line ${idx + 1}, split ${splitIdx + 1}`}
+                        >
+                          {BL_SPLIT_COUNT_OPTIONS.map((n) => (
+                            <option key={n} value={n}>{n}</option>
+                          ))}
+                        </select>
+                        <span className={styles.blSplitTimes} aria-hidden="true">X</span>
+                        <input
+                          className={`${styles.fieldInput} ${styles.blSplitQty}`}
+                          type="text"
+                          inputMode="decimal"
+                          value={split.quantity}
+                          onChange={(e) => updateBlSplit(idx, splitIdx, { quantity: e.target.value })}
+                          placeholder="Quantity (MT)"
+                          aria-label={`B/L quantity, cargo line ${idx + 1}, split ${splitIdx + 1}`}
+                        />
+                        <span className={styles.blSplitTimes}>MTS</span>
+                        <select
+                          className={`${styles.fieldInput} ${styles.blSplitMode}`}
+                          value={splitMode}
+                          onChange={(e) => updateBlSplit(idx, splitIdx, { mode: e.target.value })}
+                          aria-label={`B/L split type, cargo line ${idx + 1}, split ${splitIdx + 1}`}
+                        >
+                          {blSplitModeOptions.map((mode) => (
+                            <option key={mode} value={mode}>{mode}</option>
+                          ))}
+                        </select>
+                        {row.bl_splits.length > 1 && (
+                          <button
+                            type="button"
+                            className={styles.btnSecondary}
+                            onClick={() => removeBlSplit(idx, splitIdx)}
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                      );
+                    })}
+                    <button type="button" className={styles.btnSecondary} onClick={() => addBlSplit(idx)}>
+                      + Add B/L split
+                    </button>
+                    {(() => {
+                      const lineQty = parseQuantityInput(row.quantity);
+                      const entries = blSplitEntriesFromDrafts(row.bl_splits);
+                      if (entries.length === 0 && lineQty == null) return null;
+                      if (entries.length === 0 && lineQty != null) {
+                        return (
+                          <span className={styles.siCargoMetaBadge}>
+                            Line quantity: {formatNumericDisplay(lineQty)} MT
+                          </span>
+                        );
+                      }
+                      const splitTotal = sumBlSplitQuantities(entries);
+                      const matched = blSplitsCloseToTarget(entries, lineQty);
+                      const exceeds = blSplitsExceedTarget(entries, lineQty);
+                      const previewText = formatBlSplitDocumentText(entries).replace(/\n/g, " · ");
+                      return (
+                        <span
+                          className={`${styles.siCargoMetaBadge} ${exceeds ? styles.siCargoMetaBadgeDanger : !matched ? styles.siCargoMetaBadgeWarn : ""}`}
+                        >
+                          {previewText}
+                          {lineQty != null && !matched && !exceeds && (
+                            <> · field qty {formatNumericDisplay(lineQty)} MT</>
+                          )}
+                          {exceeds && lineQty != null && (
+                            <> · exceeds line qty ({formatNumericDisplay(lineQty)} MT)</>
+                          )}
+                          {matched && splitTotal > 0 && (
+                            <> · total {formatNumericDisplay(splitTotal)} MT</>
+                          )}
+                        </span>
+                      );
+                    })()}
+                  </div>
+                </div>
+                <div className={styles.field}>
+                  <button type="button" className={styles.btnSecondary} onClick={() => removeSiLineRow(idx)}>
+                    Remove cargo line
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+
+        <div className={styles.siCargoMetaBar}>
+          {siAllocationSummaries.map((s) => (
+            <span
+              key={s.cargoId}
+              className={`${styles.siCargoMetaBadge} ${s.overAllocated ? styles.siCargoMetaBadgeDanger : !s.matched ? styles.siCargoMetaBadgeWarn : ""}`}
+              role="status"
+            >
+              <strong>{s.cargoName}:</strong>{" "}
+              {formatNumericDisplay(s.allocated)} / {formatNumericDisplay(s.planned)} MT
+              {!s.matched && !s.overAllocated && (
+                <> · {formatNumericDisplay(s.remaining)} MT remaining</>
+              )}
+              {s.overAllocated && <> · over-allocated</>}
+            </span>
+          ))}
+          <button
+            type="button"
+            className={`${styles.btnSecondary} ${styles.siCargoAddBtn}`}
+            onClick={addSiLineRow}
+            disabled={registeredCargoLines(shipment.cargo_lines).length === 0}
+          >
+            + Add cargo line
+          </button>
+          {shipment.cargo_lines.length === 0 && (
+            <span className={styles.siCargoMetaHint}>Add cargo in the Document tab first.</span>
+          )}
+        </div>
+      </div>
+
+      <div className={styles.siWorkspaceFooter}>
+        <div className={`${styles.siDocumentPreviewActions} ${styles.siWorkspaceFooterPreview}`}>
+          <button
+            type="button"
+            className={styles.btnSecondary}
+            onClick={() => setShowDocumentPreview(true)}
+          >
+            preview
+          </button>
+          <span className={styles.fieldMuted}>
+            Printable document (first cargo line).
+          </span>
+        </div>
+        <div className={styles.actions}>
+          <button type="button" className={styles.btnPrimary} onClick={handleSave} disabled={saving || Boolean(siNumberError)}>
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </div>
 
       <Modal
         open={showDocumentPreview}
@@ -2805,7 +3013,7 @@ function SICard({
           blSplitText={blSplitPreviewText}
         />
       </Modal>
-    </div>
+    </>
   );
 }
 
@@ -3384,7 +3592,7 @@ function ExportWorkspaceBanner({
     return (
       <div className={styles.workspaceBanner} role="status">
         <strong>Documentation workspace</strong>
-        <span>Operational fields are read-only — use the Documentation tab for cargo lines, shipping instructions, invoices, packing lists, B/L, and export documents.</span>
+        <span>Operational fields are read-only — use the Document tab for cargo lines, shipping instructions, invoices, packing lists, B/L, and export documents.</span>
       </div>
     );
   }
@@ -3399,7 +3607,7 @@ function ExportWorkspaceBanner({
   if (variant === "documentation-readonly") {
     return (
       <div className={styles.workspaceBanner} role="status">
-        <strong>Documentation (view only)</strong>
+        <strong>Document (view only)</strong>
         <span>Cargo lines, shipping instructions, invoices, packing lists, and uploads are read-only in your role.</span>
       </div>
     );
@@ -3434,7 +3642,12 @@ function DetailWorkspaceTabs({
 }) {
   return (
     <div className={styles.detailTabsRow}>
-      <div className={styles.detailTabs} role="tablist" aria-label="Shipment workspace">
+      <div
+        className={styles.detailTabs}
+        role="tablist"
+        aria-label="Shipment workspace"
+        data-tour="export-bulking-detail-tabs"
+      >
         <button
           type="button"
           role="tab"
@@ -3451,7 +3664,7 @@ function DetailWorkspaceTabs({
           className={`${styles.detailTab} ${active === "documentation" ? styles.detailTabActive : ""}`}
           onClick={() => onChange("documentation")}
         >
-          Documentation
+          Document
         </button>
       </div>
     </div>
@@ -3468,13 +3681,7 @@ function ShipmentOverviewStrip({
   const vesselVoyage = vesselVoyageFromGeneral(data).trim() || "—";
   const loadPort = data.loadport_name?.trim() || "—";
   const shipper = data.shipper?.trim() || "—";
-  const cargoCounted = data.cargo_lines.reduce((sum, l) => sum + (l.quantity ?? 0), 0);
-  const totalQty =
-    data.total_quantity != null
-      ? data.total_quantity
-      : cargoCounted > 0
-        ? cargoCounted
-        : null;
+  const totalQty = resolveShipmentTotalQuantity(data);
   const qtyLabel = totalQty != null ? `${formatNumericDisplay(totalQty)} MT` : "—";
 
   const arrival = data.ata
@@ -3551,10 +3758,9 @@ function ShipmentOverviewStrip({
 function SectionJumpNav({
   onJump,
   onJumpAnchor,
-  allSectionsExpanded,
-  onToggleExpandCollapse,
-  onFocusOperations,
-  onFocusDocuments,
+  infoSidebarOpen,
+  onToggleInfoSidebar,
+  infoSidebarCollapsedLabel = "Summary",
   canViewDocs = true,
   showVoyageNav = false,
   showDocComplianceNav = false,
@@ -3562,10 +3768,9 @@ function SectionJumpNav({
 }: {
   onJump: (key: ExportDetailSectionKey) => void;
   onJumpAnchor: (anchorId: string, sectionKey?: keyof OpenSectionsState) => void;
-  allSectionsExpanded: boolean;
-  onToggleExpandCollapse: () => void;
-  onFocusOperations: () => void;
-  onFocusDocuments: () => void;
+  infoSidebarOpen: boolean;
+  onToggleInfoSidebar: () => void;
+  infoSidebarCollapsedLabel?: string;
   canViewDocs?: boolean;
   showVoyageNav?: boolean;
   showDocComplianceNav?: boolean;
@@ -3642,26 +3847,25 @@ function SectionJumpNav({
         )}
       </nav>
       <div className={styles.jumpNavTools}>
-        <button
-          type="button"
-          className={styles.jumpNavLinkBtn}
-          onClick={onToggleExpandCollapse}
-          aria-pressed={allSectionsExpanded}
-          aria-label={allSectionsExpanded ? "Collapse all sections" : "Expand all sections"}
-        >
-          {allSectionsExpanded ? "Collapse all" : "Expand all"}
-        </button>
-        <button type="button" className={styles.jumpNavLinkBtn} onClick={onFocusOperations}>
-          Focus operations
-        </button>
-        {canViewDocs && (
-          <button type="button" className={styles.jumpNavLinkBtn} onClick={onFocusDocuments}>
-            Focus documents
-          </button>
-        )}
+        <DetailInfoPanelToggle
+          open={infoSidebarOpen}
+          onToggle={onToggleInfoSidebar}
+          panelId="export-bulking-detail-info-panel"
+          collapsedLabel={infoSidebarCollapsedLabel}
+        />
       </div>
     </div>
   );
+}
+
+function invoiceNavTabLabel(inv: Invoice): string {
+  const num = inv.invoice_no?.trim();
+  return num ? `Invoice #${num}` : "Invoice (Draft)";
+}
+
+function packingListNavTabLabel(pl: PackingList): string {
+  const num = pl.packing_list_number?.trim();
+  return num ? `PL #${num}` : "PL (Draft)";
 }
 
 function InvoiceSection({
@@ -3676,10 +3880,34 @@ function InvoiceSection({
 }: SectionProps) {
   const { setCardDirty, registerSave } = useAggregatedSectionSave("invoices", saveTrigger, onDirtyChange);
   const [creating, setCreating] = useState(false);
+  const [activeInvoiceId, setActiveInvoiceId] = useState(() => data.invoices[0]?.id ?? "");
+  const [dirtyTabIds, setDirtyTabIds] = useState<Set<string>>(() => new Set());
+  const [deleteTarget, setDeleteTarget] = useState<DocDeleteTarget>(null);
+  const [deleting, setDeleting] = useState(false);
 
-  const unassignedInvoices = useMemo(
-    () => data.invoices.filter((inv) => !inv.shipping_instruction_id?.trim()),
-    [data.invoices],
+  const invoices = data.invoices;
+
+  useEffect(() => {
+    if (!invoices.length) {
+      setActiveInvoiceId("");
+      return;
+    }
+    if (!invoices.some((inv) => inv.id === activeInvoiceId)) {
+      setActiveInvoiceId(invoices[invoices.length - 1]?.id ?? "");
+    }
+  }, [invoices, activeInvoiceId]);
+
+  const handleCardDirty = useCallback(
+    (id: string, dirty: boolean) => {
+      setCardDirty(id, dirty);
+      setDirtyTabIds((prev) => {
+        const next = new Set(prev);
+        if (dirty) next.add(id);
+        else next.delete(id);
+        return next;
+      });
+    },
+    [setCardDirty],
   );
 
   const handleCreate = async (shippingInstructionId?: string) => {
@@ -3689,9 +3917,30 @@ function InvoiceSection({
     if (isApiError(res)) toast.pushToast(res.message, "error");
     else {
       toast.pushToast("Invoice created", "success");
+      if (res.data?.id) setActiveInvoiceId(res.data.id);
       onSaved({ refetch: "silent" });
     }
     setCreating(false);
+  };
+
+  const noSiAndNoInvoices = data.shipping_instructions.length === 0 && invoices.length === 0;
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    const res = await deleteInvoice(data.id, deleteTarget.id, accessToken);
+    if (isApiError(res)) toast.pushToast(res.message, "error");
+    else {
+      toast.pushToast("Invoice deleted", "success");
+      setDirtyTabIds((prev) => {
+        const next = new Set(prev);
+        next.delete(deleteTarget.id);
+        return next;
+      });
+      onSaved({ refetch: "silent" });
+    }
+    setDeleting(false);
+    setDeleteTarget(null);
   };
 
   return (
@@ -3701,29 +3950,55 @@ function InvoiceSection({
       anchorId="export-section-invoices"
       open={open}
       onToggle={onToggle}
-      actions={
-        <button className={styles.btnSecondary} onClick={() => void handleCreate()} disabled={creating}>
-          {creating ? "Creating…" : "+ Add Invoice"}
-        </button>
-      }
     >
-      {data.shipping_instructions.length === 0 && data.invoices.length === 0 ? (
+      {noSiAndNoInvoices ? (
         <p className={styles.emptyMsg}>Add a shipping instruction first, then create invoices under it.</p>
       ) : (
-        <>
-          {data.shipping_instructions.map((si) => (
-            <div key={si.id} className={styles.docSiGroup}>
-              <InvoiceAllocationPanel
-                si={si}
-                shipment={data}
-                onAddInvoice={() => void handleCreate(si.id)}
-                adding={creating}
-              />
-              {data.invoices
-                .filter((inv) => inv.shipping_instruction_id === si.id)
-                .map((inv) => (
-                  <InvoiceCard
-                    key={inv.id}
+        <div className={styles.siShell}>
+          <nav className={styles.siSidebar} aria-label="Invoices">
+            <ul className={styles.siNavList} role="tablist">
+              {invoices.map((inv) => (
+                <DocSidebarNavItem
+                  key={inv.id}
+                  tabId={`invoice-tab-${inv.id}`}
+                  panelId={`invoice-panel-${inv.id}`}
+                  label={invoiceNavTabLabel(inv)}
+                  status={inv.status?.trim() || "Draft"}
+                  isActive={inv.id === activeInvoiceId}
+                  isDirty={dirtyTabIds.has(inv.id)}
+                  onSelect={() => setActiveInvoiceId(inv.id)}
+                  onDelete={() => setDeleteTarget({ id: inv.id, label: invoiceNavTabLabel(inv) })}
+                  showDelete={(inv.status ?? "DRAFT") !== "FINAL"}
+                />
+              ))}
+            </ul>
+            <div className={styles.siSidebarAdd}>
+              <button
+                type="button"
+                className={styles.siSidebarAddBtn}
+                onClick={() => void handleCreate()}
+                disabled={creating}
+              >
+                {creating ? "Creating…" : "+ Add Invoice"}
+              </button>
+            </div>
+          </nav>
+          <div className={styles.siWorkspace}>
+            {invoices.length === 0 ? (
+              <div className={styles.siWorkspaceEmpty}>
+                <p className={styles.emptyMsg}>No invoices yet. Use &ldquo;+ Add Invoice&rdquo; in the sidebar.</p>
+              </div>
+            ) : (
+              invoices.map((inv) => (
+                <div
+                  key={inv.id}
+                  id={`invoice-panel-${inv.id}`}
+                  role="tabpanel"
+                  aria-labelledby={`invoice-tab-${inv.id}`}
+                  className={inv.id === activeInvoiceId ? styles.siWorkspacePane : styles.siWorkspacePaneHidden}
+                  hidden={inv.id !== activeInvoiceId}
+                >
+                  <InvoiceFormWorkspace
                     invoice={inv}
                     shipmentId={data.id}
                     shipment={data}
@@ -3732,40 +4007,35 @@ function InvoiceSection({
                     onSaved={onSaved}
                     toast={toast}
                     saveTrigger={saveTrigger}
-                    onDirtyChange={(dirty) => setCardDirty(inv.id, dirty)}
+                    onDirtyChange={(dirty) => handleCardDirty(inv.id, dirty)}
                     registerSave={(fn) => registerSave(inv.id, fn)}
+                    onCreateLinkedInvoice={
+                      inv.shipping_instruction_id?.trim()
+                        ? () => void handleCreate(inv.shipping_instruction_id!.trim())
+                        : undefined
+                    }
+                    creatingLinked={creating}
                   />
-                ))}
-            </div>
-          ))}
-          {unassignedInvoices.length > 0 && (
-            <>
-              <p className={styles.fieldMuted}>Unassigned invoices (no shipping instruction linked)</p>
-              {unassignedInvoices.map((inv) => (
-                <InvoiceCard
-                  key={inv.id}
-                  invoice={inv}
-                  shipmentId={data.id}
-                  shipment={data}
-                  shippingInstructions={data.shipping_instructions}
-                  accessToken={accessToken}
-                  onSaved={onSaved}
-                  toast={toast}
-                  saveTrigger={saveTrigger}
-                  onDirtyChange={(dirty) => setCardDirty(inv.id, dirty)}
-                  registerSave={(fn) => registerSave(inv.id, fn)}
-                />
-              ))}
-            </>
-          )}
-        </>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
       )}
 
+      <DocDeleteConfirmModal
+        open={deleteTarget != null}
+        entityName="invoice"
+        label={deleteTarget?.label ?? ""}
+        deleting={deleting}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={() => void handleConfirmDelete()}
+      />
     </SectionShell>
   );
 }
 
-function InvoiceCard({
+function InvoiceFormWorkspace({
   invoice,
   shipmentId,
   shipment,
@@ -3776,6 +4046,8 @@ function InvoiceCard({
   saveTrigger = 0,
   onDirtyChange,
   registerSave,
+  onCreateLinkedInvoice,
+  creatingLinked = false,
 }: {
   invoice: Invoice;
   shipmentId: string;
@@ -3787,11 +4059,10 @@ function InvoiceCard({
   saveTrigger?: number;
   onDirtyChange?: (dirty: boolean) => void;
   registerSave?: (fn: () => Promise<void>) => void;
+  onCreateLinkedInvoice?: () => void;
+  creatingLinked?: boolean;
 }) {
-  const [expanded, setExpanded] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [deleting, setDeleting] = useState(false);
   const [showDocumentPreview, setShowDocumentPreview] = useState(false);
   const [showFinalize, setShowFinalize] = useState(false);
   const [showAmend, setShowAmend] = useState(false);
@@ -4071,16 +4342,6 @@ function InvoiceCard({
     if (invoiceDirtyRef.current) void handleSaveRef.current();
   }, [saveTrigger]);
 
-  const handleDelete = async () => {
-    if (isReadOnly) return;
-    setDeleting(true);
-    const res = await deleteInvoice(shipmentId, invoice.id, accessToken);
-    if (isApiError(res)) toast.pushToast(res.message, "error");
-    else { toast.pushToast("Invoice deleted", "success"); onSaved({ refetch: "silent" }); }
-    setDeleting(false);
-    setConfirmDelete(false);
-  };
-
   const handleFinalize = async (note: string) => {
     if (invoiceDirty) {
       await doSave();
@@ -4115,109 +4376,121 @@ function InvoiceCard({
   };
 
   return (
-    <div className={styles.subItemCard}>
-      <div className={styles.subItemHeader} onClick={() => setExpanded((p) => !p)}>
-        <ChevronIcon open={expanded} />
-        <h3 className={styles.subItemTitle}>Invoice: {invoice.invoice_no || "(untitled)"}</h3>
-        <InvoiceStatusBadge status={invoice.status} />
-      </div>
-      {expanded && (
-        <div className={isReadOnly ? styles.readOnlyRegion : undefined}>
-        <div className={styles.subItemBody}>
-          <div className={styles.fieldGrid}>
-            <div className={styles.field}>
-              <label className={styles.fieldLabel}>Invoice No</label>
-              <input
-                className={`${styles.fieldInput} ${invoiceNumberError ? styles.fieldInputInvalid : ""}`}
-                value={form.invoice_no}
-                onChange={set("invoice_no")}
-                readOnly={isReadOnly}
-                disabled={isReadOnly}
-                aria-invalid={Boolean(invoiceNumberError)}
-                aria-describedby={invoiceNumberError ? `invoice-no-error-${invoice.id}` : undefined}
-              />
-              {invoiceNumberError ? (
-                <span id={`invoice-no-error-${invoice.id}`} className={styles.fieldError} role="alert">
-                  {invoiceNumberError}
-                </span>
-              ) : (
-                <span className={styles.fieldMuted}>Must be unique across all shipments.</span>
-              )}
-            </div>
-            <div className={styles.field}><label className={styles.fieldLabel}>Shipping instruction</label>
-              <select className={styles.fieldInput} value={form.shipping_instruction_id} onChange={set("shipping_instruction_id")} aria-label="Shipping instruction" disabled={isReadOnly}>
-                <option value="">— None —</option>
-                {shippingInstructions.map((si) => (
-                  <option key={si.id} value={si.id}>
-                    {shippingInstructionDisplayLabel(si)}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className={styles.field}><label className={styles.fieldLabel}>Invoice Date</label><input className={styles.fieldInput} type="date" value={form.invoice_date} onChange={set("invoice_date")} readOnly={isReadOnly} disabled={isReadOnly} /></div>
-            <div className={`${styles.field} ${styles.fieldFullRow}`}>
-              <label className={styles.fieldLabel}>Messrs</label>
-              <textarea
-                className={`${styles.fieldInput} ${styles.textareaInput}`}
-                value={form.messrs}
-                onChange={set("messrs")}
-                rows={3}
-                aria-label="Messrs"
-                readOnly={isReadOnly}
-                disabled={isReadOnly}
-              /></div>
-            <div className={styles.field}>
-              <label className={styles.fieldLabel}>Vessel / Voyage</label>
-              <input
-                className={`${styles.fieldInput} ${styles.fieldInputReadonly}`}
-                readOnly
-                value={vesselVoyageDisplay}
-                title="From vessel and voyage in General Information"
-              />
-            </div>
-            <div className={styles.field}>
-              <label className={styles.fieldLabel}>Load Port</label>
-              <input
-                className={`${styles.fieldInput} ${styles.fieldInputReadonly}`}
-                readOnly
-                value={loadPortDisplay}
-                title="From load port in General Information"
-              />
-            </div>
-            <div className={styles.field}>
-              <label className={styles.fieldLabel}>Destination</label>
-              <input
-                className={`${styles.fieldInput} ${styles.fieldInputReadonly}`}
-                readOnly
-                value={destinationDisplay}
-                title="From destination port / country on Cargo Lines"
-              />
-            </div>
-            <div className={styles.field}><label className={styles.fieldLabel}>Marks</label><input className={styles.fieldInput} value={form.marks} onChange={set("marks")} readOnly={isReadOnly} disabled={isReadOnly} /></div>
+    <>
+      <div className={`${styles.siWorkspaceScroll} ${isReadOnly ? styles.readOnlyRegion : ""}`}>
+        <div className={`${styles.fieldGrid} ${styles.fieldGridSi}`}>
+          <div className={styles.field}>
+            <label className={styles.fieldLabel}>Invoice No</label>
+            <input
+              className={`${styles.fieldInput} ${invoiceNumberError ? styles.fieldInputInvalid : ""}`}
+              value={form.invoice_no}
+              onChange={set("invoice_no")}
+              readOnly={isReadOnly}
+              disabled={isReadOnly}
+              aria-invalid={Boolean(invoiceNumberError)}
+              aria-describedby={invoiceNumberError ? `invoice-no-error-${invoice.id}` : undefined}
+            />
+            {invoiceNumberError ? (
+              <span id={`invoice-no-error-${invoice.id}`} className={styles.fieldError} role="alert">
+                {invoiceNumberError}
+              </span>
+            ) : (
+              <span className={styles.fieldMuted}>Must be unique across all shipments.</span>
+            )}
           </div>
-          {!siSelected ? (
-            <p className={styles.emptyMsg}>
-              Select a <strong>shipping instruction</strong> above to view line items: description of goods, quantity,
-              unit, and unit price.
-            </p>
-          ) : (
-            <>
-              <div className={styles.sectionGroupLabel}>Invoice lines</div>
-              {invoiceQtySummary && (
-                <p className={styles.fieldMuted} role="status">
-                  Shipping instruction total: {formatNumericDisplay(invoiceQtySummary.siTotal)} MT — invoiced:{" "}
-                  {formatNumericDisplay(invoiceQtySummary.invoiced)} MT
-                  {!invoiceQtySummary.matched &&
-                    ` (${formatNumericDisplay(invoiceQtySummary.remaining)} MT remaining)`}
-                </p>
-              )}
-              {lineDrafts.length === 0 ? (
-                <p className={styles.emptyMsg}>
-                  No invoice lines yet. Use <strong>+ Add line</strong> below, or add cargo lines on the linked shipping instruction
-                  first.
-                </p>
-              ) : (
-                lineDrafts.map((d, idx) => {
+          <div className={styles.field}>
+            <label className={styles.fieldLabel}>Shipping instruction</label>
+            <select
+              className={styles.fieldInput}
+              value={form.shipping_instruction_id}
+              onChange={set("shipping_instruction_id")}
+              aria-label="Shipping instruction"
+              disabled={isReadOnly}
+            >
+              <option value="">— None —</option>
+              {shippingInstructions.map((si) => (
+                <option key={si.id} value={si.id}>
+                  {shippingInstructionDisplayLabel(si)}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className={styles.field}>
+            <label className={styles.fieldLabel}>Invoice Date</label>
+            <input
+              className={styles.fieldInput}
+              type="date"
+              value={form.invoice_date}
+              onChange={set("invoice_date")}
+              readOnly={isReadOnly}
+              disabled={isReadOnly}
+            />
+          </div>
+          <div className={styles.field}>
+            <label className={styles.fieldLabel}>Marks</label>
+            <input
+              className={styles.fieldInput}
+              value={form.marks}
+              onChange={set("marks")}
+              readOnly={isReadOnly}
+              disabled={isReadOnly}
+            />
+          </div>
+          <div className={`${styles.field} ${styles.fieldSiFull}`}>
+            <label className={styles.fieldLabel}>Messrs</label>
+            <textarea
+              className={`${styles.fieldInput} ${styles.textareaInput} ${styles.textareaCompact}`}
+              value={form.messrs}
+              onChange={set("messrs")}
+              rows={3}
+              aria-label="Messrs"
+              readOnly={isReadOnly}
+              disabled={isReadOnly}
+            />
+          </div>
+          <div className={styles.field}>
+            <label className={styles.fieldLabel}>Vessel / Voyage</label>
+            <input
+              className={`${styles.fieldInput} ${styles.fieldInputReadonly}`}
+              readOnly
+              value={vesselVoyageDisplay}
+              title="From vessel and voyage in General Information"
+            />
+          </div>
+          <div className={styles.field}>
+            <label className={styles.fieldLabel}>Load Port</label>
+            <input
+              className={`${styles.fieldInput} ${styles.fieldInputReadonly}`}
+              readOnly
+              value={loadPortDisplay}
+              title="From load port in General Information"
+            />
+          </div>
+          <div className={`${styles.field} ${styles.fieldSiFull}`}>
+            <label className={styles.fieldLabel}>Destination</label>
+            <input
+              className={`${styles.fieldInput} ${styles.fieldInputReadonly}`}
+              readOnly
+              value={destinationDisplay}
+              title="From destination port / country on Cargo Lines"
+            />
+          </div>
+        </div>
+        {!siSelected ? (
+          <p className={styles.emptyMsg}>
+            Select a <strong>shipping instruction</strong> above to view line items: description of goods, quantity,
+            unit, and unit price.
+          </p>
+        ) : (
+          <>
+            <div className={styles.sectionGroupLabel}>Invoice lines</div>
+            {lineDrafts.length === 0 ? (
+              <p className={styles.emptyMsg}>
+                No invoice lines yet. Use <strong>+ Add line</strong> below, or add cargo lines on the linked shipping instruction
+                first.
+              </p>
+            ) : (
+              lineDrafts.map((d, idx) => {
                   const line = displayLines[idx];
                   if (!line) return null;
                   const effCargoId = (d.cargo_line_id ?? "").trim() || null;
@@ -4355,95 +4628,108 @@ function InvoiceCard({
                     </div>
                   );
                 })
+            )}
+            <div className={styles.siCargoMetaBar}>
+              {invoiceQtySummary && (
+                <span
+                  className={`${styles.siCargoMetaBadge} ${!invoiceQtySummary.matched ? styles.siCargoMetaBadgeWarn : ""}`}
+                  role="status"
+                >
+                  <strong>SI allocation:</strong>{" "}
+                  {formatNumericDisplay(invoiceQtySummary.invoiced)} / {formatNumericDisplay(invoiceQtySummary.siTotal)} MT
+                  {!invoiceQtySummary.matched && (
+                    <> · {formatNumericDisplay(invoiceQtySummary.remaining)} MT remaining</>
+                  )}
+                </span>
+              )}
+              {selectedShippingInstruction && (
+                <span className={styles.siCargoMetaBadge}>
+                  <strong>Linked SI:</strong> {shippingInstructionDisplayLabel(selectedShippingInstruction)}
+                </span>
               )}
               {!isReadOnly && (
-              <div className={styles.siLineToolbar}>
                 <button
                   type="button"
-                  className={styles.btnSecondary}
+                  className={`${styles.btnSecondary} ${styles.siCargoAddBtn}`}
                   onClick={addInvoiceLine}
                   disabled={shipment.cargo_lines.length === 0}
                 >
                   + Add line
                 </button>
-                {shipment.cargo_lines.length === 0 && (
-                  <span className={styles.fieldMuted}>Add cargo in section C first.</span>
-                )}
-              </div>
               )}
-            </>
-          )}
+              {shipment.cargo_lines.length === 0 && (
+                <span className={styles.siCargoMetaHint}>Add cargo in section C first.</span>
+              )}
+              {!isReadOnly && onCreateLinkedInvoice && (
+                <button
+                  type="button"
+                  className={styles.btnSecondary}
+                  onClick={onCreateLinkedInvoice}
+                  disabled={creatingLinked}
+                >
+                  {creatingLinked ? "Creating…" : "+ Add invoice for this SI"}
+                </button>
+              )}
+            </div>
+          </>
+        )}
+      </div>
 
-          <div className={styles.siDocumentPreviewActions}>
+      <div className={styles.siWorkspaceFooter}>
+        <div className={`${styles.siDocumentPreviewActions} ${styles.siWorkspaceFooterPreview}`}>
+          <button
+            type="button"
+            className={styles.btnSecondary}
+            onClick={() => setShowDocumentPreview(true)}
+            disabled={lineDrafts.length === 0}
+          >
+            Preview invoice
+          </button>
+          <span className={styles.fieldMuted}>Printable commercial invoice.</span>
+        </div>
+        <div className={styles.actions}>
+          {!isReadOnly && (
+            <button className={styles.btnPrimary} onClick={handleSave} disabled={saving || !invoiceDirty || Boolean(invoiceNumberError)}>
+              {saving ? "Saving…" : "Save draft"}
+            </button>
+          )}
+          {!isReadOnly && (
             <button
               type="button"
               className={styles.btnSecondary}
-              onClick={() => setShowDocumentPreview(true)}
-              disabled={lineDrafts.length === 0}
+              onClick={() => setShowFinalize(true)}
+              disabled={!canFinalize || finalizing}
+              title={
+                selectedShippingInstruction && invoiceQtySummary && !invoiceQtySummary.matched
+                  ? "Shipping instruction must be fully allocated across all invoices before finalizing"
+                  : invoiceDirty
+                    ? "Save draft first"
+                    : undefined
+              }
             >
-              Preview invoice
+              Finalize…
             </button>
-            <span className={styles.fieldMuted}>
-              Printable commercial invoice. Add lines and save before printing if others need the latest server copy.
-            </span>
-          </div>
-
-          <div className={styles.actions}>
-            {!isReadOnly && (
-              <button className={styles.btnPrimary} onClick={handleSave} disabled={saving || !invoiceDirty || Boolean(invoiceNumberError)}>
-                {saving ? "Saving…" : "Save draft"}
+          )}
+          {isReadOnly && (
+            <>
+              <button type="button" className={styles.btnSecondary} onClick={() => setShowDiff(true)}>
+                Draft → final changes
               </button>
-            )}
-            {!isReadOnly && (
-              <button
-                type="button"
-                className={styles.btnSecondary}
-                onClick={() => setShowFinalize(true)}
-                disabled={!canFinalize || finalizing}
-                title={
-                  selectedShippingInstruction && invoiceQtySummary && !invoiceQtySummary.matched
-                    ? "Shipping instruction must be fully allocated across all invoices before finalizing"
-                    : invoiceDirty
-                      ? "Save draft first"
-                      : undefined
-                }
-              >
-                Finalize…
-              </button>
-            )}
-            {isReadOnly && (
-              <>
-                <button type="button" className={styles.btnSecondary} onClick={() => setShowDiff(true)}>
-                  Draft → final changes
-                </button>
-                <button type="button" className={styles.btnSecondary} onClick={() => setShowAudit(true)}>
-                  Audit trail
-                </button>
-                <button type="button" className={styles.btnSecondary} onClick={() => setShowAmend(true)}>
-                  Amend…
-                </button>
-              </>
-            )}
-            {!isReadOnly && (
               <button type="button" className={styles.btnSecondary} onClick={() => setShowAudit(true)}>
-                History
+                Audit trail
               </button>
-            )}
-            {!isReadOnly && (confirmDelete ? (
-              <div className={styles.inlineConfirm}>
-                <span>Delete this invoice?</span>
-                <button className={styles.btnDanger} onClick={handleDelete} disabled={deleting}>
-                  {deleting ? "Deleting…" : "Yes, delete"}
-                </button>
-                <button className={styles.btnSecondary} onClick={() => setConfirmDelete(false)}>Cancel</button>
-              </div>
-            ) : (
-              <button className={styles.btnDanger} onClick={() => setConfirmDelete(true)}>Delete Invoice</button>
-            ))}
-          </div>
+              <button type="button" className={styles.btnSecondary} onClick={() => setShowAmend(true)}>
+                Amend…
+              </button>
+            </>
+          )}
+          {!isReadOnly && (
+            <button type="button" className={styles.btnSecondary} onClick={() => setShowAudit(true)}>
+              History
+            </button>
+          )}
         </div>
-        </div>
-      )}
+      </div>
 
       <Modal
         open={showDocumentPreview}
@@ -4554,7 +4840,7 @@ function InvoiceCard({
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
 
@@ -4572,13 +4858,42 @@ function PackingListSection({
 }: SectionProps) {
   const { setCardDirty, registerSave } = useAggregatedSectionSave("packing", saveTrigger, onDirtyChange);
   const [creating, setCreating] = useState(false);
+  const [activePlId, setActivePlId] = useState(() => data.packing_lists[0]?.id ?? "");
+  const [dirtyTabIds, setDirtyTabIds] = useState<Set<string>>(() => new Set());
+  const [deleteTarget, setDeleteTarget] = useState<DocDeleteTarget>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const packingLists = data.packing_lists;
 
   const usedSiIds = useMemo(
-    () => siIdsUsedInOtherPackingLists(data.packing_lists, ""),
-    [data.packing_lists],
+    () => siIdsUsedInOtherPackingLists(packingLists, ""),
+    [packingLists],
   );
   const maxPackingLists = data.shipping_instructions.length;
-  const canAddPackingList = maxPackingLists > 0 && data.packing_lists.length < maxPackingLists;
+  const canAddPackingList = maxPackingLists > 0 && packingLists.length < maxPackingLists;
+
+  useEffect(() => {
+    if (!packingLists.length) {
+      setActivePlId("");
+      return;
+    }
+    if (!packingLists.some((pl) => pl.id === activePlId)) {
+      setActivePlId(packingLists[packingLists.length - 1]?.id ?? "");
+    }
+  }, [packingLists, activePlId]);
+
+  const handleCardDirty = useCallback(
+    (id: string, dirty: boolean) => {
+      setCardDirty(id, dirty);
+      setDirtyTabIds((prev) => {
+        const next = new Set(prev);
+        if (dirty) next.add(id);
+        else next.delete(id);
+        return next;
+      });
+    },
+    [setCardDirty],
+  );
 
   const handleCreate = async () => {
     if (maxPackingLists === 0) {
@@ -4597,9 +4912,33 @@ function PackingListSection({
     };
     const res = await createPackingList(data.id, body, accessToken);
     if (isApiError(res)) toast.pushToast(res.message, "error");
-    else { toast.pushToast("Packing list created", "success"); onSaved({ refetch: "silent" }); }
+    else {
+      toast.pushToast("Packing list created", "success");
+      if (res.data?.id) setActivePlId(res.data.id);
+      onSaved({ refetch: "silent" });
+    }
     setCreating(false);
   };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    const res = await deletePackingList(data.id, deleteTarget.id, accessToken);
+    if (isApiError(res)) toast.pushToast(res.message, "error");
+    else {
+      toast.pushToast("Packing list deleted", "success");
+      setDirtyTabIds((prev) => {
+        const next = new Set(prev);
+        next.delete(deleteTarget.id);
+        return next;
+      });
+      onSaved({ refetch: "silent" });
+    }
+    setDeleting(false);
+    setDeleteTarget(null);
+  };
+
+  const showPackingShell = maxPackingLists > 0 || packingLists.length > 0;
 
   return (
     <SectionShell
@@ -4608,58 +4947,101 @@ function PackingListSection({
       anchorId="export-section-packing"
       open={open}
       onToggle={onToggle}
-      actions={
-        <button
-          className={styles.btnSecondary}
-          onClick={handleCreate}
-          disabled={creating || !canAddPackingList}
-          title={
-            maxPackingLists === 0
-              ? "Add a shipping instruction first"
-              : !canAddPackingList
-                ? `All ${maxPackingLists} shipping instructions already have a packing list`
-                : `${data.packing_lists.length} of ${maxPackingLists} packing lists`
-          }
-        >
-          {creating ? "Creating…" : "+ Add Packing List"}
-        </button>
-      }
     >
-      {data.packing_lists.length === 0 ? (
+      {!showPackingShell ? (
         <p className={styles.emptyMsg}>
-          No packing lists. Add one per shipping instruction — quantity follows the linked shipping instruction.
+          No packing lists. Add a shipping instruction first — then one packing list per shipping instruction.
         </p>
       ) : (
-        <>
-          {maxPackingLists > 0 && (
-            <p className={styles.fieldMuted}>
-              {data.packing_lists.length} of {maxPackingLists} packing list{maxPackingLists === 1 ? "" : "s"} (one per shipping instruction).
-            </p>
-          )}
-          {data.packing_lists.map((pl) => (
-          <PackingListCard
-            key={pl.id}
-            packingList={pl}
-            allPackingLists={data.packing_lists}
-            shippingInstructions={data.shipping_instructions}
-            shipmentId={data.id}
-            shipment={data}
-            cargoLines={data.cargo_lines}
-            accessToken={accessToken}
-            onSaved={onSaved}
-            toast={toast}
-            saveTrigger={saveTrigger}
-            onDirtyChange={(dirty) => setCardDirty(pl.id, dirty)}
-            registerSave={(fn) => registerSave(pl.id, fn)}
-          />
-        ))}
-        </>
+        <div className={styles.siShell}>
+          <nav className={styles.siSidebar} aria-label="Packing lists">
+            <ul className={styles.siNavList} role="tablist">
+              {packingLists.map((pl) => (
+                <DocSidebarNavItem
+                  key={pl.id}
+                  tabId={`pl-tab-${pl.id}`}
+                  panelId={`pl-panel-${pl.id}`}
+                  label={packingListNavTabLabel(pl)}
+                  status={pl.status?.trim() || "Draft"}
+                  isActive={pl.id === activePlId}
+                  isDirty={dirtyTabIds.has(pl.id)}
+                  onSelect={() => setActivePlId(pl.id)}
+                  onDelete={() => setDeleteTarget({ id: pl.id, label: packingListNavTabLabel(pl) })}
+                />
+              ))}
+            </ul>
+            <div className={styles.siSidebarAdd}>
+              <button
+                type="button"
+                className={styles.siSidebarAddBtn}
+                onClick={handleCreate}
+                disabled={creating || !canAddPackingList}
+                title={
+                  maxPackingLists === 0
+                    ? "Add a shipping instruction first"
+                    : !canAddPackingList
+                      ? `All ${maxPackingLists} shipping instructions already have a packing list`
+                      : `${packingLists.length} of ${maxPackingLists} packing lists`
+                }
+              >
+                {creating ? "Creating…" : "+ Add Packing List"}
+              </button>
+            </div>
+          </nav>
+          <div className={styles.siWorkspace}>
+            {packingLists.length === 0 ? (
+              <div className={styles.siWorkspaceEmpty}>
+                <p className={styles.emptyMsg}>No packing lists yet. Use &ldquo;+ Add Packing List&rdquo; in the sidebar.</p>
+                {maxPackingLists > 0 && (
+                  <p className={styles.fieldMuted}>
+                    Up to {maxPackingLists} packing list{maxPackingLists === 1 ? "" : "s"} — one per shipping instruction.
+                  </p>
+                )}
+              </div>
+            ) : (
+              packingLists.map((pl) => (
+                <div
+                  key={pl.id}
+                  id={`pl-panel-${pl.id}`}
+                  role="tabpanel"
+                  aria-labelledby={`pl-tab-${pl.id}`}
+                  className={pl.id === activePlId ? styles.siWorkspacePane : styles.siWorkspacePaneHidden}
+                  hidden={pl.id !== activePlId}
+                >
+                  <PackingListFormWorkspace
+                    packingList={pl}
+                    allPackingLists={packingLists}
+                    shippingInstructions={data.shipping_instructions}
+                    shipmentId={data.id}
+                    shipment={data}
+                    cargoLines={data.cargo_lines}
+                    accessToken={accessToken}
+                    onSaved={onSaved}
+                    toast={toast}
+                    saveTrigger={saveTrigger}
+                    onDirtyChange={(dirty) => handleCardDirty(pl.id, dirty)}
+                    registerSave={(fn) => registerSave(pl.id, fn)}
+                  />
+                </div>
+              ))
+            )}
+          </div>
+        </div>
       )}
+
+      <DocDeleteConfirmModal
+        open={deleteTarget != null}
+        entityName="packing list"
+        label={deleteTarget?.label ?? ""}
+        deleting={deleting}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={() => void handleConfirmDelete()}
+      />
     </SectionShell>
   );
 }
 
-function PackingListCard({
+function PackingListFormWorkspace({
   packingList,
   allPackingLists,
   shippingInstructions,
@@ -4686,10 +5068,7 @@ function PackingListCard({
   onDirtyChange?: (dirty: boolean) => void;
   registerSave?: (fn: () => Promise<void>) => void;
 }) {
-  const [expanded, setExpanded] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [deleting, setDeleting] = useState(false);
   const [showDocumentPreview, setShowDocumentPreview] = useState(false);
 
   const [siId, setSiId] = useState(packingList.shipping_instruction_id ?? "");
@@ -4804,93 +5183,96 @@ function PackingListCard({
     if (plDirtyRef.current) void handleSaveRef.current();
   }, [saveTrigger]);
 
-  const handleDelete = async () => {
-    setDeleting(true);
-    const res = await deletePackingList(shipmentId, packingList.id, accessToken);
-    if (isApiError(res)) toast.pushToast(res.message, "error");
-    else { toast.pushToast("Packing list deleted", "success"); onSaved({ refetch: "silent" }); }
-    setDeleting(false);
-    setConfirmDelete(false);
-  };
-
   return (
-    <div className={styles.subItemCard}>
-      <div className={styles.subItemHeader} onClick={() => setExpanded((p) => !p)}>
-        <ChevronIcon open={expanded} />
-        <h3 className={styles.subItemTitle}>
-          Packing List: {packingList.packing_list_number || "(untitled)"}
-          {siHeaderLabel ? ` — ${siHeaderLabel}` : ""}
-        </h3>
-        <span className={styles.docStatusBadge}>{packingList.status}</span>
-      </div>
-      {expanded && (
-        <div className={styles.subItemBody}>
-          <div className={styles.fieldGrid}>
+    <>
+      <div className={styles.siWorkspaceScroll}>
+        {linkedSi && (
+          <p className={styles.siWorkspaceCargoHint}>
+            <span className={styles.siCargoLinkLabel}>Linked shipping instruction:</span>{" "}
+            <span className={styles.siCargoLinkEm}>
+              {shippingInstructionDisplayLabel(linkedSi)}
+              {siHeaderLabel ? ` (${siHeaderLabel})` : ""}
+            </span>
+          </p>
+        )}
+        <div className={`${styles.fieldGrid} ${styles.fieldGridSi}`}>
+          <div className={styles.field}>
+            <label className={styles.fieldLabel}>Packing List Number</label>
+            <input
+              className={`${styles.fieldInput} ${plNumberError ? styles.fieldInputInvalid : ""}`}
+              value={plNumber}
+              onChange={(e) => setPlNumber(e.target.value)}
+              aria-invalid={Boolean(plNumberError)}
+              aria-describedby={plNumberError ? `pl-number-error-${packingList.id}` : undefined}
+            />
+            {plNumberError ? (
+              <span id={`pl-number-error-${packingList.id}`} className={styles.fieldError} role="alert">
+                {plNumberError}
+              </span>
+            ) : (
+              <span className={styles.fieldMuted}>Must be unique across all shipments.</span>
+            )}
+          </div>
+          <div className={styles.field}>
+            <label className={styles.fieldLabel}>Shipping instruction</label>
+            <select
+              className={styles.fieldInput}
+              value={siId}
+              onChange={(e) => setSiId(e.target.value)}
+              aria-label="Shipping instruction for packing list"
+            >
+              <option value="">— Select shipping instruction —</option>
+              {shippingInstructions.map((si) => {
+                const used = otherUsedSiIds.has(si.id) && si.id !== siId.trim();
+                return (
+                  <option key={si.id} value={si.id} disabled={used}>
+                    {shippingInstructionDisplayLabel(si)}
+                    {used ? " (already has PL)" : ""}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+          <div className={styles.field}>
+            <label className={styles.fieldLabel}>Load Port</label>
+            <input
+              className={`${styles.fieldInput} ${styles.fieldInputReadonly}`}
+              readOnly
+              value={loadPortDisplay}
+              title="From general information (load port)"
+              aria-label="Load port from shipment"
+            />
+          </div>
+          {linkedSi && (
             <div className={styles.field}>
-              <label className={styles.fieldLabel}>Packing List Number</label>
-              <input
-                className={`${styles.fieldInput} ${plNumberError ? styles.fieldInputInvalid : ""}`}
-                value={plNumber}
-                onChange={(e) => setPlNumber(e.target.value)}
-                aria-invalid={Boolean(plNumberError)}
-                aria-describedby={plNumberError ? `pl-number-error-${packingList.id}` : undefined}
-              />
-              {plNumberError ? (
-                <span id={`pl-number-error-${packingList.id}`} className={styles.fieldError} role="alert">
-                  {plNumberError}
-                </span>
-              ) : (
-                <span className={styles.fieldMuted}>Must be unique across all shipments.</span>
-              )}
-            </div>
-            <div className={styles.field}>
-              <label className={styles.fieldLabel}>Shipping instruction</label>
-              <select
-                className={styles.fieldInput}
-                value={siId}
-                onChange={(e) => setSiId(e.target.value)}
-                aria-label="Shipping instruction for packing list"
-              >
-                <option value="">— Select shipping instruction —</option>
-                {shippingInstructions.map((si) => {
-                  const used = otherUsedSiIds.has(si.id) && si.id !== siId.trim();
-                  return (
-                    <option key={si.id} value={si.id} disabled={used}>
-                      {shippingInstructionDisplayLabel(si)}
-                      {used ? " (already has PL)" : ""}
-                    </option>
-                  );
-                })}
-              </select>
-            </div>
-            <div className={styles.field}>
-              <label className={styles.fieldLabel}>Load Port</label>
+              <label className={styles.fieldLabel}>Shipping instruction total qty</label>
               <input
                 className={`${styles.fieldInput} ${styles.fieldInputReadonly}`}
                 readOnly
-                value={loadPortDisplay}
-                title="From general information (load port)"
-                aria-label="Load port from shipment"
+                value={`${formatNumericDisplay(siTotalQuantity(linkedSi))} MT`}
+                title="Read-only — follows shipping instruction"
               />
             </div>
-            {linkedSi && (
-              <div className={styles.field}>
-                <label className={styles.fieldLabel}>Shipping instruction total qty</label>
-                <input
-                  className={`${styles.fieldInput} ${styles.fieldInputReadonly}`}
-                  readOnly
-                  value={`${formatNumericDisplay(siTotalQuantity(linkedSi))} MT`}
-                  title="Read-only — follows shipping instruction"
-                />
-              </div>
-            )}
-          </div>
-          <div className={styles.sectionGroupLabel}>Lines (from shipping instruction)</div>
-          {!siId.trim() ? (
-            <p className={styles.emptyMsg}>Select a shipping instruction above.</p>
-          ) : !linkedSi?.lines?.length ? (
-            <p className={styles.emptyMsg}>Linked shipping instruction has no cargo lines.</p>
-          ) : (
+          )}
+        </div>
+
+        <div className={styles.sectionGroupLabel}>Lines (from shipping instruction)</div>
+        {!siId.trim() ? (
+          <p className={styles.emptyMsg}>Select a shipping instruction above.</p>
+        ) : !linkedSi?.lines?.length ? (
+          <p className={styles.emptyMsg}>Linked shipping instruction has no cargo lines.</p>
+        ) : (
+          <>
+            <div className={styles.siCargoMetaBar}>
+              <span className={styles.siCargoMetaBadge} role="status">
+                <strong>Lines:</strong> {lineDrafts.length}
+              </span>
+              {linkedSi && (
+                <span className={styles.siCargoMetaBadge}>
+                  <strong>SI total:</strong> {formatNumericDisplay(siTotalQuantity(linkedSi))} MT
+                </span>
+              )}
+            </div>
             <div className={styles.cargoTableWrap}>
               <table className={styles.cargoSpreadsheet}>
                 <colgroup>
@@ -4947,40 +5329,28 @@ function PackingListCard({
                 </tbody>
               </table>
             </div>
-          )}
+          </>
+        )}
+      </div>
 
-          <div className={styles.siDocumentPreviewActions}>
-            <button
-              type="button"
-              className={styles.btnSecondary}
-              onClick={() => setShowDocumentPreview(true)}
-              disabled={!canPreviewPackingList}
-            >
-              Preview packing list
-            </button>
-            <span className={styles.fieldMuted}>
-              One packing list per cargo line. Save before printing if others need the latest server copy.
-            </span>
-          </div>
-
-          <div className={styles.actions}>
-            <button className={styles.btnPrimary} onClick={handleSave} disabled={saving || !plDirty || Boolean(plNumberError)}>
-              {saving ? "Saving…" : "Save Packing List"}
-            </button>
-            {confirmDelete ? (
-              <div className={styles.inlineConfirm}>
-                <span>Delete this packing list?</span>
-                <button className={styles.btnDanger} onClick={handleDelete} disabled={deleting}>
-                  {deleting ? "Deleting…" : "Yes, delete"}
-                </button>
-                <button className={styles.btnSecondary} onClick={() => setConfirmDelete(false)}>Cancel</button>
-              </div>
-            ) : (
-              <button className={styles.btnDanger} onClick={() => setConfirmDelete(true)}>Delete Packing List</button>
-            )}
-          </div>
+      <div className={styles.siWorkspaceFooter}>
+        <div className={`${styles.siDocumentPreviewActions} ${styles.siWorkspaceFooterPreview}`}>
+          <button
+            type="button"
+            className={styles.btnSecondary}
+            onClick={() => setShowDocumentPreview(true)}
+            disabled={!canPreviewPackingList}
+          >
+            Preview packing list
+          </button>
+          <span className={styles.fieldMuted}>One packing list per cargo line.</span>
         </div>
-      )}
+        <div className={styles.actions}>
+          <button className={styles.btnPrimary} onClick={handleSave} disabled={saving || !plDirty || Boolean(plNumberError)}>
+            {saving ? "Saving…" : "Save Packing List"}
+          </button>
+        </div>
+      </div>
 
       <Modal
         open={showDocumentPreview}
@@ -4995,7 +5365,7 @@ function PackingListCard({
       >
         <PackingListDocument data={previewPackingList} />
       </Modal>
-    </div>
+    </>
   );
 }
 
@@ -5227,8 +5597,10 @@ function DataSapSection(props: SectionProps & { open: boolean; onToggle: () => v
     () => buildSapLineDrafts(data, formatQuantityFieldValue),
     [data],
   );
+  const getOrigSpr = useCallback(() => resolveShipmentSpr(data), [data]);
 
   const [lines, setLines] = useState<SapLineDraft[]>(getOrigLines);
+  const [spr, setSpr] = useState(getOrigSpr);
   const [saving, setSaving] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const isDirtyRef = useRef(false);
@@ -5237,14 +5609,16 @@ function DataSapSection(props: SectionProps & { open: boolean; onToggle: () => v
 
   useEffect(() => {
     setLines(getOrigLines());
-  }, [getOrigLines]);
+    setSpr(getOrigSpr());
+  }, [getOrigLines, getOrigSpr]);
 
   useEffect(() => {
-    const dirty = JSON.stringify(lines) !== JSON.stringify(getOrigLines());
+    const dirty =
+      JSON.stringify(lines) !== JSON.stringify(getOrigLines()) || spr !== getOrigSpr();
     isDirtyRef.current = dirty;
     setIsDirty(dirty);
     onDirtyChange(sectionKey, dirty);
-  }, [lines, getOrigLines, onDirtyChange]);
+  }, [lines, spr, getOrigLines, getOrigSpr, onDirtyChange]);
 
   const updateLine = (idx: number, patch: Partial<SapLineDraft>) =>
     setLines((prev) => prev.map((row, i) => (i === idx ? { ...row, ...patch } : row)));
@@ -5252,14 +5626,20 @@ function DataSapSection(props: SectionProps & { open: boolean; onToggle: () => v
   const handleSave = useCallback(async () => {
     setSaving(true);
     const payload = sapDraftsToUpsertPayload(lines, parseQuantityInput);
-    const res = await upsertSapLines(data.id, payload, accessToken);
+    const res = await upsertSapLines(data.id, payload, accessToken, {
+      spr: spr.trim() || null,
+    });
     if (isApiError(res)) toast.pushToast(res.message, "error");
     else {
       toast.pushToast("Data SAP saved", "success");
-      onSaved({ sap_lines: res.data, refetch: "none" });
+      onSaved({
+        sap_lines: res.data,
+        patch: { spr: spr.trim() || null },
+        refetch: "none",
+      });
     }
     setSaving(false);
-  }, [data.id, lines, accessToken, toast, onSaved]);
+  }, [data.id, lines, spr, accessToken, toast, onSaved]);
 
   const handleSaveRef = useRef(handleSave);
   handleSaveRef.current = handleSave;
@@ -5279,13 +5659,14 @@ function DataSapSection(props: SectionProps & { open: boolean; onToggle: () => v
     >
       <Card>
         <p className={styles.fieldMuted} style={{ marginTop: 0, marginBottom: 12 }}>
-          One row per sales order (SO) from invoice lines. Add SO numbers on invoices in Step 1 first.
+          One row per sales order (SO) from invoice lines. SPR is one value per shipment.
         </p>
         {invoiceSos.length === 0 ? (
           <p className={styles.emptyMsg}>
             No sales orders yet. Enter SO numbers on invoice lines under Pre-shipment Documents.
           </p>
         ) : (
+          <>
           <div className={styles.sapTableWrap}>
             <table className={styles.sapTable}>
               <thead>
@@ -5294,7 +5675,6 @@ function DataSapSection(props: SectionProps & { open: boolean; onToggle: () => v
                   <th scope="col">Quantity SPB</th>
                   <th scope="col">SPB</th>
                   <th scope="col">Delivery Order PGI</th>
-                  <th scope="col">SPR</th>
                 </tr>
               </thead>
               <tbody>
@@ -5333,20 +5713,26 @@ function DataSapSection(props: SectionProps & { open: boolean; onToggle: () => v
                         aria-label={`Delivery Order PGI for SO ${row.so_no}`}
                       />
                     </td>
-                    <td>
-                      <input
-                        className={styles.sapInput}
-                        type="text"
-                        value={row.spr}
-                        onChange={(e) => updateLine(idx, { spr: e.target.value })}
-                        aria-label={`SPR for SO ${row.so_no}`}
-                      />
-                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          <div className={styles.sapSprField}>
+            <label className={styles.fieldLabel} htmlFor="data-sap-spr">
+              SPR
+            </label>
+            <input
+              id="data-sap-spr"
+              className={styles.fieldInput}
+              type="text"
+              value={spr}
+              onChange={(e) => setSpr(e.target.value)}
+              aria-label="SPR for this shipment"
+            />
+            <span className={styles.fieldMuted}>One SPR per shipment — shared across all SOs.</span>
+          </div>
+          </>
         )}
         <div className={styles.actions}>
           <button
@@ -6216,7 +6602,7 @@ function DocProgressBar({ data }: { data: ExportBulkingShipmentDetail }) {
         : styles.docBarLow;
 
   return (
-    <div className={styles.docProgressWrap} aria-label={`Documentation progress ${summary.percent}%`}>
+    <div className={styles.docProgressWrap} data-tour="export-bulking-doc-progress" aria-label={`Documentation progress ${summary.percent}%`}>
       <div className={styles.docProgressHeader}>
         <span className={styles.docProgressTitle}>Documentation Progress</span>
         <span className={styles.docProgressMeta}>
@@ -6397,57 +6783,49 @@ function calcActualDemurrageAmount(
 
 // ─── Loading Section (custom — includes per-cargo quantity reconciliation) ────
 
-interface LocalReconciliationLine {
-  id: string;
-  cargo_name: string;
-  item_description: string;
-  quantity_delivered: string;
-  bl_figure: string;
-  ship_figure: string;
-}
-
-function cargoToReconciliation(c: CargoLine): LocalReconciliationLine {
+function cargoToReconciliation(c: CargoLine): ReconciliationLineDraft {
   return {
     id: c.id,
     cargo_name: c.cargo_name ?? "",
     item_description: c.item_description ?? "",
-    quantity_delivered: formatQuantityFieldValue(c.quantity_delivered),
-    bl_figure: formatQuantityFieldValue(c.bl_figure),
+    shore_figure: formatQuantityFieldValue(c.quantity_delivered),
     ship_figure: formatQuantityFieldValue(c.ship_figure),
+    remarks: c.reconciliation_remarks ?? "",
   };
-}
-
-function calcCargoDiff(bl: string, ship: string): number | null {
-  const blNum = parseQuantityInput(bl);
-  const shipNum = parseQuantityInput(ship);
-  if (blNum == null || shipNum == null) return null;
-  return shipNum - blNum;
-}
-
-function calcCargoDiffPct(diff: number | null, bl: string): number | null {
-  const blNum = parseQuantityInput(bl);
-  if (diff == null || blNum == null || blNum === 0) return null;
-  return (diff / blNum) * 100;
 }
 
 function LoadingSection({
   data, accessToken, open, onToggle, onSaved, toast, saveTrigger, onDirtyChange,
 }: SectionProps) {
   const sectionKey = "loading";
+  const [commodityList, setCommodityList] = useState<Commodity[]>([]);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    listCommodities(accessToken).then((res) => {
+      if (!isApiError(res)) setCommodityList((res as { data: Commodity[] }).data ?? []);
+    });
+  }, [accessToken]);
+
+  const hasLiquidCargo = useMemo(
+    () => shipmentHasLiquidCargo(data.cargo_lines, commodityList),
+    [data.cargo_lines, commodityList],
+  );
 
   const actualLaytimeStart = useMemo(
     () => calcActualLaytimeStart(data.ata, data.atb, data.nor, data.laycan_from, data.laycan_to),
     [data.ata, data.atb, data.nor, data.laycan_from, data.laycan_to],
   );
   const actualLaytimeEnd = useMemo(
-    () => calcActualLaytimeEnd(actualLaytimeStart, data.total_quantity, data.laytime_rate_mtph),
-    [actualLaytimeStart, data.total_quantity, data.laytime_rate_mtph],
+    () => calcActualLaytimeEnd(actualLaytimeStart, resolveShipmentTotalQuantity(data), data.laytime_rate_mtph),
+    [actualLaytimeStart, data.cargo_lines, data.total_quantity, data.laytime_rate_mtph],
   );
 
-  const getOrigLoading = useCallback(() => ({
+  const getOrigLoading = useCallback((): LoadingDatetimeForm => ({
     commence_loading: toLocalDatetime(data.commence_loading),
     etc: toLocalDatetime(data.etc),
     atc: toLocalDatetime(data.atc),
+    hose_on: toLocalDatetime(data.hose_on),
     hose_off: toLocalDatetime(data.hose_off),
     npe_date: toLocalDatetime(data.npe_date),
   }), [data]);
@@ -6457,37 +6835,64 @@ function LoadingSection({
     [data.cargo_lines],
   );
 
+  const getOrigBlSource = useCallback(
+    (): ReconciliationBlSource => inferReconciliationBlSource(data.cargo_lines),
+    [data.cargo_lines],
+  );
+
   const [form, setForm] = useState(getOrigLoading);
-  const [reconciliationLines, setReconciliationLines] = useState<LocalReconciliationLine[]>(getOrigReconciliation);
+  const [reconciliationLines, setReconciliationLines] = useState<ReconciliationLineDraft[]>(getOrigReconciliation);
+  const [blSource, setBlSource] = useState<ReconciliationBlSource>(getOrigBlSource);
+  const [expandedRemarkIds, setExpandedRemarkIds] = useState<Set<string>>(() => new Set());
   const [saving, setSaving] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const isDirtyRef = useRef(false);
 
   useEffect(() => { setForm(getOrigLoading()); }, [getOrigLoading]);
-  useEffect(() => { setReconciliationLines(getOrigReconciliation()); }, [getOrigReconciliation]);
+  useEffect(() => {
+    setReconciliationLines(getOrigReconciliation());
+    setBlSource(getOrigBlSource());
+    setExpandedRemarkIds(new Set());
+  }, [getOrigReconciliation, getOrigBlSource]);
   useEffect(() => {
     const dirty =
       JSON.stringify(form) !== JSON.stringify(getOrigLoading()) ||
-      JSON.stringify(reconciliationLines) !== JSON.stringify(getOrigReconciliation());
+      JSON.stringify(reconciliationLines) !== JSON.stringify(getOrigReconciliation()) ||
+      blSource !== getOrigBlSource();
     isDirtyRef.current = dirty;
     setIsDirty(dirty);
     onDirtyChange(sectionKey, dirty);
-  }, [form, reconciliationLines, getOrigLoading, getOrigReconciliation, onDirtyChange]);
+  }, [form, reconciliationLines, blSource, getOrigLoading, getOrigReconciliation, getOrigBlSource, onDirtyChange]);
 
-  const updateReconciliation = (idx: number, key: keyof LocalReconciliationLine, value: string) =>
-    setReconciliationLines((prev) => prev.map((row, i) => (i === idx ? { ...row, [key]: value } : row)));
+  const toggleRemarks = (lineId: string) => {
+    setExpandedRemarkIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(lineId)) next.delete(lineId);
+      else next.add(lineId);
+      return next;
+    });
+  };
 
   const handleSave = useCallback(async () => {
+    const validation = validateLoadingDatetimeForm(form);
+    setFieldErrors(validation);
+    if (Object.keys(validation).length > 0) {
+      toast.pushToast(Object.values(validation)[0] ?? "Fix loading date/time fields", "error");
+      return;
+    }
+
     setSaving(true);
     const body: Record<string, string | null> = {
       commence_loading: form.commence_loading ? new Date(form.commence_loading).toISOString() : null,
       etc: form.etc ? new Date(form.etc).toISOString() : null,
       atc: form.atc ? new Date(form.atc).toISOString() : null,
+      hose_on: hasLiquidCargo && form.hose_on ? new Date(form.hose_on).toISOString() : null,
       hose_off: form.hose_off ? new Date(form.hose_off).toISOString() : null,
       npe_date: form.npe_date ? new Date(form.npe_date).toISOString() : null,
     };
     const cargoPayload = reconciliationLines.map((row, idx) => {
       const orig = data.cargo_lines.find((c) => c.id === row.id);
+      const inheritedBl = resolveInheritedBlFigure(row, blSource);
       return {
         id: row.id,
         line_order: orig?.line_order ?? idx + 1,
@@ -6500,9 +6905,10 @@ function LoadingSection({
         country_area: orig?.country_area ?? null,
         pe_no: orig?.pe_no ?? null,
         pe_date: orig?.pe_date ?? null,
-        quantity_delivered: parseQuantityInput(row.quantity_delivered),
-        bl_figure: parseQuantityInput(row.bl_figure),
-        ship_figure: parseQuantityInput(row.ship_figure),
+        quantity_delivered: parseReconQuantityInput(row.shore_figure),
+        bl_figure: parseReconQuantityInput(inheritedBl),
+        ship_figure: parseReconQuantityInput(row.ship_figure),
+        reconciliation_remarks: row.remarks.trim() || null,
       };
     });
     const [shipmentRes, cargoRes] = await Promise.all([
@@ -6520,7 +6926,7 @@ function LoadingSection({
       });
     }
     setSaving(false);
-  }, [data.id, data.cargo_lines, form, reconciliationLines, accessToken, toast, onSaved]);
+  }, [data.id, data.cargo_lines, form, reconciliationLines, blSource, hasLiquidCargo, accessToken, toast, onSaved]);
 
   const handleSaveRef = useRef(handleSave);
   handleSaveRef.current = handleSave;
@@ -6529,105 +6935,61 @@ function LoadingSection({
     if (isDirtyRef.current) handleSaveRef.current();
   }, [saveTrigger]);
 
-  const set = (key: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setForm((prev) => ({ ...prev, [key]: e.target.value }));
+  const setLoadingField = (key: keyof LoadingDatetimeForm) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setForm((prev) => ({ ...prev, [key]: value }));
+    setFieldErrors((prev) => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
+
+  const renderLoadingDatetimeField = (
+    key: keyof LoadingDatetimeForm,
+    label: string,
+  ) => (
+    <div className={styles.field}>
+      <label className={styles.fieldLabel} htmlFor={`loading-${key}`}>{label}</label>
+      <input
+        id={`loading-${key}`}
+        className={`${styles.fieldInput}${fieldErrors[key] ? ` ${styles.fieldInputInvalid}` : ""}`}
+        type="datetime-local"
+        value={form[key]}
+        onChange={setLoadingField(key)}
+      />
+      {fieldErrors[key] ? <span className={styles.fieldError}>{fieldErrors[key]}</span> : null}
+    </div>
+  );
 
   return (
     <SectionShell title="Loading Operations" open={open} onToggle={onToggle} dirty={isDirty} anchorId="export-section-loading">
       <Card>
         <div className={styles.fieldGrid}>
-          <div className={styles.field}>
-            <label className={styles.fieldLabel}>Commence Loading</label>
-            <input className={styles.fieldInput} type="datetime-local" value={form.commence_loading} onChange={set("commence_loading")} />
-          </div>
-          <div className={styles.field}>
-            <label className={styles.fieldLabel}>ETC — Estimated Time of Completion</label>
-            <input className={styles.fieldInput} type="datetime-local" value={form.etc} onChange={set("etc")} />
-          </div>
-          <div className={styles.field}>
-            <label className={styles.fieldLabel}>ATC — Actual Time of Completion</label>
-            <input className={styles.fieldInput} type="datetime-local" value={form.atc} onChange={set("atc")} />
-          </div>
-          <div className={styles.field}>
-            <label className={styles.fieldLabel}>Hose Off</label>
-            <input className={styles.fieldInput} type="datetime-local" value={form.hose_off} onChange={set("hose_off")} />
-          </div>
-          <div className={styles.field}>
-            <label className={styles.fieldLabel}>NPE Date</label>
-            <input className={styles.fieldInput} type="datetime-local" value={form.npe_date} onChange={set("npe_date")} />
-          </div>
+          {renderLoadingDatetimeField("commence_loading", "Commence Loading")}
+          {renderLoadingDatetimeField("etc", "ETC — Estimated Time of Completion")}
+          {renderLoadingDatetimeField("atc", "ATC — Actual Time of Completion")}
+          {hasLiquidCargo ? renderLoadingDatetimeField("hose_on", "Hose On") : null}
+          {renderLoadingDatetimeField("hose_off", "Hose Off")}
+          {renderLoadingDatetimeField("npe_date", "NPE Date")}
         </div>
 
         <div className={styles.sectionGroupLabel}>Quantity Reconciliation</div>
+        <p className={styles.reconCautionHint}>
+          Diff % outside ±0.3% is highlighted as a caution.
+        </p>
         {reconciliationLines.length === 0 ? (
-          <p className={styles.emptyMsg}>No cargo lines yet. Add cargo in Shipment Planning first.</p>
+          <p className={styles.emptyMsg}>No cargo lines yet. Add cargo in the Document tab first.</p>
         ) : (
-          <div className={styles.reconTableWrap}>
-            <table className={styles.reconTable}>
-              <thead>
-                <tr>
-                  <th scope="col">Cargo</th>
-                  <th scope="col">B/L Figure (MT)</th>
-                  <th scope="col">Shore Figure (MT)</th>
-                  <th scope="col">Ship Figure (MT)</th>
-                  <th scope="col">Diff (MT)</th>
-                  <th scope="col">Diff %</th>
-                </tr>
-              </thead>
-              <tbody>
-                {reconciliationLines.map((row, idx) => {
-                  const diff = calcCargoDiff(row.bl_figure, row.ship_figure);
-                  const diffPct = calcCargoDiffPct(diff, row.bl_figure);
-                  return (
-                    <tr key={row.id}>
-                      <td className={styles.reconCargoCell}>
-                        <span className={styles.reconCargoName}>{row.cargo_name || `Cargo ${idx + 1}`}</span>
-                        {row.item_description && (
-                          <span className={styles.reconCargoDesc}>{row.item_description}</span>
-                        )}
-                      </td>
-                      <td>
-                        <input
-                          className={styles.reconInput}
-                          type="text"
-                          inputMode="decimal"
-                          value={row.quantity_delivered}
-                          onChange={(e) => updateReconciliation(idx, "quantity_delivered", e.target.value)}
-                          aria-label={`B/L Figure for ${row.cargo_name || `cargo ${idx + 1}`}`}
-                        />
-                      </td>
-                      <td>
-                        <input
-                          className={styles.reconInput}
-                          type="text"
-                          inputMode="decimal"
-                          value={row.bl_figure}
-                          onChange={(e) => updateReconciliation(idx, "bl_figure", e.target.value)}
-                          aria-label={`Shore Figure for ${row.cargo_name || `cargo ${idx + 1}`}`}
-                        />
-                      </td>
-                      <td>
-                        <input
-                          className={styles.reconInput}
-                          type="text"
-                          inputMode="decimal"
-                          value={row.ship_figure}
-                          onChange={(e) => updateReconciliation(idx, "ship_figure", e.target.value)}
-                          aria-label={`Ship Figure for ${row.cargo_name || `cargo ${idx + 1}`}`}
-                        />
-                      </td>
-                      <td>
-                        <span className={styles.reconReadonly}>{diff != null ? formatNumericDisplay(diff, 4) : "—"}</span>
-                      </td>
-                      <td>
-                        <span className={styles.reconReadonly}>{diffPct != null ? formatPercentDisplay(diffPct, 4) : "—"}</span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <QuantityReconciliationTable
+            lines={reconciliationLines}
+            blSource={blSource}
+            expandedRemarkIds={expandedRemarkIds}
+            onLinesChange={setReconciliationLines}
+            onBlSourceChange={setBlSource}
+            onToggleRemarks={toggleRemarks}
+          />
         )}
 
         <div className={styles.sectionGroupLabel}>Laytime</div>
@@ -6696,8 +7058,8 @@ function CaseOffSection({
     [data.ata, data.atb, data.nor, data.laycan_from, data.laycan_to],
   );
   const actualLaytimeEnd = useMemo(
-    () => calcActualLaytimeEnd(actualLaytimeStart, data.total_quantity, data.laytime_rate_mtph),
-    [actualLaytimeStart, data.total_quantity, data.laytime_rate_mtph],
+    () => calcActualLaytimeEnd(actualLaytimeStart, resolveShipmentTotalQuantity(data), data.laytime_rate_mtph),
+    [actualLaytimeStart, data.cargo_lines, data.total_quantity, data.laytime_rate_mtph],
   );
   const demurrageEnd = useMemo(() => {
     const src = demEndMode === "npe" ? data.npe_date : data.hose_off;
@@ -6965,6 +7327,10 @@ export function ExportBulkingDetail() {
 
   const defaultDetailTab = parseDetailTab(tabFromUrl, wantsDocumentationFocus);
   const [detailTab, setDetailTab] = useState<ExportDetailTab>(defaultDetailTab);
+  const [isInfoSidebarOpen, setIsInfoSidebarOpen] = useSessionPersistedState(
+    "export-bulking-detail-info-sidebar-open",
+    false,
+  );
 
   const listReturnUrl = useMemo(
     () => buildBulkingListReturnUrl(detailTab === "documentation" ? "documentation" : "operations"),
@@ -6977,6 +7343,10 @@ export function ExportBulkingDetail() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [statusEvents, setStatusEvents] = useState<StatusEvent[]>([]);
+  const [activityPanelOpen, setActivityPanelOpen] = useState(false);
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [activityError, setActivityError] = useState<string | null>(null);
+  const [activityItems, setActivityItems] = useState<ActivityLogItem[]>([]);
   const savingAllRef = useRef(false);
 
   const [openSections, setOpenSections] = useState<OpenSectionsState>(() =>
@@ -7003,6 +7373,18 @@ export function ExportBulkingDetail() {
     },
     [syncDetailTabToUrl],
   );
+
+  const detailTourHooks = useMemo(
+    () => ({
+      onBeforeStep: (stepIndex: number) => {
+        if (stepIndex === 3 && showDocumentationTab) {
+          flushSync(() => handleDetailTabChange("documentation"));
+        }
+      },
+    }),
+    [handleDetailTabChange, showDocumentationTab],
+  );
+  useRegisterGuideTourHooks("exportBulkingDetail", detailTourHooks);
 
   useEffect(() => {
     const resolved = parseDetailTab(tabFromUrl, focusDocumentsFromUrl);
@@ -7035,98 +7417,45 @@ export function ExportBulkingDetail() {
     setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
 
   const jumpToSection = useCallback((key: ExportDetailSectionKey) => {
+    const documentTabKeys = new Set<ExportDetailSectionKey>([
+      "cargo",
+      "si",
+      "invoices",
+      "packing",
+    ]);
+    if (documentTabKeys.has(key) && detailTab !== "documentation") {
+      handleDetailTabChange("documentation");
+    }
     setOpenSections((prev) => ({ ...prev, [key]: true }));
     const anchorId = EXPORT_SECTION_ANCHORS[key];
     window.requestAnimationFrame(() => {
       document.getElementById(anchorId)?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
-  }, []);
+  }, [detailTab, handleDetailTabChange]);
 
   const jumpToAnchor = useCallback((anchorId: string, sectionKey?: keyof OpenSectionsState) => {
+    const documentTabAnchors = new Set([
+      "export-section-cargo",
+      "export-section-si-receive-date",
+      "export-section-si",
+      "export-section-invoices",
+      "export-section-packing",
+      "export-section-npe-spb",
+      "export-section-bill-of-lading",
+      "export-section-sent-documents",
+      "export-section-peb",
+      "export-section-billing-levy",
+    ]);
+    if (documentTabAnchors.has(anchorId) && detailTab !== "documentation") {
+      handleDetailTabChange("documentation");
+    }
     if (sectionKey) {
       setOpenSections((prev) => ({ ...prev, [sectionKey]: true }));
     }
     window.requestAnimationFrame(() => {
       document.getElementById(anchorId)?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
-  }, []);
-
-  const allSectionsExpanded = useMemo(
-    () =>
-      openSections.general &&
-      openSections.nomination &&
-      openSections.cargo &&
-      openSections.siReceiveDate &&
-      openSections.si &&
-      openSections.invoices &&
-      openSections.packing &&
-      openSections.npeSpb &&
-      openSections.billOfLading &&
-      openSections.sentDocuments &&
-      openSections.pe &&
-      openSections.peb &&
-      openSections.billingLevy,
-    [openSections],
-  );
-
-  const toggleAllSections = useCallback(() => {
-    setOpenSections((prev) => {
-      const all =
-        prev.general &&
-        prev.nomination &&
-        prev.cargo &&
-        prev.siReceiveDate &&
-        prev.si &&
-        prev.invoices &&
-        prev.packing &&
-        prev.npeSpb &&
-        prev.billOfLading &&
-        prev.sentDocuments &&
-        prev.pe &&
-        prev.peb &&
-        prev.billingLevy;
-      if (all) {
-        return {
-          general: false,
-          nomination: false,
-          cargo: false,
-          siReceiveDate: false,
-          si: false,
-          invoices: false,
-          packing: false,
-          npeSpb: false,
-          billOfLading: false,
-          sentDocuments: false,
-          pe: false,
-          peb: false,
-          billingLevy: false,
-        };
-      }
-      return {
-        general: true,
-        nomination: true,
-        cargo: true,
-        siReceiveDate: true,
-        si: true,
-        invoices: true,
-        packing: true,
-        npeSpb: true,
-        billOfLading: true,
-        sentDocuments: true,
-        pe: true,
-        peb: true,
-        billingLevy: true,
-      };
-    });
-  }, []);
-
-  const focusOperationsSections = useCallback(() => {
-    setOpenSections({ ...OPS_OPEN_SECTIONS });
-  }, []);
-
-  const focusDocumentsSections = useCallback(() => {
-    setOpenSections({ ...DOCS_OPEN_SECTIONS });
-  }, []);
+  }, [detailTab, handleDetailTabChange]);
 
   // Save All mechanism
   const [dirtySections, setDirtySections] = useState<Record<string, boolean>>({});
@@ -7207,6 +7536,29 @@ export function ExportBulkingDetail() {
       }
     }
   }, [id, accessToken, toast]);
+
+  const fetchActivityLog = useCallback(async () => {
+    if (!accessToken || !id) return;
+    setActivityLoading(true);
+    setActivityError(null);
+    const res = await getExportBulkingActivityLog(id, accessToken);
+    if (isApiError(res)) {
+      setActivityError(res.message);
+      setActivityItems([]);
+    } else {
+      setActivityItems(res.data?.items ?? []);
+    }
+    setActivityLoading(false);
+  }, [accessToken, id]);
+
+  const openActivityPanel = useCallback(() => {
+    setActivityPanelOpen(true);
+    void fetchActivityLog();
+  }, [fetchActivityLog]);
+
+  const closeActivityPanel = useCallback(() => {
+    setActivityPanelOpen(false);
+  }, []);
 
   const handleSaved = useCallback<OnSavedFn>((options) => {
     const hasPatch =
@@ -7305,6 +7657,7 @@ export function ExportBulkingDetail() {
     toast,
     saveTrigger,
     onDirtyChange,
+    canEditDestinations: canEditDocs && !forceViewMode,
   };
 
   return (
@@ -7330,7 +7683,7 @@ export function ExportBulkingDetail() {
               : isDocumentationOnly
                 ? "Documentation workspace — read-only access."
                 : isOperationsOnly && canViewDocs
-                  ? "Operations workspace — documentation tab is read-only."
+                  ? "Operations workspace — Document tab is read-only."
                   : "Summary and quick navigation below — expand sections as you need them."
         }
         titleAddon={
@@ -7364,17 +7717,20 @@ export function ExportBulkingDetail() {
       )}
 
       {/* Two-column layout */}
-      <div className={styles.pageLayout}>
-        <div className={styles.mainContent}>
+      <div
+        className={`${styles.pageLayout}${isInfoSidebarOpen ? "" : ` ${styles.pageLayoutSidebarCollapsed}`}`}
+      >
+        <div className={`${styles.mainContent}${isInfoSidebarOpen ? "" : ` ${styles.mainContentExpanded}`}`}>
           <ShipmentOverviewStrip data={data} showDocCounts={canViewDocs} />
 
           <SectionJumpNav
             onJump={jumpToSection}
             onJumpAnchor={jumpToAnchor}
-            allSectionsExpanded={allSectionsExpanded}
-            onToggleExpandCollapse={toggleAllSections}
-            onFocusOperations={focusOperationsSections}
-            onFocusDocuments={focusDocumentsSections}
+            infoSidebarOpen={isInfoSidebarOpen}
+            onToggleInfoSidebar={() => setIsInfoSidebarOpen((open) => !open)}
+            infoSidebarCollapsedLabel={
+              detailTab === "documentation" ? "Summary and documents upload" : "Summary"
+            }
             canViewDocs={showDocumentationTab}
             showVoyageNav={!showDocumentationTab || detailTab === "operations"}
             showDocComplianceNav={showDocumentationTab && detailTab === "documentation"}
@@ -7399,8 +7755,14 @@ export function ExportBulkingDetail() {
               title="Shipment Planning"
               icon={<ClipboardList size={16} />}
               readOnly={opsReadOnly || forceViewMode}
-              completedSummary={[data.vessel_name, data.loadport_name, data.total_quantity ? `${formatNumericDisplay(data.total_quantity)} MT` : null].filter(Boolean).join(" · ")}
-              upcomingFields={["Vessel", "Voyage no.", "Shipper", "Load port", "Total quantity"]}
+              completedSummary={[
+                data.vessel_name,
+                data.loadport_name,
+                resolveShipmentTotalQuantity(data) != null
+                  ? `${formatNumericDisplay(resolveShipmentTotalQuantity(data)!)} MT`
+                  : null,
+              ].filter(Boolean).join(" · ")}
+              upcomingFields={["Vessel", "Voyage no.", "Shipper", "Load port"]}
               onAdvance={handleAdvanceStatus}
             >
               <GeneralSection {...sectionProps} open={openSections.general} onToggle={() => toggleSection("general")} />
@@ -7419,7 +7781,7 @@ export function ExportBulkingDetail() {
                 data.eta ? `ETA ${formatDate(data.eta)}` : null,
                 data.incoterms ?? null,
               ].filter(Boolean).join(" · ")}
-              upcomingFields={["Received nomination", "Laycan", "Est. cargo readiness", "ETA", "Laytime rate", "Demurrage rate", "Incoterms", "Agent", "Surveyor"]}
+              upcomingFields={["Received nomination", "Laycan", "Est. cargo readiness", "ETA", "Length Over All", "Laytime rate", "Demurrage rate", "Incoterms", "Agent", "Surveyor"]}
               onAdvance={handleAdvanceStatus}
             >
               <NominationSection {...sectionProps} open={openSections.nomination} onToggle={() => toggleSection("nomination")} />
@@ -7492,7 +7854,7 @@ export function ExportBulkingDetail() {
                   return totalBl > 0 ? `B/L ${formatNumericDisplay(totalBl)} MT` : null;
                 })(),
               ].filter(Boolean).join(" · ")}
-              upcomingFields={["Commence loading", "ETC", "ATC", "Hose Off", "NPE Date", "Qty reconciliation per cargo"]}
+              upcomingFields={["Commence loading", "ETC", "ATC", "Hose On (liquid)", "Hose Off", "NPE Date", "Qty reconciliation per cargo"]}
               onAdvance={handleAdvanceStatus}
             >
               <LoadingSection
@@ -7514,7 +7876,7 @@ export function ExportBulkingDetail() {
                 data.td ? `Departed ${formatDatetime(data.td)}` : null,
                 (() => {
                   const ls = calcActualLaytimeStart(data.ata, data.atb, data.nor, data.laycan_from, data.laycan_to);
-                  const le = calcActualLaytimeEnd(ls, data.total_quantity, data.laytime_rate_mtph);
+                  const le = calcActualLaytimeEnd(ls, resolveShipmentTotalQuantity(data), data.laytime_rate_mtph);
                   const demEnd = data.npe_date ? new Date(data.npe_date) : null;
                   const amt = calcActualDemurrageAmount(demEnd, le, data.demurrage_rate_pdpr);
                   return amt != null ? `Demurrage $${formatMoneyDisplay(amt)}` : null;
@@ -7587,22 +7949,42 @@ export function ExportBulkingDetail() {
           )}
         </div>
 
-        <div className={styles.sidebarContent}>
-          <SummarySidebar data={data} showDocDetails={canViewDocs} />
-          {showDocumentationTab && detailTab === "documentation" ? (
-            accessToken ? (
-              <ExportBulkingDocumentsSection
-                shipmentId={id!}
-                accessToken={accessToken}
-                canUpload={canUploadExportDocs && !docsReadOnly && !forceViewMode}
-              />
-            ) : null
-          ) : (
-            <DemurrageSimulationSidebar data={data} />
-          )}
-          <StatusHistorySidebar events={statusEvents} currentStatus={data.current_status} />
-        </div>
+        <aside
+          className={`${styles.detailSidebarAside}${isInfoSidebarOpen ? "" : ` ${styles.detailSidebarAsideCollapsed}`}`}
+          aria-hidden={!isInfoSidebarOpen}
+        >
+          <div id="export-bulking-detail-info-panel" className={styles.detailSidebarInner}>
+            <div className={styles.sidebarContent}>
+              <SummarySidebar data={data} showDocDetails={canViewDocs} />
+              {showDocumentationTab && detailTab === "documentation" ? (
+                accessToken ? (
+                  <ExportBulkingDocumentsSection
+                    shipmentId={id!}
+                    accessToken={accessToken}
+                    canUpload={canUploadExportDocs && !docsReadOnly && !forceViewMode}
+                    cargoLines={data.cargo_lines}
+                  />
+                ) : null
+              ) : (
+                <DemurrageSimulationSidebar data={data} />
+              )}
+              <StatusHistorySidebar events={statusEvents} currentStatus={data.current_status} />
+            </div>
+          </div>
+        </aside>
       </div>
+
+      <ActivityLogRibbon
+        panelId="export-bulking-activity-panel"
+        open={activityPanelOpen}
+        loading={activityLoading}
+        error={activityError}
+        items={activityItems}
+        onOpen={openActivityPanel}
+        onClose={closeActivityPanel}
+        typeLabel={exportBulkingActivityTypeLabel}
+        visible={!!data && !loading}
+      />
     </div>
   );
 }

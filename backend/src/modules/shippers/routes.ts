@@ -24,6 +24,11 @@ shipperRoutes.delete("/plants/:plantId", authMiddleware, requirePermission(...PE
 
 /* ───── load ports (export) ───── */
 shipperRoutes.get("/:id/loadports", authMiddleware, requirePermission(...PERMS_READ_SHIPPER_MASTER), ctrl.listLoadports);
-shipperRoutes.post("/:id/loadports", authMiddleware, requirePermission(P.VIEW_EXPORT_BULKING, ...PERMS_MANAGE_EXPORT_MASTERS), ctrl.createLoadport);
+shipperRoutes.post(
+  "/:id/loadports",
+  authMiddleware,
+  requirePermission(P.UPDATE_EXPORT_OPERATIONS, P.UPDATE_EXPORT_BULKING, ...PERMS_MANAGE_EXPORT_MASTERS),
+  ctrl.createLoadport,
+);
 shipperRoutes.patch("/loadports/:lpId", authMiddleware, requirePermission(...PERMS_MANAGE_EXPORT_MASTERS), ctrl.updateLoadport);
 shipperRoutes.delete("/loadports/:lpId", authMiddleware, requirePermission(...PERMS_MANAGE_EXPORT_MASTERS), ctrl.removeLoadport);

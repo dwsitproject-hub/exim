@@ -249,18 +249,86 @@ function testAdminPermissions() {
   assertEq(leadHasAssign, true, "EXPORT_BULKING_LEAD_DOCUMENTATION has ASSIGN permission");
 
   const docsCanEdit = userHasPermission(
-    ROLES.EXPORT_BULKING_DOCUMENTATION,
+    ROLES.EXPORT_BULKING_DOCUMENT,
     [],
     PERMISSIONS.UPDATE_EXPORT_DOCUMENTATION,
   );
-  assertEq(docsCanEdit, true, "EXPORT_BULKING_DOCUMENTATION can update documentation");
+  assertEq(docsCanEdit, true, "EXPORT_BULKING_DOCUMENT can update documentation");
+
+  const docsCanUpload = userHasPermission(
+    ROLES.EXPORT_BULKING_DOCUMENT,
+    [],
+    PERMISSIONS.UPLOAD_DOCUMENT,
+  );
+  assertEq(docsCanUpload, true, "EXPORT_BULKING_DOCUMENT can upload documents");
 
   const docsCannotAssign = userHasPermission(
-    ROLES.EXPORT_BULKING_DOCUMENTATION,
+    ROLES.EXPORT_BULKING_DOCUMENT,
     [],
     PERMISSIONS.ASSIGN_EXPORT_BULKING_DOCUMENTATION,
   );
-  assertEq(docsCannotAssign, false, "EXPORT_BULKING_DOCUMENTATION cannot assign PIC documentation");
+  assertEq(docsCannotAssign, false, "EXPORT_BULKING_DOCUMENT cannot assign PIC documentation");
+
+  assertEq(
+    userHasPermission(ROLES.ADMIN_IMPORT, [], PERMISSIONS.MANAGE_USERS),
+    true,
+    "ADMIN_IMPORT can manage users",
+  );
+  assertEq(
+    userHasPermission(ROLES.ADMIN_IMPORT, [], PERMISSIONS.UPDATE_SHIPMENT),
+    true,
+    "ADMIN_IMPORT can update shipments",
+  );
+  assertEq(
+    userHasPermission(ROLES.ADMIN_IMPORT, [], PERMISSIONS.MANAGE_IMPORT_MASTERS),
+    true,
+    "ADMIN_IMPORT can manage import masters",
+  );
+  assertEq(
+    userHasPermission(ROLES.ADMIN_EXPORT, [], PERMISSIONS.MANAGE_USERS),
+    true,
+    "ADMIN_EXPORT can manage users",
+  );
+  assertEq(
+    userHasPermission(ROLES.ADMIN_EXPORT, [], PERMISSIONS.CREATE_EXPORT_BULKING),
+    true,
+    "ADMIN_EXPORT can create export bulking",
+  );
+  assertEq(
+    userHasPermission(ROLES.ADMIN_EXPORT, [], PERMISSIONS.ASSIGN_EXPORT_BULKING_DOCUMENTATION),
+    true,
+    "ADMIN_EXPORT can assign export documentation",
+  );
+  assertEq(
+    userHasPermission(ROLES.ADMIN_EXPORT, [], PERMISSIONS.UPLOAD_DOCUMENT),
+    true,
+    "ADMIN_EXPORT can upload documents",
+  );
+}
+
+function testMasterCreatePermissions() {
+  console.log("\n=== RBAC: master-data create requires export write, not view-only ===");
+
+  assertEq(
+    userHasPermission(ROLES.VIEWER, [], PERMISSIONS.UPDATE_EXPORT_OPERATIONS),
+    false,
+    "VIEWER cannot UPDATE_EXPORT_OPERATIONS",
+  );
+  assertEq(
+    userHasPermission(ROLES.DOCS, [], PERMISSIONS.UPDATE_EXPORT_OPERATIONS),
+    false,
+    "DOCS cannot UPDATE_EXPORT_OPERATIONS",
+  );
+  assertEq(
+    userHasPermission(ROLES.EXPORT_BULKING_OPERATION, [], PERMISSIONS.UPDATE_EXPORT_OPERATIONS),
+    true,
+    "EXPORT_BULKING_OPERATION can UPDATE_EXPORT_OPERATIONS",
+  );
+  assertEq(
+    userHasPermission(ROLES.VIEWER, [], PERMISSIONS.MANAGE_EXPORT_MASTERS),
+    false,
+    "VIEWER cannot MANAGE_EXPORT_MASTERS",
+  );
 }
 
 /* ───────── Migration 075 status remap ───────── */
@@ -521,7 +589,7 @@ async function testAssigneeValidation(cookie: string, shipmentId: string, adminU
 
   const inactive = userList.find((u) => u.is_active === false);
   const wrongRole = userList.find(
-    (u) => u.is_active !== false && u.role !== "EXPORT_BULKING_DOCUMENTATION" && u.id !== adminUserId,
+    (u) => u.is_active !== false && u.role !== "EXPORT_BULKING_DOCUMENT" && u.id !== adminUserId,
   );
   const randomUuid = "00000000-0000-4000-8000-000000000001";
 
@@ -588,6 +656,7 @@ async function main() {
   console.log("Export Bulking — Security / regression checklist\n");
 
   testAdminPermissions();
+  testMasterCreatePermissions();
   testMigration075StatusRemap();
   await testDocumentUploadInsertFailure();
   await testDocumentDeleteDbFirstOnFailure();
