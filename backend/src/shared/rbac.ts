@@ -140,9 +140,6 @@ const ROLE_PERMISSIONS: Record<string, readonly Permission[]> = {
   [ROLES.VIEWER]: [
     PERMISSIONS.VIEW_TRANSACTIONS,
     PERMISSIONS.VIEW_PO_INTAKE,
-    PERMISSIONS.CREATE_PO_INTAKE_TEST, /* temporary for E2E testing until SaaS integration */
-    PERMISSIONS.IMPORT_PO_CSV,
-    PERMISSIONS.PARSE_PO_PDF,
     PERMISSIONS.VIEW_SHIPMENTS,
   ],
   [ROLES.DOCS]: [

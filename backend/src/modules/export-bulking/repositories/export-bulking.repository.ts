@@ -184,66 +184,73 @@ export class ExportBulkingRepository {
   /* ───────── CRUD shipment ───────── */
 
   async create(dto: CreateExportBulkingShipmentDto, userId?: string): Promise<ExportBulkingShipmentRow> {
-    const shipmentNo = await this.generateShipmentNo();
-    const client = await this.pool.connect();
-    try {
-      await client.query("BEGIN");
-      const result = await client.query<ExportBulkingShipmentRow>(
-        `INSERT INTO export_bulking_shipments
-          (shipment_no, vessel_name, voyage_number, shipper, loadport_name,
-           total_quantity, remarks, current_status, created_by, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,'SHIPMENT_PLANNING',$8,NOW(),NOW())
-         RETURNING ${SHIPMENT_COLUMNS}`,
-        [
-          shipmentNo,
-          dto.vessel_name ?? null,
-          dto.voyage_number ?? null,
-          dto.shipper ?? null,
-          dto.loadport_name ?? null,
-          dto.total_quantity ?? null,
-          dto.remarks ?? null,
-          userId ?? null,
-        ],
-      );
-      const shipment = result.rows[0];
-      if (!shipment) throw new Error("ExportBulkingRepository.create: no row returned");
-
-      const cargoLines = dto.cargo_lines ?? [];
-      for (let i = 0; i < cargoLines.length; i++) {
-        const line = cargoLines[i];
-        await client.query(
-          `INSERT INTO export_bulking_cargo_lines
-            (shipment_id, line_order, cargo_name, quantity, unit,
-             item_description, destination_port, destination_country, country_area,
-             quantity_delivered, bl_figure, ship_figure, pe_no, pe_date, created_at, updated_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW(),NOW())`,
+    const maxAttempts = 3;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const shipmentNo = await this.generateShipmentNo();
+      const client = await this.pool.connect();
+      try {
+        await client.query("BEGIN");
+        const result = await client.query<ExportBulkingShipmentRow>(
+          `INSERT INTO export_bulking_shipments
+            (shipment_no, vessel_name, voyage_number, shipper, loadport_name,
+             total_quantity, remarks, current_status, created_by, created_at, updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,'SHIPMENT_PLANNING',$8,NOW(),NOW())
+           RETURNING ${SHIPMENT_COLUMNS}`,
           [
-            shipment.id,
-            i + 1,
-            line.cargo_name,
-            line.quantity ?? null,
-            "MT",
-            line.item_description ?? null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
+            shipmentNo,
+            dto.vessel_name ?? null,
+            dto.voyage_number ?? null,
+            dto.shipper ?? null,
+            dto.loadport_name ?? null,
+            dto.total_quantity ?? null,
+            dto.remarks ?? null,
+            userId ?? null,
           ],
         );
-      }
+        const shipment = result.rows[0];
+        if (!shipment) throw new Error("ExportBulkingRepository.create: no row returned");
 
-      await client.query("COMMIT");
-      return shipment;
-    } catch (e) {
-      await client.query("ROLLBACK");
-      throw e;
-    } finally {
-      client.release();
+        const cargoLines = dto.cargo_lines ?? [];
+        for (let i = 0; i < cargoLines.length; i++) {
+          const line = cargoLines[i];
+          await client.query(
+            `INSERT INTO export_bulking_cargo_lines
+              (shipment_id, line_order, cargo_name, quantity, unit,
+               item_description, destination_port, destination_country, country_area,
+               quantity_delivered, bl_figure, ship_figure, pe_no, pe_date, created_at, updated_at)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW(),NOW())`,
+            [
+              shipment.id,
+              i + 1,
+              line.cargo_name,
+              line.quantity ?? null,
+              "MT",
+              line.item_description ?? null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+            ],
+          );
+        }
+
+        await client.query("COMMIT");
+        return shipment;
+      } catch (e) {
+        await client.query("ROLLBACK");
+        if ((e as { code?: string }).code === "23505" && attempt < maxAttempts - 1) {
+          continue;
+        }
+        throw e;
+      } finally {
+        client.release();
+      }
     }
+    throw new Error("ExportBulkingRepository.create: failed after retries");
   }
 
   async list(query: ListExportBulkingQuery): Promise<{ rows: ExportBulkingShipmentRow[]; total: number }> {

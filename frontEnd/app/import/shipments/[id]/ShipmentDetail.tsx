@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
+import { useSessionPersistedState } from "@/hooks/use-session-persisted-state";
 import {
   getShipmentDetail,
   getShipmentTimeline,
@@ -50,7 +51,8 @@ import { useToast } from "@/components/providers/ToastProvider";
 import { ShipmentNoteMentionTextarea } from "@/components/shipments/ShipmentNoteMentionTextarea";
 import { renderNoteWithMentions } from "@/lib/render-note-mentions";
 import { DutyFormulaInfoIcon } from "@/components/icons/DutyFormulaInfoIcon";
-import { ActivityLogRibbonIcon } from "@/components/icons/ActivityLogRibbonIcon";
+import { ActivityLogRibbon } from "@/components/activity-log";
+import { shipmentActivityTypeLabel } from "@/lib/activity-log-labels";
 import { statusToBadgeVariant, formatStatusLabel } from "@/lib/status-badge";
 import {
   formatDecimal,
@@ -77,6 +79,7 @@ import {
   INCOTERMS_WITH_BIDDING_TRANSPORTER,
 } from "@/lib/shipment-status-requirements";
 import type { TimelineItem as TimelineItemType, TimelineItemVariant } from "@/components/timeline";
+import type { ActivityLogItem } from "@/types/activity-log";
 import type {
   ShipmentDetail as ShipmentDetailType,
   ShipmentTimelineEntry,
@@ -84,7 +87,6 @@ import type {
   RecentForwarderBid,
   LinkedPoSummary,
   ShipmentNote,
-  ShipmentActivityItem,
   ShipmentDocumentListItem,
   FreightChargeCurrency,
 } from "@/types/shipments";
@@ -108,6 +110,7 @@ import {
   type DocumentUploadBlockReason,
 } from "@/lib/shipment-document-prerequisites";
 import { Lock } from "lucide-react";
+import { DetailInfoPanelToggle } from "@/components/layout/DetailInfoPanelToggle";
 import { parseYesNoSelectValue, formatYesNoOrLegacy } from "@/lib/yes-no-field";
 import { can } from "@/lib/permissions";
 import {
@@ -219,31 +222,6 @@ function filterShipmentDocumentsBySlot(
     if (intake.kind === "shipment_level") return d.intake_id == null;
     return d.intake_id === intake.intakeId;
   });
-}
-
-function activityTypeLabel(type: ShipmentActivityItem["type"]): string {
-  switch (type) {
-    case "shipment_created":
-      return "Created";
-    case "status_change":
-      return "Status";
-    case "note":
-      return "Note";
-    case "couple_po":
-      return "PO grouped";
-    case "decouple_po":
-      return "PO removed";
-    case "shipment_updated":
-      return "Update";
-    default:
-      return "Activity";
-  }
-}
-
-function renderActivityValue(value: string | null | undefined): string {
-  if (value == null) return "—";
-  const trimmed = value.trim();
-  return trimmed === "" ? "—" : trimmed;
 }
 
 function resolvePoCurrencyCode(linkedPo: LinkedPoSummary, poDetailLoaded: PoDetail | undefined): string | null {
@@ -734,6 +712,10 @@ export function ShipmentDetail({ id }: { id: string }) {
   const [detail, setDetail] = useState<ShipmentDetailType | null>(null);
   const [timeline, setTimeline] = useState<ShipmentTimelineEntry[]>([]);
   const [statusSummary, setStatusSummary] = useState<{ current_status: string; last_updated_at?: string } | null>(null);
+  const [isInfoSidebarOpen, setIsInfoSidebarOpen] = useSessionPersistedState(
+    "import-shipment-detail-info-sidebar-open",
+    false,
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -2201,7 +2183,7 @@ export function ShipmentDetail({ id }: { id: string }) {
   const [activityPanelOpen, setActivityPanelOpen] = useState(false);
   const [activityLoading, setActivityLoading] = useState(false);
   const [activityError, setActivityError] = useState<string | null>(null);
-  const [activityItems, setActivityItems] = useState<ShipmentActivityItem[]>([]);
+  const [activityItems, setActivityItems] = useState<ActivityLogItem[]>([]);
 
   const fetchActivityLog = useCallback(async () => {
     if (!accessToken || !id) return;
@@ -2225,15 +2207,6 @@ export function ShipmentDetail({ id }: { id: string }) {
   const closeActivityPanel = useCallback(() => {
     setActivityPanelOpen(false);
   }, []);
-
-  useEffect(() => {
-    if (!activityPanelOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") closeActivityPanel();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [activityPanelOpen, closeActivityPanel]);
 
   const wideOverlayPayload = useMemo(() => {
     if (!poLineItemsWide || !activePoOverlayId || !detail) return null;
@@ -2939,6 +2912,15 @@ export function ShipmentDetail({ id }: { id: string }) {
     </nav>
   );
 
+  const infoSidebarToggle = (
+    <DetailInfoPanelToggle
+      open={isInfoSidebarOpen}
+      onToggle={() => setIsInfoSidebarOpen((open) => !open)}
+      panelId="import-shipment-detail-info-panel"
+      collapsedLabel="Summary"
+    />
+  );
+
   return (
     <section className={styles.section}>
       <PageHeader
@@ -3307,18 +3289,24 @@ export function ShipmentDetail({ id }: { id: string }) {
       {isUpdatingShipment ? (
         <div className={styles.stickyShipmentToolbar}>
           {editToolbarRowEl}
-          <div className={styles.stickyToolbarSectionNav}>{sectionJumpNav}</div>
+          <div className={styles.stickyToolbarSectionNav}>
+            {sectionJumpNav}
+            {infoSidebarToggle}
+          </div>
         </div>
       ) : (
         <div className={styles.categoryNavRow}>
           {sectionJumpNav}
-          {canEditShipment && (
-            <div className={styles.categoryNavActions}>
-              <Button type="button" variant="primary" className={styles.updateShipmentBtn} onClick={enterUpdateMode}>
-                Update shipment
-              </Button>
-            </div>
-          )}
+          <div className={styles.categoryNavTrailing}>
+            {canEditShipment && (
+              <div className={styles.categoryNavActions}>
+                <Button type="button" variant="primary" className={styles.updateShipmentBtn} onClick={enterUpdateMode}>
+                  Update shipment
+                </Button>
+              </div>
+            )}
+            {infoSidebarToggle}
+          </div>
         </div>
       )}
 
@@ -3336,8 +3324,13 @@ export function ShipmentDetail({ id }: { id: string }) {
           </div>
         )}
 
-      <div className={styles.detailLayout}>
-        <div className={styles.detailMain} data-tour="shipment-main-form">
+      <div
+        className={`${styles.detailLayout}${isInfoSidebarOpen ? "" : ` ${styles.detailLayoutSidebarCollapsed}`}`}
+      >
+        <div
+          className={`${styles.detailMain}${isInfoSidebarOpen ? "" : ` ${styles.detailMainExpanded}`}`}
+          data-tour="shipment-main-form"
+        >
       <Card id="section-pre-shipment" className={`${styles.card} ${styles.sectionScrollTarget}`}>
         <h2 className={styles.categoryTitle}>Pre Shipment</h2>
 
@@ -4526,7 +4519,12 @@ export function ShipmentDetail({ id }: { id: string }) {
       </Card>
 
         </div>
-        <aside className={styles.detailSidebar}>
+        <aside
+          className={`${styles.detailSidebarAside}${isInfoSidebarOpen ? "" : ` ${styles.detailSidebarAsideCollapsed}`}`}
+          aria-hidden={!isInfoSidebarOpen}
+        >
+          <div id="import-shipment-detail-info-panel" className={styles.detailSidebarInner}>
+            <div className={styles.detailSidebar}>
       <Card className={styles.card}>
         <div data-tour="shipment-status-timeline">
           <h2 className={styles.sectionTitle}>Status timeline</h2>
@@ -4838,6 +4836,8 @@ export function ShipmentDetail({ id }: { id: string }) {
         </div>
       </Card>
 
+            </div>
+          </div>
         </aside>
       </div>
         </>
@@ -5048,84 +5048,17 @@ export function ShipmentDetail({ id }: { id: string }) {
       )}
 
       {!loading && detail && (
-        <>
-          <button
-            type="button"
-            className={styles.activityRibbonTrigger}
-            onClick={openActivityPanel}
-            aria-expanded={activityPanelOpen}
-            aria-controls="shipment-activity-panel"
-            title="Activity log"
-          >
-            <ActivityLogRibbonIcon className={styles.activityRibbonIcon} />
-            <span className={styles.activityRibbonLabel}>Activity</span>
-          </button>
-          {activityPanelOpen &&
-            portalMounted &&
-            createPortal(
-              <>
-                <div className={styles.activityPanelBackdrop} aria-hidden onClick={closeActivityPanel} />
-                <aside
-                  id="shipment-activity-panel"
-                  className={styles.activityPanel}
-                  role="dialog"
-                  aria-modal="true"
-                  aria-labelledby="shipment-activity-title"
-                >
-                  <div className={styles.activityPanelHeader}>
-                    <h2 id="shipment-activity-title" className={styles.activityPanelTitle}>
-                      Activity log
-                    </h2>
-                    <Button type="button" variant="secondary" onClick={closeActivityPanel}>
-                      Close
-                    </Button>
-                  </div>
-                  <p className={styles.activityPanelHint}>
-                    Status changes, shipment field updates, notes, and purchase order link or unlink — with time and user.
-                  </p>
-                  <div className={styles.activityPanelBody} role="feed" aria-busy={activityLoading}>
-                    {activityLoading && <p className={styles.activityPanelState}>Loading…</p>}
-                    {!activityLoading && activityError && <p className={styles.error}>{activityError}</p>}
-                    {!activityLoading && !activityError && activityItems.length === 0 && (
-                      <p className={styles.activityPanelState}>No activity yet.</p>
-                    )}
-                    {!activityLoading && !activityError && activityItems.length > 0 && (
-                      <ul className={styles.activityList}>
-                        {activityItems.map((item) => (
-                          <li key={item.id} className={styles.activityListItem}>
-                            <div className={styles.activityListMeta}>
-                              <span className={styles.activityTypeTag}>{activityTypeLabel(item.type)}</span>
-                              <time className={styles.activityTime} dateTime={item.occurred_at}>
-                                {formatDate(item.occurred_at)}
-                              </time>
-                            </div>
-                            <p className={styles.activityTitle}>{item.title}</p>
-                            {item.detail ? <p className={styles.activityDetail}>{item.detail}</p> : null}
-                            {item.field_changes && item.field_changes.length > 0 ? (
-                              <div className={styles.activityFieldChanges}>
-                                {item.field_changes.map((change, idx) => (
-                                  <div key={`${item.id}-change-${idx}`} className={styles.activityFieldChangeRow}>
-                                    <span className={styles.activityFieldChangeLabel}>{change.label}</span>
-                                    <span className={styles.activityFieldChangeValue}>
-                                      {renderActivityValue(change.before)} {" -> "} {renderActivityValue(change.after)}
-                                    </span>
-                                  </div>
-                                ))}
-                              </div>
-                            ) : null}
-                            <p className={styles.activityActor}>
-                              <span className={styles.activityActorLabel}>By</span> {item.actor}
-                            </p>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                </aside>
-              </>,
-              document.body
-            )}
-        </>
+        <ActivityLogRibbon
+          panelId="shipment-activity-panel"
+          open={activityPanelOpen}
+          loading={activityLoading}
+          error={activityError}
+          items={activityItems}
+          onOpen={openActivityPanel}
+          onClose={closeActivityPanel}
+          typeLabel={shipmentActivityTypeLabel}
+          visible
+        />
       )}
     </section>
   );

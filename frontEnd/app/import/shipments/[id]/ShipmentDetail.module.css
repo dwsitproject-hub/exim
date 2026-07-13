@@ -50,11 +50,21 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: space-between;
   gap: var(--spacing-2, 8px);
   padding: var(--spacing-2, 8px) 0 var(--spacing-3, 16px);
   margin-bottom: var(--spacing-3, 16px);
   background: var(--color-bg-lighter, var(--color-primitive-background-lighter, #fafafa));
   border-bottom: 1px solid var(--color-border-light, var(--color-primitive-border-light, #e0e0e0));
+}
+
+.categoryNavTrailing {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2, 8px);
+  margin-left: auto;
+  flex-shrink: 0;
 }
 
 /*
@@ -105,6 +115,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: space-between;
   gap: var(--spacing-2, 8px);
   padding: var(--spacing-2, 8px) var(--spacing-3, 16px) var(--spacing-3, 16px);
   margin: 0;
@@ -200,15 +211,82 @@
   grid-template-columns: 1fr;
 }
 
-@media (min-width: 1024px) {
-  .detailLayout {
-    grid-template-columns: 1fr minmax(280px, 360px);
-    gap: var(--spacing-4, 24px);
-  }
+.detailLayoutSidebarCollapsed {
+  gap: var(--spacing-4, 24px);
 }
 
 .detailMain {
   min-width: 0;
+  transition: flex 0.3s ease-in-out, width 0.3s ease-in-out;
+}
+
+.detailMainExpanded {
+  width: 100%;
+  max-width: 100%;
+}
+
+.detailSidebarAside {
+  min-width: 0;
+  position: relative;
+}
+
+.detailSidebarInner {
+  opacity: 1;
+  overflow: hidden;
+  transition: opacity 0.25s ease-in-out;
+}
+
+.detailSidebarAsideCollapsed .detailSidebarInner {
+  opacity: 0;
+  pointer-events: none;
+}
+
+@media (min-width: 1024px) {
+  .detailLayout {
+    display: flex;
+    gap: var(--spacing-4, 24px);
+    align-items: flex-start;
+    position: relative;
+    transition: gap 0.3s ease-in-out;
+  }
+
+  .detailLayoutSidebarCollapsed {
+    gap: 0;
+  }
+
+  .detailMain {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .detailMainExpanded {
+    flex: 1 1 100%;
+  }
+
+  .detailSidebarAside {
+    flex-shrink: 0;
+    width: min(360px, 100%);
+    position: sticky;
+    top: 0;
+    align-self: flex-start;
+    overflow: visible;
+    transition: width 0.3s ease-in-out;
+  }
+
+  .detailSidebarAsideCollapsed {
+    width: 0;
+  }
+
+  .detailSidebarInner {
+    width: min(360px, 100%);
+  }
+}
+
+@media (max-width: 1023px) {
+  .detailSidebarAsideCollapsed .detailSidebarInner {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 
 /* Allow expanded PO line-items table to extend past the main column / card padding */
