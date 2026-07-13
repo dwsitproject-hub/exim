@@ -1,0 +1,260 @@
+.reconTableWrap {
+  width: 100%;
+  overflow-x: auto;
+  margin-bottom: var(--spacing-3, 16px);
+  border: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  border-radius: var(--borderRadius-md, 8px);
+  background: var(--color-primitive-background-white, #fff);
+}
+
+.reconTable {
+  width: 100%;
+  min-width: 860px;
+  border-collapse: collapse;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.reconTable thead {
+  background: var(--color-primitive-background-lighter, #fafafa);
+  border-bottom: 1px solid var(--color-primitive-border-light, #e0e0e0);
+}
+
+.reconTable th {
+  padding: 10px 12px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+.reconTable th.numCol,
+.reconTable td.numCol {
+  text-align: right;
+}
+
+.reconTable th.actionsCol,
+.reconTable td.actionsCol {
+  text-align: center;
+  width: 48px;
+}
+
+.reconTable tbody tr.dataRow {
+  border-bottom: 1px solid var(--color-primitive-border-light, #e8e8e8);
+}
+
+.reconTable tbody tr.dataRow:last-of-type {
+  border-bottom: none;
+}
+
+.reconTable td {
+  padding: 10px 12px;
+  vertical-align: middle;
+}
+
+.reconCargoCell {
+  min-width: 160px;
+  text-align: left;
+}
+
+.reconCargoName {
+  display: block;
+  font-weight: 600;
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+  word-break: break-word;
+}
+
+.blHeaderCell {
+  min-width: 140px;
+}
+
+.blHeaderLabel {
+  display: block;
+  margin-bottom: 8px;
+}
+
+.blSourceToggle {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 999px;
+  background: var(--color-primitive-background-muted, #ececec);
+  border: 1px solid var(--color-primitive-border-light, #dcdcdc);
+  gap: 2px;
+}
+
+.blSourceOption {
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  padding: 4px 12px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.blSourceOption:hover:not(.blSourceOptionActive) {
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+}
+
+.blSourceOptionActive {
+  background: var(--color-semantic-primary-default, #c43a31);
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.reconInput {
+  font-family: inherit;
+  font-size: 13px;
+  padding: 7px 10px;
+  border: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  border-radius: var(--borderRadius-sm, 6px);
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+  background: var(--color-primitive-background-white, #fff);
+  width: 100%;
+  min-width: 96px;
+  box-sizing: border-box;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.reconInput:focus {
+  outline: none;
+  border-color: var(--color-semantic-primary-default, #c43a31);
+  box-shadow: 0 0 0 2px rgba(196, 58, 49, 0.10);
+}
+
+.blInheritedCell {
+  text-align: right;
+}
+
+.blInheritedValue {
+  display: block;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+  font-weight: 500;
+}
+
+.blInheritedHint {
+  display: block;
+  margin-top: 3px;
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  color: var(--color-primitive-text-steel, #8a8a8a);
+}
+
+.reconReadonly {
+  display: inline-block;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+  padding: 2px 0;
+  white-space: nowrap;
+}
+
+.reconReadonlyCaution {
+  color: #b45309;
+  font-weight: 600;
+}
+
+.reconRowCaution {
+  background: #fffbeb;
+}
+
+.remarksToggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--borderRadius-sm, 6px);
+  background: transparent;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.remarksToggle:hover {
+  background: var(--color-primitive-background-lighter, #f5f5f5);
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+}
+
+.remarksToggleActive {
+  color: var(--color-semantic-primary-default, #c43a31);
+  border-color: rgba(196, 58, 49, 0.25);
+  background: rgba(196, 58, 49, 0.06);
+}
+
+.remarksToggleExpanded {
+  background: var(--color-primitive-background-lighter, #f5f5f5);
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+}
+
+.remarksRow td {
+  padding: 0;
+  border-bottom: 1px solid var(--color-primitive-border-light, #e8e8e8);
+}
+
+.remarksRow:last-child td {
+  border-bottom: none;
+}
+
+.remarksPanelOuter {
+  display: grid;
+  transition: grid-template-rows 0.22s ease;
+}
+
+.remarksPanelOuterCollapsed {
+  grid-template-rows: 0fr;
+}
+
+.remarksPanelOuterExpanded {
+  grid-template-rows: 1fr;
+}
+
+.remarksPanelInner {
+  overflow: hidden;
+}
+
+.remarksPanelContent {
+  padding: 0 12px 12px;
+}
+
+.remarksTextarea {
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  width: 100%;
+  min-height: 72px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  border-radius: var(--borderRadius-sm, 6px);
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+  background: var(--color-primitive-background-white, #fff);
+  resize: vertical;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.remarksTextarea::placeholder {
+  color: var(--color-primitive-text-steel, #9a9a9a);
+}
+
+.remarksTextarea:focus {
+  outline: none;
+  border-color: var(--color-semantic-primary-default, #c43a31);
+  box-shadow: 0 0 0 2px rgba(196, 58, 49, 0.10);
+}

@@ -28,12 +28,36 @@ function tok(accessToken: string): string {
   return accessToken === COOKIE_AUTH_SENTINEL ? COOKIE_AUTH_SENTINEL : accessToken;
 }
 
+function appendMulti(params: URLSearchParams, key: string, values: string[] | undefined) {
+  values?.forEach((v) => params.append(key, v));
+}
+
 function buildQueryString(q: ListExportBulkingQuery): string {
   const params = new URLSearchParams();
   if (q.page != null) params.set("page", String(q.page));
   if (q.limit != null) params.set("limit", String(q.limit));
   if (q.search) params.set("search", q.search);
-  q.statuses?.forEach((s) => params.append("statuses", s));
+  appendMulti(params, "statuses", q.statuses);
+  appendMulti(params, "shipment_no", q.shipment_nos);
+  appendMulti(params, "vessel_name", q.vessel_names);
+  appendMulti(params, "voyage_number", q.voyage_numbers);
+  appendMulti(params, "shipper", q.shippers);
+  appendMulti(params, "loadport_name", q.loadport_names);
+  appendMulti(params, "cargo_name", q.cargo_names);
+  appendMulti(params, "cargo_line_label", q.cargo_line_labels);
+  appendMulti(params, "total_qty_label", q.total_qty_labels);
+  appendMulti(params, "laycan_label", q.laycan_labels);
+  appendMulti(params, "cargo_readiness_label", q.cargo_readiness_labels);
+  appendMulti(params, "demurrage_rate_label", q.demurrage_rate_labels);
+  appendMulti(params, "eta_date", q.eta_dates);
+  appendMulti(params, "pic_documentation_name", q.pic_documentation_names);
+  appendMulti(params, "si_number", q.si_numbers);
+  appendMulti(params, "invoice_number", q.invoice_numbers);
+  appendMulti(params, "pl_number", q.pl_numbers);
+  appendMulti(params, "peb_no", q.peb_nos);
+  appendMulti(params, "peb_date", q.peb_dates);
+  appendMulti(params, "bl_no", q.bl_nos);
+  appendMulti(params, "bl_date", q.bl_dates);
   if (q.sort_by) params.set("sort_by", q.sort_by);
   if (q.sort_dir) params.set("sort_dir", q.sort_dir);
   if (q.assignment) params.set("assignment", q.assignment);
@@ -105,6 +129,16 @@ export function getStatusEvents(
   return apiGet<StatusEvent[]>(`${BASE}/${id}/status-events`, tok(accessToken));
 }
 
+export function getExportBulkingActivityLog(
+  id: string,
+  accessToken: string,
+): Promise<ApiResponse<import("@/types/activity-log").ActivityLogResponse>> {
+  return apiGet<import("@/types/activity-log").ActivityLogResponse>(
+    `${BASE}/${id}/activity-log`,
+    tok(accessToken),
+  );
+}
+
 /* ───── cargo lines ───── */
 
 export function listCargoLines(
@@ -143,8 +177,13 @@ export function upsertSapLines(
   shipmentId: string,
   lines: SapLineUpsertPayload[],
   accessToken: string,
+  options?: { spr?: string | null },
 ): Promise<ApiResponse<SapLine[]>> {
-  return apiPut<SapLine[]>(`${BASE}/${shipmentId}/sap-lines`, { lines }, tok(accessToken));
+  return apiPut<SapLine[]>(
+    `${BASE}/${shipmentId}/sap-lines`,
+    { lines, spr: options?.spr ?? undefined },
+    tok(accessToken),
+  );
 }
 
 /* ───── Billing lines (Billing & Levy per SO) ───── */

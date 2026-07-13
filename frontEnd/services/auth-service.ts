@@ -32,6 +32,14 @@ export async function resetPassword(payload: {
   return apiPost<unknown>(`${AUTH_PREFIX}/reset-password`, payload);
 }
 
+export async function changePassword(payload: {
+  current_password?: string;
+  new_password: string;
+  password_confirmation: string;
+}): Promise<ApiResponse<{ user: AuthUser }>> {
+  return apiPost<{ user: AuthUser }>(`${AUTH_PREFIX}/change-password`, payload);
+}
+
 /** Refresh uses HttpOnly `eos_refresh` cookie; body may be empty. */
 export async function refresh(): Promise<ApiResponse<RefreshResponseData>> {
   return apiPost<RefreshResponseData>(`${AUTH_PREFIX}/refresh`, {});

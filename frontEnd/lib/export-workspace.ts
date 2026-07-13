@@ -19,15 +19,40 @@ export const EXPORT_DOC_COLUMN_IDS = [
   "cargo_name",
 ] as const;
 
+export const OPERATIONS_COLUMN_IDS = [
+  "cargo_lines",
+  "demurrage_rate",
+  "laycan",
+  "cargo_readiness",
+] as const;
+
+/** Default visible columns on the Operations list tab. */
+export const OPERATIONS_LIST_COLUMN_IDS = [
+  "shipment_no",
+  "vessel",
+  "voyage",
+  "loadport",
+  "progress",
+  "status",
+  "cargo_lines",
+  "total_qty",
+  "shipper",
+  "laycan",
+  "cargo_readiness",
+  "demurrage_rate",
+  "eta",
+] as const;
+
 /** Default visible columns on the Documentation list tab. */
 export const DOCUMENTATION_LIST_COLUMN_IDS = [
   "shipment_no",
+  "vessel",
+  "voyage",
+  "loadport",
   "progress",
   "status",
   "cargo_name",
   "total_qty",
-  "vessel",
-  "voyage",
   "pic_documentation",
   "si_no",
   "invoice_no",
@@ -88,9 +113,14 @@ export function canEditExportDocumentation(user: AuthUser | null | undefined): b
   );
 }
 
-/** Edit cargo lines (Documentation tab; operations or documentation permission). */
+/** Edit cargo lines — commodity and quantity (operations or documentation permission). */
 export function canEditExportCargo(user: AuthUser | null | undefined): boolean {
   return canEditExportOperations(user) || canEditExportDocumentation(user);
+}
+
+/** Edit cargo line destination port, country, and PE fields (documentation team). */
+export function canEditExportCargoDestinations(user: AuthUser | null | undefined): boolean {
+  return canEditExportDocumentation(user);
 }
 
 /** Any export bulking edit (operations or documentation). */
@@ -99,7 +129,8 @@ export function canEditExportBulking(user: AuthUser | null | undefined): boolean
 }
 
 export function isExportBulkingDocumentationOfficer(user: AuthUser | null | undefined): boolean {
-  return user?.role?.trim().toUpperCase() === "EXPORT_BULKING_DOCUMENTATION";
+  const role = user?.role?.trim().toUpperCase();
+  return role === "EXPORT_BULKING_DOCUMENT" || role === "EXPORT_BULKING_DOCUMENTATION";
 }
 
 /** Docs persona: may view documentation; operational fields are read-only. */
@@ -118,7 +149,7 @@ export function getExportWorkspaceBadge(user: AuthUser | null | undefined): stri
   if (isExportOperationsOnly(user)) return "Operations";
   const role = user?.role?.trim().toUpperCase();
   if (role === "EXPORT_BULKING_OPERATION") return "Operations";
-  if (role === "EXPORT_BULKING_DOCUMENTATION") return "Documentation";
+  if (role === "EXPORT_BULKING_DOCUMENT" || role === "EXPORT_BULKING_DOCUMENTATION") return "Documentation";
   if (role === "EXPORT_BULKING_LEAD_DOCUMENTATION") return "Lead documentation";
   return null;
 }
@@ -126,14 +157,15 @@ export function getExportWorkspaceBadge(user: AuthUser | null | undefined): stri
 export function getAvailableBulkingListViews(
   user: AuthUser | null | undefined,
 ): ExportBulkingListView[] {
-  const canViewDocs = canViewExportDocumentation(user);
-  const canViewOps = Boolean(user?.effective_permissions?.includes("VIEW_EXPORT_BULKING"));
+  const canUpdateOps = canEditExportOperations(user);
+  const canUpdateDocs = canEditExportDocumentation(user);
   const views: ExportBulkingListView[] = [];
-  if (canViewDocs && canViewOps) views.push("all");
-  if (canViewOps) views.push("operations");
-  if (canViewDocs) views.push("documentation");
-  if (views.length === 0) views.push("operations");
-  return views;
+  if (canUpdateOps && canUpdateDocs) views.push("all");
+  if (canUpdateOps) views.push("operations");
+  if (canUpdateDocs) views.push("documentation");
+  if (views.length > 0) return views;
+  if (canViewExportDocumentation(user)) return ["documentation"];
+  return ["operations"];
 }
 
 /** Resolve list view from URL, redirecting inaccessible views. */

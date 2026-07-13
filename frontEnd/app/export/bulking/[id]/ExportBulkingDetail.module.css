@@ -11,21 +11,57 @@
   gap: var(--spacing-5, 32px);
   padding: 0 var(--spacing-4, 24px) var(--spacing-5, 32px);
   align-items: flex-start;
+  position: relative;
+  transition: gap 0.3s ease-in-out;
+}
+
+.pageLayoutSidebarCollapsed {
+  gap: 0;
 }
 
 .mainContent {
   flex: 1;
   min-width: 0;
+  width: 100%;
+  transition: flex 0.3s ease-in-out, width 0.3s ease-in-out;
+}
+
+.mainContentExpanded {
+  flex: 1 1 100%;
+  max-width: 100%;
+}
+
+.detailSidebarAside {
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  flex-shrink: 0;
+  width: 300px;
+  overflow: visible;
+  transition: width 0.3s ease-in-out;
+}
+
+.detailSidebarAsideCollapsed {
+  width: 0;
+}
+
+.detailSidebarInner {
+  width: 300px;
+  opacity: 1;
+  overflow: hidden;
+  transition: opacity 0.25s ease-in-out;
+}
+
+.detailSidebarAsideCollapsed .detailSidebarInner {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .sidebarContent {
   width: 300px;
-  flex-shrink: 0;
   display: flex;
   flex-direction: column;
   gap: var(--spacing-3, 16px);
-  position: sticky;
-  top: 0;
 }
 
 /* ── Status stepper ── */
@@ -921,10 +957,19 @@ select.fieldInput {
 
 .sapTable {
   width: 100%;
-  min-width: 720px;
+  min-width: 560px;
   border-collapse: collapse;
   font-size: 13px;
   line-height: 1.35;
+}
+
+.sapSprField {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1, 4px);
+  max-width: 360px;
+  margin-top: var(--spacing-3, 16px);
+  margin-bottom: var(--spacing-2, 8px);
 }
 
 .billingQtyCell {
@@ -1359,6 +1404,414 @@ select.fieldInput {
   margin-bottom: var(--spacing-3, 16px);
 }
 
+/* ── Shipping Instructions: sidebar + workspace layout ── */
+
+.siShellEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--spacing-3, 16px);
+  padding: var(--spacing-2, 8px) 0;
+}
+
+.siShell {
+  display: grid;
+  grid-template-columns: minmax(200px, 232px) minmax(0, 1fr);
+  align-items: start;
+  min-height: 520px;
+  border: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  border-radius: var(--borderRadius-md, 8px);
+  overflow: visible;
+  background: var(--color-primitive-background-white, #ffffff);
+}
+
+.siSidebar {
+  position: sticky;
+  top: 52px;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: calc(100vh - 64px);
+  background: var(--color-primitive-background-lighter, #f8fafc);
+  border-right: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  border-radius: 7px 0 0 7px;
+  overflow: hidden;
+}
+
+.siNavList {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  padding: var(--spacing-2, 8px);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.siNavItem {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--borderRadius-sm, 6px);
+  background: transparent;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color var(--animation-duration-fast, 150ms),
+    border-color var(--animation-duration-fast, 150ms),
+    box-shadow var(--animation-duration-fast, 150ms);
+}
+
+.siNavItem:hover {
+  background: var(--color-primitive-background-white, #ffffff);
+  border-color: var(--color-primitive-border-light, #e0e0e0);
+}
+
+.siNavItem:focus-visible {
+  outline: 2px solid var(--color-semantic-primary-default, #c43a31);
+  outline-offset: 2px;
+}
+
+.siNavItemActive {
+  background: var(--color-primitive-background-white, #ffffff);
+  border-color: var(--color-primitive-border-light, #d0d5dd);
+  border-left: 3px solid var(--color-semantic-primary-default, #c43a31);
+  padding-left: 9px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+
+.siNavItemActive .siNavItemLabel {
+  font-weight: 700;
+  color: var(--color-primitive-text-charcoal, #1a1a1a);
+}
+
+.siNavItemDirty {
+  border-color: #fcd34d;
+  background: #fffbeb;
+}
+
+.siNavItemDirty.siNavItemActive {
+  border-left-color: var(--color-semantic-primary-default, #c43a31);
+  background: #fffdf5;
+}
+
+.siNavItemLabel {
+  line-height: 1.3;
+  word-break: break-word;
+}
+
+.siNavItemStatus {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+}
+
+.siNavItemActive .siNavItemStatus {
+  color: var(--color-semantic-primary-default, #c43a31);
+}
+
+.siNavItemRow {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+}
+
+.siNavItemRow .siNavItem {
+  flex: 1;
+  min-width: 0;
+}
+
+.siNavDeleteBtn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  margin-top: 1px;
+  border: 1px solid transparent;
+  border-radius: var(--borderRadius-sm, 6px);
+  background: transparent;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  cursor: pointer;
+  transition:
+    background-color var(--animation-duration-fast, 150ms),
+    border-color var(--animation-duration-fast, 150ms),
+    color var(--animation-duration-fast, 150ms);
+}
+
+.siNavDeleteBtn:hover {
+  color: var(--color-semantic-destructive-default, #c43a31);
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+.siNavDeleteBtn:focus-visible {
+  outline: 2px solid var(--color-semantic-primary-default, #c43a31);
+  outline-offset: 2px;
+}
+
+.page:has(.unsavedBanner) .siSidebar {
+  top: 104px;
+  max-height: calc(100vh - 116px);
+}
+
+.sectionBody:has(.siShell) {
+  overflow: visible;
+}
+
+.docStepCard:has(.siShell) {
+  overflow: visible;
+}
+
+.siSidebarAdd {
+  flex-shrink: 0;
+  padding: var(--spacing-2, 8px);
+  border-top: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  background: var(--color-primitive-background-white, #ffffff);
+}
+
+.siSidebarAddBtn {
+  width: 100%;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 10px 12px;
+  border: 1px dashed var(--color-primitive-border-light, #cbd5e1);
+  border-radius: var(--borderRadius-sm, 6px);
+  background: transparent;
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+  cursor: pointer;
+  transition:
+    background-color var(--animation-duration-fast, 150ms),
+    border-color var(--animation-duration-fast, 150ms);
+}
+
+.siSidebarAddBtn:hover:not(:disabled) {
+  border-color: var(--color-semantic-primary-default, #c43a31);
+  background: #fff5f4;
+  color: var(--color-semantic-primary-default, #c43a31);
+}
+
+.siSidebarAddBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.siSidebarAddBtn:focus-visible {
+  outline: 2px solid var(--color-semantic-primary-default, #c43a31);
+  outline-offset: 2px;
+}
+
+.siWorkspace {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--color-primitive-background-white, #ffffff);
+}
+
+.siWorkspacePane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 520px;
+  min-width: 0;
+}
+
+.siWorkspacePaneHidden {
+  display: none;
+}
+
+.siWorkspaceScroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--spacing-3, 16px);
+}
+
+.siWorkspaceEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: var(--spacing-2, 8px);
+  flex: 1;
+  min-height: 320px;
+  padding: var(--spacing-4, 24px);
+}
+
+.siWorkspaceCargoHint {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  margin: 0 0 var(--spacing-3, 16px);
+  line-height: 1.35;
+  padding: 8px 12px;
+  background: var(--color-primitive-background-lighter, #f8fafc);
+  border: 1px solid var(--color-primitive-border-light, #e8ecf0);
+  border-radius: var(--borderRadius-sm, 6px);
+}
+
+.siWorkspaceFooter {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-2, 8px) var(--spacing-3, 16px);
+  padding: var(--spacing-3, 16px);
+  border-top: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  background: linear-gradient(
+    180deg,
+    var(--color-primitive-background-lighter, #f8fafc) 0%,
+    var(--color-primitive-background-white, #ffffff) 100%
+  );
+  box-shadow: 0 -4px 12px rgba(15, 23, 42, 0.04);
+}
+
+.siWorkspaceFooter .actions {
+  margin-top: 0;
+}
+
+.siWorkspaceFooterPreview {
+  margin-bottom: 0;
+  padding-top: 0;
+}
+
+.fieldGridSi {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.fieldSiFull {
+  grid-column: 1 / -1;
+}
+
+.textareaCompact {
+  min-height: 4.5rem;
+}
+
+.siCargoMetaBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: var(--spacing-2, 8px);
+  padding: var(--spacing-2, 8px) var(--spacing-3, 12px);
+  background: var(--color-primitive-background-lighter, #f8fafc);
+  border: 1px solid var(--color-primitive-border-light, #e8ecf0);
+  border-radius: var(--borderRadius-sm, 6px);
+}
+
+.siCargoMetaBadge {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.35;
+  padding: 4px 10px;
+  border-radius: var(--borderRadius-full, 999px);
+  background: var(--color-primitive-background-white, #ffffff);
+  border: 1px solid var(--color-primitive-border-light, #e2e8f0);
+  color: var(--color-primitive-text-steel, #64748b);
+}
+
+.siCargoMetaBadge strong {
+  font-weight: 700;
+  color: var(--color-primitive-text-charcoal, #334155);
+}
+
+.siCargoMetaBadgeWarn {
+  background: #fffbeb;
+  border-color: #fde68a;
+  color: #92400e;
+}
+
+.siCargoMetaBadgeWarn strong {
+  color: #78350f;
+}
+
+.siCargoMetaBadgeDanger {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #b42318;
+}
+
+.siCargoMetaBadgeDanger strong {
+  color: #991b1b;
+}
+
+.siCargoAddBtn {
+  margin-left: auto;
+}
+
+.siCargoMetaHint {
+  font-size: 11px;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+}
+
+@media (max-width: 720px) {
+  .siShell {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+    min-height: 0;
+  }
+
+  .siSidebar {
+    position: static;
+    top: auto;
+    max-height: none;
+    border-radius: 0;
+    border-right: none;
+    border-bottom: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  }
+
+  .siNavList {
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    flex: none;
+    padding-bottom: 4px;
+  }
+
+  .siNavItem {
+    flex: 0 0 auto;
+    min-width: 148px;
+  }
+
+  .siWorkspacePane {
+    min-height: 420px;
+  }
+
+  .fieldGridSi {
+    grid-template-columns: 1fr;
+  }
+
+  .siCargoAddBtn {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .siWorkspaceFooter {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
 .siDocumentPreviewActions {
   display: flex;
   flex-wrap: wrap;
@@ -1397,6 +1850,11 @@ select.fieldInput {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
+}
+
+.blSplitMode {
+  width: 7.5rem;
+  flex-shrink: 0;
 }
 
 .blSplitCount {
@@ -1466,6 +1924,13 @@ textarea.fieldInputReadonly:focus {
   color: var(--color-primitive-text-steel, #6b6b6b);
   padding: var(--spacing-3, 16px) 0;
   margin: 0;
+}
+
+.cargoDocsHint {
+  font-size: 12px;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  margin: 0 0 8px;
+  line-height: 1.4;
 }
 
 .errorMsg {
@@ -1866,22 +2331,7 @@ textarea.fieldInputReadonly:focus {
   flex-wrap: wrap;
   gap: var(--spacing-2, 8px);
   align-items: center;
-}
-
-.jumpNavLinkBtn {
-  font-family: inherit;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 4px 8px;
-  border: none;
-  background: none;
-  color: var(--color-semantic-primary-default, #c43a31);
-  cursor: pointer;
-  text-decoration: underline;
-}
-
-.jumpNavLinkBtn:hover {
-  opacity: 0.88;
+  flex-shrink: 0;
 }
 
 .jumpNavDivider {
@@ -2254,6 +2704,24 @@ textarea.fieldInputReadonly:focus {
   white-space: nowrap;
 }
 
+.reconReadonlyCaution {
+  color: #b45309;
+  font-weight: 600;
+  background: #fffbeb;
+  border-radius: 4px;
+  padding: 4px 6px;
+}
+
+.reconRowCaution {
+  background: #fffbeb;
+}
+
+.reconCautionHint {
+  font-size: 12px;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  margin: 0 0 10px;
+}
+
 /* ── Widescreen layout when navigation sidebar is collapsed ── */
 
 @media (min-width: 1024px) {
@@ -2274,11 +2742,13 @@ textarea.fieldInputReadonly:focus {
     min-width: 0;
   }
 
-  :global(.eos-sidebar-collapsed) .sidebarContent {
-    display: flex;
-    flex-direction: column;
+  :global(.eos-sidebar-collapsed) .detailSidebarAside {
     width: 300px;
     flex-shrink: 0;
+  }
+
+  :global(.eos-sidebar-collapsed) .detailSidebarAsideCollapsed {
+    width: 0;
   }
 
   :global(.eos-sidebar-collapsed) .sidebarCard {
@@ -2559,6 +3029,9 @@ textarea.fieldInputReadonly:focus {
 .readOnlyPage .btnDangerSm,
 .readOnlyPage .milestoneToggleBtn,
 .readOnlyPage .siLineToolbar,
+.readOnlyPage .siSidebarAdd,
+.readOnlyPage .siCargoAddBtn,
+.readOnlyPage .siNavDeleteBtn,
 .readOnlyPage .loadportConfirm,
 .readOnlyPage .siDocumentPreviewActions,
 .readOnlyRegion .actions,
@@ -2567,6 +3040,17 @@ textarea.fieldInputReadonly:focus {
 .readOnlyRegion .cargoRowRemove,
 .readOnlyRegion .cargoLineCardRemove,
 .readOnlyRegion .btnDanger,
+.readOnlyRegion .btnDangerSm,
+.readOnlyRegion .milestoneToggleBtn,
+.readOnlyRegion .siLineToolbar,
+.readOnlyRegion .siSidebarAdd,
+.readOnlyRegion .siCargoAddBtn,
+.readOnlyRegion .siNavDeleteBtn,
+.readOnlyRegion .loadportConfirm,
+.readOnlyRegion .siDocumentPreviewActions {
+  display: none;
+}
+
 /* ── Documentation Progress Bar ─────────────────────────────────────────── */
 .docProgressWrap {
   background: var(--color-primitive-background-white, #fff);
@@ -2902,15 +3386,6 @@ textarea.fieldInputReadonly:focus {
 
 .required {
   color: var(--color-semantic-destructive-default, #c43a31);
-}
-
-/* ── read-only regions ───────────────────────────────────────────────────── */
-.readOnlyRegion .btnDangerSm,
-.readOnlyRegion .milestoneToggleBtn,
-.readOnlyRegion .siLineToolbar,
-.readOnlyRegion .loadportConfirm,
-.readOnlyRegion .siDocumentPreviewActions {
-  display: none;
 }
 
 .pebSiBlock {

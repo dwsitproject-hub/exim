@@ -184,6 +184,7 @@ export class ShipmentActivityService {
       type: e.type,
       title: e.title,
       detail: e.detail,
+      field_changes: e.field_changes,
       actor: e.actor,
       occurred_at: e.at.toISOString(),
     }));

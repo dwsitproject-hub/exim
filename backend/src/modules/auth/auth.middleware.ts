@@ -9,6 +9,7 @@ import { config } from "../../config/index.js";
 import { sendError } from "../../shared/response.js";
 import { ACCESS_TOKEN_COOKIE } from "./auth-cookies.js";
 import { userRowToAuthUser } from "./auth-user-mapper.js";
+import { isPasswordChangeExemptRequest } from "./password-change-guard.js";
 import { UserRepository } from "./repositories/user.repository.js";
 import type { AccessTokenPayload } from "./dto/index.js";
 
@@ -55,6 +56,10 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
         }
         if (res.writableEnded || res.headersSent) return;
         req.user = userRowToAuthUser(row);
+        if (row.must_change_password && !isPasswordChangeExemptRequest(req)) {
+          sendError(res, "You must change your password before continuing", { statusCode: 403 });
+          return;
+        }
         next();
       } catch (e) {
         if (!res.writableEnded && !res.headersSent) {

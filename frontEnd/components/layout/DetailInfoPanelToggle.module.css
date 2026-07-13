@@ -1,0 +1,77 @@
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  border-radius: 999px;
+  background: var(--color-primitive-background-white, #fff);
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  flex-shrink: 0;
+}
+
+.toggleCollapsed {
+  padding: 0 6px 0 10px;
+  background: #fff5f4;
+  border-color: rgba(196, 58, 49, 0.35);
+  color: var(--color-semantic-primary-default, #c43a31);
+}
+
+.toggleCollapsed:hover {
+  background: #ffe8e6;
+  border-color: var(--color-semantic-primary-default, #c43a31);
+  color: #a32f28;
+  box-shadow: 0 2px 8px rgba(196, 58, 49, 0.15);
+}
+
+.toggleOpen {
+  width: 28px;
+  padding: 0;
+}
+
+.toggleOpen:hover {
+  background: var(--color-primitive-background-lighter, #fafafa);
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+  border-color: #d0d0d0;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+}
+
+.toggle:focus-visible {
+  outline: none;
+  border-color: var(--color-semantic-primary-default, #c43a31);
+  box-shadow: 0 0 0 2px rgba(196, 58, 49, 0.15);
+}
+
+.label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.toggleAttention {
+  animation: detailInfoPanelTogglePulse 2.2s ease-in-out 4;
+}
+
+@keyframes detailInfoPanelTogglePulse {
+  0%,
+  100% {
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  }
+
+  50% {
+    box-shadow: 0 0 0 4px rgba(196, 58, 49, 0.22);
+  }
+}
+
+@media (max-width: 1023px) {
+  .toggle {
+    display: none;
+  }
+}

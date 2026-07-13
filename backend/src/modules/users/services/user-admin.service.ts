@@ -93,6 +93,7 @@ export class UserAdminService {
       name,
       role: input.role.trim().toUpperCase(),
       emailVerified: true,
+      mustChangePassword: true,
       permissionOverrides: permission_overrides,
     });
     return rowToDto(row);
@@ -196,6 +197,7 @@ export class UserAdminService {
           name,
           role: role.toUpperCase(),
           emailVerified: true,
+          mustChangePassword: true,
           permissionOverrides: permissionList,
         });
         created++;

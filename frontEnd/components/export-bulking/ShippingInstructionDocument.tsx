@@ -37,6 +37,16 @@ function dash(s: string | null | undefined): string {
   return t ? t : "—";
 }
 
+function formatDestinationDisplay(
+  port: string | null | undefined,
+  country: string | null | undefined,
+): string {
+  const p = port?.trim();
+  const c = country?.trim();
+  if (p && c) return `${p}, ${c}`;
+  return p || c || "—";
+}
+
 export function ShippingInstructionDocument({
   shipment,
   si,
@@ -68,7 +78,9 @@ export function ShippingInstructionDocument({
     blSplitText?.trim() ||
     first?.bl_split_text?.trim() ||
     "—";
-  const destination = dash(first?.destination_port ?? cargo?.destination_port);
+  const destinationPort = first?.destination_port?.trim() || cargo?.destination_port?.trim() || "";
+  const destinationCountry = cargo?.destination_country?.trim() || "";
+  const destination = formatDestinationDisplay(destinationPort, destinationCountry);
 
   const shipperText = si.shipper_snapshot?.trim() || shipment.shipper?.trim() || "—";
   const loadport = dash(shipment.loadport_name);

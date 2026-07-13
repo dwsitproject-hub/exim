@@ -56,7 +56,18 @@ export interface ExportBulkingListItem {
   created_at: string;
   updated_at: string;
   cargo_count?: number;
-  cargo_summaries?: { item_description: string | null; destination_port: string | null }[] | null;
+  cargo_summaries?: {
+    cargo_name?: string | null;
+    quantity?: number | null;
+    item_description: string | null;
+    destination_port: string | null;
+  }[] | null;
+  laycan?: string | null;
+  laycan_from?: string | null;
+  laycan_to?: string | null;
+  est_cargo_readiness?: string | null;
+  est_cargo_readiness_period?: string | null;
+  demurrage_rate_pdpr?: number | null;
   si_numbers?: string[] | null;
   invoice_numbers?: string[] | null;
   pl_numbers?: string[] | null;
@@ -95,6 +106,7 @@ export interface ExportBulkingShipmentDetail {
   commence_loading: string | null;
   etc: string | null;
   atc: string | null;
+  hose_on: string | null;
   hose_off: string | null;
   bl_figure: number | null;
   ship_figure: number | null;
@@ -132,6 +144,7 @@ export interface ExportBulkingShipmentDetail {
   surveyor: string | null;
   surveyor_reason: string | null;
   agent: string | null;
+  length_over_all: number | null;
   laytime_rate_mtph: number | null;
   demurrage_rate_pdpr: number | null;
   total_quantity: number | null;
@@ -166,7 +179,6 @@ export type SapLineUpsertPayload = {
   quantity_spb?: number | null;
   spb?: string | null;
   delivery_order_pgi?: string | null;
-  spr?: string | null;
 };
 
 export interface BillingLine {
@@ -233,6 +245,7 @@ export interface CargoLine {
   quantity_delivered: number | null;
   bl_figure: number | null;
   ship_figure: number | null;
+  reconciliation_remarks?: string | null;
   pe_no: string | null;
   pe_date: string | null;
 }
@@ -251,6 +264,7 @@ export type CargoLineUpsertPayload = {
   quantity_delivered?: number | null;
   bl_figure?: number | null;
   ship_figure?: number | null;
+  reconciliation_remarks?: string | null;
   pe_no?: string | null;
   pe_date?: string | null;
 };
@@ -278,7 +292,9 @@ export interface ShippingInstruction {
   lines: SiLine[];
 }
 
-export type BlSplitEntry = { count: number; quantity: number };
+export type BlSplitMode = "Max" | "Min" | "Exact" | "Balance";
+
+export type BlSplitEntry = { count: number; quantity: number; mode?: BlSplitMode };
 
 export interface SiLine {
   id: string;
@@ -384,12 +400,26 @@ export interface PackingListLine {
 
 export interface ExportBulkingFilterOptions {
   statuses: string[];
+  shipment_nos: string[];
   vessel_names: string[];
   voyage_numbers: string[];
   shippers: string[];
   loadport_names: string[];
-  surveyors: string[];
-  incoterms: string[];
+  cargo_names: string[];
+  cargo_line_labels: string[];
+  total_qty_labels: string[];
+  laycan_labels: string[];
+  cargo_readiness_labels: string[];
+  demurrage_rate_labels: string[];
+  eta_dates: string[];
+  pic_documentation_names: string[];
+  si_numbers: string[];
+  invoice_numbers: string[];
+  pl_numbers: string[];
+  peb_nos: string[];
+  peb_dates: string[];
+  bl_nos: string[];
+  bl_dates: string[];
   /** Total shipment count per raw status key, e.g. { SHIPMENT_PLANNING: 5, NOMINATION: 3 } */
   status_counts?: Record<string, number>;
 }
@@ -399,6 +429,26 @@ export interface ListExportBulkingQuery {
   limit?: number;
   search?: string;
   statuses?: string[];
+  shipment_nos?: string[];
+  vessel_names?: string[];
+  voyage_numbers?: string[];
+  shippers?: string[];
+  loadport_names?: string[];
+  cargo_names?: string[];
+  cargo_line_labels?: string[];
+  total_qty_labels?: string[];
+  laycan_labels?: string[];
+  cargo_readiness_labels?: string[];
+  demurrage_rate_labels?: string[];
+  eta_dates?: string[];
+  pic_documentation_names?: string[];
+  si_numbers?: string[];
+  invoice_numbers?: string[];
+  pl_numbers?: string[];
+  peb_nos?: string[];
+  peb_dates?: string[];
+  bl_nos?: string[];
+  bl_dates?: string[];
   sort_by?: string;
   sort_dir?: "asc" | "desc";
   assignment?: ExportBulkingAssignmentFilter;

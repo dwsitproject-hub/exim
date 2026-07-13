@@ -112,6 +112,7 @@ export function UserNew() {
           required
           autoComplete="new-password"
           minLength={8}
+          helperText="User must set a new password on first sign-in."
         />
         <div>
           <label htmlFor="user-role" className={styles.fieldLabel}>

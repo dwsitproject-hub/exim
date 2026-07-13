@@ -11,13 +11,13 @@ export const USER_ROLE_OPTIONS = [
   "DOCS",
   "EXPORT_BULKING_OPERATION",
   "EXPORT_BULKING_LEAD_DOCUMENTATION",
-  "EXPORT_BULKING_DOCUMENTATION",
+  "EXPORT_BULKING_DOCUMENT",
 ] as const;
 
 export type UserRoleOption = (typeof USER_ROLE_OPTIONS)[number];
 
-/** Legacy DB role label — not offered for new users (migration 077). */
-export type LegacyUserRole = "EXIM_OFFICER";
+/** Legacy DB role labels — not offered for new users. */
+export type LegacyUserRole = "EXIM_OFFICER" | "EXPORT_BULKING_DOCUMENTATION";
 
 /** Human-readable labels for admin role picker. */
 export const ROLE_DISPLAY_LABELS: Record<UserRoleOption, string> = {
@@ -29,12 +29,15 @@ export const ROLE_DISPLAY_LABELS: Record<UserRoleOption, string> = {
   DOCS: "Documentation (legacy)",
   EXPORT_BULKING_OPERATION: "Export bulking — operations",
   EXPORT_BULKING_LEAD_DOCUMENTATION: "Export bulking — lead documentation",
-  EXPORT_BULKING_DOCUMENTATION: "Export bulking — documentation",
+  EXPORT_BULKING_DOCUMENT: "Export bulking — document",
 };
 
 export function formatRoleLabel(role: string): string {
-  const key = role.trim().toUpperCase() as UserRoleOption;
-  return ROLE_DISPLAY_LABELS[key] ?? role;
+  const key = role.trim().toUpperCase();
+  if (key === "EXPORT_BULKING_DOCUMENTATION") {
+    return ROLE_DISPLAY_LABELS.EXPORT_BULKING_DOCUMENT;
+  }
+  return ROLE_DISPLAY_LABELS[key as UserRoleOption] ?? role;
 }
 
 export const PERMISSION_CATALOG: readonly { key: string; label: string }[] = [
@@ -93,13 +96,52 @@ const IMPORT_OFFICER_PERMISSIONS = [
   "UPDATE_EXPORT_BULKING_STATUS",
 ] as const;
 
+const ADMIN_IMPORT_PERMISSIONS = [
+  "MANAGE_USERS",
+  "VIEW_PO_INTAKE",
+  "CREATE_PO_INTAKE_TEST",
+  "UPDATE_PO_INTAKE",
+  "TAKE_OWNERSHIP",
+  "IMPORT_PO_CSV",
+  "PARSE_PO_PDF",
+  "VIEW_SHIPMENTS",
+  "CREATE_SHIPMENT",
+  "UPDATE_SHIPMENT",
+  "UPDATE_STATUS",
+  "COUPLE_DECOUPLE_PO",
+  "MANAGE_IMPORT_MASTERS",
+  "MANAGE_SHIPPERS",
+  "VIEW_PO_PDF_AI_USAGE",
+] as const;
+
+const ADMIN_EXPORT_PERMISSIONS = [
+  "MANAGE_USERS",
+  "VIEW_EXPORT_BULKING",
+  "VIEW_EXPORT_DOCUMENTATION",
+  "CREATE_EXPORT_BULKING",
+  "UPDATE_EXPORT_BULKING",
+  "UPDATE_EXPORT_OPERATIONS",
+  "UPDATE_EXPORT_DOCUMENTATION",
+  "UPDATE_EXPORT_BULKING_STATUS",
+  "ASSIGN_EXPORT_BULKING_DOCUMENTATION",
+  "MANAGE_EXPORT_MASTERS",
+  "UPLOAD_DOCUMENT",
+] as const;
+
+const EXPORT_BULKING_DOCUMENT_PERMISSIONS = [
+  "VIEW_EXPORT_BULKING",
+  "VIEW_EXPORT_DOCUMENTATION",
+  "UPDATE_EXPORT_DOCUMENTATION",
+  "UPLOAD_DOCUMENT",
+] as const;
+
 /** Frontend copy of backend role→permission matrix (must stay in sync with backend `shared/rbac.ts`). */
 export const ROLE_DEFAULT_PERMISSIONS: Readonly<
   Record<UserRoleOption | LegacyUserRole, readonly string[]>
 > = {
   ADMIN: PERMISSION_CATALOG.map((p) => p.key),
-  ADMIN_IMPORT: ["MANAGE_IMPORT_MASTERS", "VIEW_PO_PDF_AI_USAGE"],
-  ADMIN_EXPORT: ["MANAGE_EXPORT_MASTERS"],
+  ADMIN_IMPORT: ADMIN_IMPORT_PERMISSIONS,
+  ADMIN_EXPORT: ADMIN_EXPORT_PERMISSIONS,
   IMPORT_OFFICER: IMPORT_OFFICER_PERMISSIONS,
   EXIM_OFFICER: IMPORT_OFFICER_PERMISSIONS,
   VIEWER: [
@@ -118,11 +160,8 @@ export const ROLE_DEFAULT_PERMISSIONS: Readonly<
     "UPDATE_EXPORT_OPERATIONS",
     "UPDATE_EXPORT_BULKING_STATUS",
   ],
-  EXPORT_BULKING_DOCUMENTATION: [
-    "VIEW_EXPORT_BULKING",
-    "VIEW_EXPORT_DOCUMENTATION",
-    "UPDATE_EXPORT_DOCUMENTATION",
-  ],
+  EXPORT_BULKING_DOCUMENT: EXPORT_BULKING_DOCUMENT_PERMISSIONS,
+  EXPORT_BULKING_DOCUMENTATION: EXPORT_BULKING_DOCUMENT_PERMISSIONS,
   EXPORT_BULKING_LEAD_DOCUMENTATION: [
     "VIEW_EXPORT_BULKING",
     "VIEW_EXPORT_DOCUMENTATION",

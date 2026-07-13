@@ -3,7 +3,7 @@
  */
 
 import { Router } from "express";
-import { login, refresh, logout, getMe, verifyEmail, forgotPassword, resetPassword } from "./controllers/auth.controller.js";
+import { login, refresh, logout, getMe, verifyEmail, forgotPassword, resetPassword, changePassword } from "./controllers/auth.controller.js";
 import { authMiddleware } from "./auth.middleware.js";
 import {
   loginLimiter,
@@ -18,6 +18,7 @@ authRoutes.post("/login", loginLimiter, login);
 authRoutes.post("/refresh", refreshAndLogoutLimiter, refresh);
 authRoutes.post("/logout", refreshAndLogoutLimiter, logout);
 authRoutes.get("/me", authMiddleware, getMe);
+authRoutes.post("/change-password", authMiddleware, changePassword);
 
 authRoutes.post("/verify-email", authTokenFlowLimiter, verifyEmail);
 authRoutes.get("/verify-email", authTokenFlowLimiter, verifyEmail);

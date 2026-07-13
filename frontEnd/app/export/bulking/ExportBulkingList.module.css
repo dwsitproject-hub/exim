@@ -461,6 +461,7 @@
   color: var(--color-primitive-text-steel, #6b6b6b);
   border-bottom: 2px solid var(--color-primitive-border-light, #e0e0e0);
   user-select: none;
+  overflow: visible;
 }
 
 /* ── Expand toggle ── */
@@ -1243,6 +1244,11 @@
   width: 100%;
 }
 
+.headerCellInner:hover [data-filter-column-icon],
+.headerCellInner:focus-within [data-filter-column-icon] {
+  opacity: 1;
+}
+
 .sortHeadBtn {
   display: inline-flex;
   align-items: center;
@@ -1258,6 +1264,8 @@
   color: inherit;
   cursor: pointer;
   text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .sortHeadBtn:hover {
@@ -1632,6 +1640,89 @@
 
 .quantityInput {
   -moz-appearance: textfield;
+}
+
+.createCargoHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.createCargoTotal {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+}
+
+.createCargoList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.createCargoRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.createCargoRowFields {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 10px;
+  flex: 1;
+}
+
+.createCargoField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.createCargoFieldLabel {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+}
+
+.createCargoRemoveBtn {
+  flex-shrink: 0;
+  margin-top: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  border-radius: var(--borderRadius-sm, 6px);
+  background: var(--color-primitive-background-white, #ffffff);
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  cursor: pointer;
+}
+
+.createCargoRemoveBtn:hover {
+  color: var(--color-semantic-destructive-default, #c43a31);
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+
+.createCargoAddBtn {
+  align-self: flex-start;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-semantic-primary-default, #c43a31);
+  background: transparent;
+  border: 1px dashed var(--color-primitive-border-medium, #c4c4c4);
+  border-radius: var(--borderRadius-sm, 6px);
+  cursor: pointer;
+}
+
+.createCargoAddBtn:hover {
+  background: #fff7f6;
+  border-color: var(--color-semantic-primary-default, #c43a31);
 }
 
 /* ── Column toggle in toolbar ── */

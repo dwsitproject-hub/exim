@@ -1,5 +1,6 @@
 /**
  * Data SAP helpers — one SAP row per sales order (SO) on invoice lines.
+ * SPR is stored once per shipment (export_bulking_shipments.spr), not per SO.
  */
 
 import type { ExportBulkingShipmentDetail, Invoice, SapLine, SapLineUpsertPayload } from "@/types/export-bulking";
@@ -27,15 +28,28 @@ function sapLineComplete(line: SapLine | undefined): boolean {
     line.quantity_spb != null &&
     !Number.isNaN(Number(line.quantity_spb)) &&
     Boolean(line.spb?.trim()) &&
-    Boolean(line.delivery_order_pgi?.trim()) &&
-    Boolean(line.spr?.trim())
+    Boolean(line.delivery_order_pgi?.trim())
   );
 }
 
-/** True when every invoice SO on the shipment has complete SAP fields. */
+/** Shipment-level SPR; falls back to legacy per-line values if present. */
+export function resolveShipmentSpr(
+  shipment: Pick<ExportBulkingShipmentDetail, "spr" | "sap_lines">,
+): string {
+  const onShipment = shipment.spr?.trim();
+  if (onShipment) return onShipment;
+  for (const line of shipment.sap_lines ?? []) {
+    const legacy = line.spr?.trim();
+    if (legacy) return legacy;
+  }
+  return "";
+}
+
+/** True when every invoice SO has complete SAP fields and the shipment has SPR. */
 export function isSapDataComplete(shipment: ExportBulkingShipmentDetail): boolean {
   const sos = distinctSoNosFromShipment(shipment);
   if (sos.length === 0) return false;
+  if (!resolveShipmentSpr(shipment).trim()) return false;
   const bySo = new Map<string, SapLine>();
   for (const line of shipment.sap_lines ?? []) {
     const key = line.so_no.trim();
@@ -51,7 +65,6 @@ export type SapLineDraft = {
   quantity_spb: string;
   spb: string;
   delivery_order_pgi: string;
-  spr: string;
 };
 
 export function buildSapLineDrafts(
@@ -73,7 +86,6 @@ export function buildSapLineDrafts(
       quantity_spb: formatQty(saved?.quantity_spb ?? null),
       spb: saved?.spb ?? "",
       delivery_order_pgi: saved?.delivery_order_pgi ?? "",
-      spr: saved?.spr ?? "",
     };
   });
 }
@@ -89,6 +101,5 @@ export function sapDraftsToUpsertPayload(
     quantity_spb: parseQty(row.quantity_spb),
     spb: row.spb.trim() || null,
     delivery_order_pgi: row.delivery_order_pgi.trim() || null,
-    spr: row.spr.trim() || null,
   }));
 }

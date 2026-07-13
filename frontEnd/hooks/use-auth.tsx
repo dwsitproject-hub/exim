@@ -11,6 +11,7 @@ import type { AuthUser, LoginResponseData } from "@/types/auth";
 import { isApiError } from "@/types/api";
 import { COOKIE_AUTH_SENTINEL } from "@/lib/constants";
 import { clearTokens } from "@/lib/cookies";
+import { markFirstTimeUser } from "@/lib/first-time-user-storage";
 
 function normalizeAuthUser(raw: unknown): AuthUser | null {
   if (!raw || typeof raw !== "object") return null;
@@ -27,6 +28,7 @@ function normalizeAuthUser(raw: unknown): AuthUser | null {
     effective_permissions: Array.isArray(o.effective_permissions)
       ? o.effective_permissions.filter((x): x is string => typeof x === "string")
       : [],
+    must_change_password: o.must_change_password === true,
   };
 }
 
@@ -39,7 +41,15 @@ interface AuthState {
 }
 
 interface AuthContextValue extends AuthState {
-  login: (email: string, password: string) => Promise<{ ok: boolean; error?: string; errors?: { field: string; message: string }[] }>;
+  login: (
+    email: string,
+    password: string
+  ) => Promise<{
+    ok: boolean;
+    user?: AuthUser;
+    error?: string;
+    errors?: { field: string; message: string }[];
+  }>;
   logout: () => Promise<void>;
   refreshSession: () => Promise<boolean>;
 }
@@ -108,7 +118,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const login = useCallback(
-    async (email: string, password: string): Promise<{ ok: boolean; error?: string; errors?: { field: string; message: string }[] }> => {
+    async (
+      email: string,
+      password: string
+    ): Promise<{
+      ok: boolean;
+      user?: AuthUser;
+      error?: string;
+      errors?: { field: string; message: string }[];
+    }> => {
       setState((s) => ({ ...s, loading: true }));
       try {
         const res = await authLogin(email, password);
@@ -129,7 +147,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           loading: false,
           initialized: true,
         }));
-        return { ok: true };
+        if (nu.must_change_password) {
+          markFirstTimeUser(nu.id);
+        }
+        return { ok: true, user: nu };
       } catch (err) {
         setState((s) => ({ ...s, loading: false }));
         return { ok: false, error: err instanceof Error ? err.message : "Login failed" };

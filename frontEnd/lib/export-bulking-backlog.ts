@@ -132,7 +132,11 @@ export function parseAssignmentFilter(
 export function getDefaultAssignmentFilter(
   user: AuthUser | null | undefined,
 ): ExportBulkingAssignmentFilter | null {
-  if (user?.role?.trim().toUpperCase() === "EXPORT_BULKING_DOCUMENTATION") {
+  const role = user?.role?.trim().toUpperCase();
+  if (
+    role === "EXPORT_BULKING_DOCUMENT" ||
+    role === "EXPORT_BULKING_DOCUMENTATION"
+  ) {
     return "assigned_to_me";
   }
   return null;
@@ -150,26 +154,18 @@ export function parseBacklogFilter(raw: string | null | undefined): ExportBulkin
 }
 
 export function getDefaultBulkingView(user: AuthUser | null | undefined): ExportBulkingListView {
-  if (!user) return "all";
-  const role = user.role.trim().toUpperCase();
-  if (
-    role === "DOCS" ||
-    role === "EXPORT_BULKING_DOCUMENTATION"
-  ) {
-    return "documentation";
-  }
-  if (role === "EXPORT_BULKING_OPERATION") return "operations";
-  if (role === "EXPORT_BULKING_LEAD_DOCUMENTATION") return "all";
+  if (!user) return "operations";
   const perms = user.effective_permissions ?? [];
   const canUpdateOps =
     perms.includes("UPDATE_EXPORT_OPERATIONS") || perms.includes("UPDATE_EXPORT_BULKING");
   const canUpdateDocs =
     perms.includes("UPDATE_EXPORT_DOCUMENTATION") || perms.includes("UPDATE_EXPORT_BULKING");
-  const canViewDocs = perms.includes("VIEW_EXPORT_DOCUMENTATION");
-  if (!canUpdateOps && canViewDocs) return "documentation";
-  if (canUpdateOps && canViewDocs) return "all";
+
+  if (canUpdateOps && canUpdateDocs) return "all";
+  if (!canUpdateOps && canUpdateDocs) return "documentation";
   if (canUpdateOps) return "operations";
-  return "all";
+  if (perms.includes("VIEW_EXPORT_DOCUMENTATION")) return "documentation";
+  return "operations";
 }
 
 const VOYAGE_STATUSES = new Set(["ARRIVAL", "AT_BERTH", "LOADING", "CASE_OFF"]);

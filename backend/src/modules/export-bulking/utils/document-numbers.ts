@@ -36,3 +36,21 @@ export function formatInvoiceDocumentNumber(year: number, month: number, serial:
 export function formatPlDocumentNumber(year: number, month: number, serial: number): string {
   return `PL/EUP/${year}/${monthToRoman(month)}/${formatPaddedSerial(serial)}`;
 }
+
+/** Parse year + serial from auto-formatted SI / invoice / packing list numbers. */
+export function parseExportDocumentSerial(
+  docNumber: string | null | undefined,
+): { year: number; serial: number } | null {
+  const trimmed = docNumber?.trim();
+  if (!trimmed) return null;
+
+  const parts = trimmed.split("/");
+  if (parts.length !== 5) return null;
+
+  const year = Number(parts[2]);
+  const serial = Number(parts[4]);
+  if (!Number.isInteger(year) || year < 2000 || year > 2100) return null;
+  if (!Number.isInteger(serial) || serial < 1) return null;
+
+  return { year, serial };
+}

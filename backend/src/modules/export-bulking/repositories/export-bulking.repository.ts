@@ -8,12 +8,14 @@ import {
   formatSiDocumentNumber,
   formatInvoiceDocumentNumber,
   formatPlDocumentNumber,
+  parseExportDocumentSerial,
 } from "../utils/document-numbers.js";
 import type {
   CreateExportBulkingShipmentDto,
   UpdateExportBulkingShipmentDto,
   ListExportBulkingQuery,
   ExportBulkingShipmentRow,
+  ExportBulkingListFilterOptions,
   CargoLineDto,
   SapLineDto,
   BillingLineDto,
@@ -50,11 +52,65 @@ async function assertShippingInstructionMatchesShipment(
   }
 }
 
+const LAYCAN_LABEL_SQL = `CASE
+  WHEN s.laycan_from IS NOT NULL AND s.laycan_to IS NOT NULL THEN
+    trim(to_char(s.laycan_from AT TIME ZONE 'UTC', 'DD Mon')) || ' — ' || trim(to_char(s.laycan_to AT TIME ZONE 'UTC', 'DD Mon'))
+  WHEN btrim(coalesce(s.laycan,'')) <> '' THEN btrim(s.laycan)
+  WHEN s.laycan_from IS NOT NULL THEN trim(to_char(s.laycan_from AT TIME ZONE 'UTC', 'DD Mon'))
+  WHEN s.laycan_to IS NOT NULL THEN trim(to_char(s.laycan_to AT TIME ZONE 'UTC', 'DD Mon'))
+  ELSE NULL
+END`;
+
+const CARGO_READINESS_LABEL_SQL = `CASE
+  WHEN s.est_cargo_readiness IS NOT NULL THEN
+    trim(to_char(s.est_cargo_readiness AT TIME ZONE 'UTC', 'DD Mon')) ||
+    CASE WHEN btrim(coalesce(s.est_cargo_readiness_period,'')) <> ''
+      THEN ' ' || btrim(s.est_cargo_readiness_period) ELSE '' END
+  ELSE NULL
+END`;
+
+const TOTAL_QTY_LABEL_SQL = `to_char(
+  ROUND(COALESCE(
+    NULLIF((SELECT SUM(cl.quantity) FROM export_bulking_cargo_lines cl WHERE cl.shipment_id = s.id), 0),
+    s.total_quantity
+  ))::bigint, 'FM999,999,999,990')`;
+
+const ETA_DATE_SQL = `to_char((COALESCE(s.ata, s.eta) AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD')`;
+
+const DEMURRAGE_RATE_LABEL_SQL = `trim(to_char(s.demurrage_rate_pdpr, 'FM999999990.00'))`;
+
+const CARGO_LINE_LABEL_SQL = `trim(coalesce(nullif(btrim(cl.cargo_name),''), nullif(btrim(cl.item_description),''), 'Cargo')) ||
+  CASE WHEN cl.quantity IS NOT NULL
+    THEN ' ' || to_char(ROUND(cl.quantity)::bigint, 'FM999,999,999,990') || ' MT'
+    ELSE '' END`;
+
+function appendTextArrayFilter(
+  conditions: string[],
+  params: unknown[],
+  idx: number,
+  expr: string,
+  values: string[] | undefined,
+): number {
+  const list = [...new Set((values ?? []).map((v) => v.trim()).filter(Boolean))];
+  if (list.length === 1) {
+    conditions.push(`${expr} = $${idx}`);
+    params.push(list[0]);
+    return idx + 1;
+  }
+  if (list.length > 1) {
+    conditions.push(`${expr} = ANY($${idx}::text[])`);
+    params.push(list);
+    return idx + 1;
+  }
+  return idx;
+}
+
 const SHIPMENT_COLUMNS = `id, shipment_no, current_status, vessel_name, voyage_number, shipper,
   loadport_name, received_nomination, received_shipping_instruction,
   incoterms, laycan, laycan_from, laycan_to, est_cargo_readiness, est_cargo_readiness_period,
+  length_over_all,
   eta, ata, nor, etb, atb, commence_loading,
-  etc, atc, hose_off, bl_figure, ship_figure, npe_date,
+  etc, atc, hose_on, hose_off, bl_figure, ship_figure, npe_date,
   quantity_spb, spb, delivery_order_pgi, spr, bill_of_lading_no, bill_of_lading_date,
   bill_of_lading_nn_obl, sent_bl, sent_coo, sent_phyto, sent_hc, sent_sr,
   sent_sustainability, present_docs, required_sent_documents, peb_request_no, peb_no, peb_date, pe_no, pe_date,
@@ -105,29 +161,89 @@ export class ExportBulkingRepository {
     return Number(r.rows[0]?.last_serial ?? 0);
   }
 
+  /**
+   * When the deleted document held the latest auto-allocated serial for its year,
+   * roll the counter back so the next create reuses that number.
+   */
+  private async releaseSerialIfLast(
+    client: PoolClient,
+    seriesCode: string,
+    docNumber: string | null | undefined,
+  ): Promise<void> {
+    const parsed = parseExportDocumentSerial(docNumber);
+    if (!parsed) return;
+
+    await client.query(
+      `UPDATE export_bulking_doc_number_counters
+       SET last_serial = last_serial - 1, updated_at = NOW()
+       WHERE series_code = $1 AND year = $2 AND last_serial = $3`,
+      [seriesCode, parsed.year, parsed.serial],
+    );
+  }
+
   /* ───────── CRUD shipment ───────── */
 
   async create(dto: CreateExportBulkingShipmentDto, userId?: string): Promise<ExportBulkingShipmentRow> {
     const shipmentNo = await this.generateShipmentNo();
-    const result = await this.pool.query<ExportBulkingShipmentRow>(
-      `INSERT INTO export_bulking_shipments
-        (shipment_no, vessel_name, voyage_number, shipper, loadport_name,
-         total_quantity, remarks, current_status, created_by, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'SHIPMENT_PLANNING',$8,NOW(),NOW())
-       RETURNING ${SHIPMENT_COLUMNS}`,
-      [
-        shipmentNo,
-        dto.vessel_name ?? null,
-        dto.voyage_number ?? null,
-        dto.shipper ?? null,
-        dto.loadport_name ?? null,
-        dto.total_quantity ?? null,
-        dto.remarks ?? null,
-        userId ?? null,
-      ],
-    );
-    if (!result.rows[0]) throw new Error("ExportBulkingRepository.create: no row returned");
-    return result.rows[0];
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await client.query<ExportBulkingShipmentRow>(
+        `INSERT INTO export_bulking_shipments
+          (shipment_no, vessel_name, voyage_number, shipper, loadport_name,
+           total_quantity, remarks, current_status, created_by, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'SHIPMENT_PLANNING',$8,NOW(),NOW())
+         RETURNING ${SHIPMENT_COLUMNS}`,
+        [
+          shipmentNo,
+          dto.vessel_name ?? null,
+          dto.voyage_number ?? null,
+          dto.shipper ?? null,
+          dto.loadport_name ?? null,
+          dto.total_quantity ?? null,
+          dto.remarks ?? null,
+          userId ?? null,
+        ],
+      );
+      const shipment = result.rows[0];
+      if (!shipment) throw new Error("ExportBulkingRepository.create: no row returned");
+
+      const cargoLines = dto.cargo_lines ?? [];
+      for (let i = 0; i < cargoLines.length; i++) {
+        const line = cargoLines[i];
+        await client.query(
+          `INSERT INTO export_bulking_cargo_lines
+            (shipment_id, line_order, cargo_name, quantity, unit,
+             item_description, destination_port, destination_country, country_area,
+             quantity_delivered, bl_figure, ship_figure, pe_no, pe_date, created_at, updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW(),NOW())`,
+          [
+            shipment.id,
+            i + 1,
+            line.cargo_name,
+            line.quantity ?? null,
+            "MT",
+            line.item_description ?? null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+          ],
+        );
+      }
+
+      await client.query("COMMIT");
+      return shipment;
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
+    }
   }
 
   async list(query: ListExportBulkingQuery): Promise<{ rows: ExportBulkingShipmentRow[]; total: number }> {
@@ -147,6 +263,108 @@ export class ExportBulkingRepository {
         conditions.push(`s.current_status = ANY($${idx++}::text[])`);
         params.push(query.statuses);
       }
+    }
+
+    idx = appendTextArrayFilter(conditions, params, idx, "s.shipment_no", query.shipment_nos);
+    idx = appendTextArrayFilter(conditions, params, idx, "TRIM(COALESCE(s.vessel_name, ''))", query.vessel_names);
+    idx = appendTextArrayFilter(conditions, params, idx, "TRIM(COALESCE(s.voyage_number, ''))", query.voyage_numbers);
+    idx = appendTextArrayFilter(conditions, params, idx, "TRIM(COALESCE(s.shipper, ''))", query.shippers);
+    idx = appendTextArrayFilter(conditions, params, idx, "TRIM(COALESCE(s.loadport_name, ''))", query.loadport_names);
+    idx = appendTextArrayFilter(conditions, params, idx, "TRIM(COALESCE(s.peb_no, ''))", query.peb_nos);
+    idx = appendTextArrayFilter(conditions, params, idx, "TRIM(COALESCE(s.bill_of_lading_no, ''))", query.bl_nos);
+
+    if (query.cargo_names?.length) {
+      const names = [...new Set(query.cargo_names.map((v) => v.trim()).filter(Boolean))];
+      if (names.length === 1) {
+        conditions.push(`EXISTS (
+          SELECT 1 FROM export_bulking_cargo_lines cl
+          WHERE cl.shipment_id = s.id AND TRIM(COALESCE(cl.cargo_name, '')) = $${idx++}
+        )`);
+        params.push(names[0]);
+      } else if (names.length > 1) {
+        conditions.push(`EXISTS (
+          SELECT 1 FROM export_bulking_cargo_lines cl
+          WHERE cl.shipment_id = s.id AND TRIM(COALESCE(cl.cargo_name, '')) = ANY($${idx++}::text[])
+        )`);
+        params.push(names);
+      }
+    }
+
+    if (query.cargo_line_labels?.length) {
+      const labels = [...new Set(query.cargo_line_labels.map((v) => v.trim()).filter(Boolean))];
+      if (labels.length === 1) {
+        conditions.push(`EXISTS (
+          SELECT 1 FROM export_bulking_cargo_lines cl
+          WHERE cl.shipment_id = s.id AND (${CARGO_LINE_LABEL_SQL}) = $${idx++}
+        )`);
+        params.push(labels[0]);
+      } else if (labels.length > 1) {
+        conditions.push(`EXISTS (
+          SELECT 1 FROM export_bulking_cargo_lines cl
+          WHERE cl.shipment_id = s.id AND (${CARGO_LINE_LABEL_SQL}) = ANY($${idx++}::text[])
+        )`);
+        params.push(labels);
+      }
+    }
+
+    idx = appendTextArrayFilter(conditions, params, idx, TOTAL_QTY_LABEL_SQL, query.total_qty_labels);
+    idx = appendTextArrayFilter(conditions, params, idx, LAYCAN_LABEL_SQL, query.laycan_labels);
+    idx = appendTextArrayFilter(conditions, params, idx, CARGO_READINESS_LABEL_SQL, query.cargo_readiness_labels);
+    idx = appendTextArrayFilter(conditions, params, idx, DEMURRAGE_RATE_LABEL_SQL, query.demurrage_rate_labels);
+    idx = appendTextArrayFilter(conditions, params, idx, ETA_DATE_SQL, query.eta_dates);
+    idx = appendTextArrayFilter(conditions, params, idx, "to_char((s.peb_date AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD')", query.peb_dates);
+    idx = appendTextArrayFilter(conditions, params, idx, "to_char((s.bill_of_lading_date AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD')", query.bl_dates);
+
+    if (query.si_numbers?.length) {
+      const nums = [...new Set(query.si_numbers.map((v) => v.trim()).filter(Boolean))];
+      conditions.push(`EXISTS (
+        SELECT 1 FROM export_bulking_shipping_instructions si
+        WHERE si.shipment_id = s.id AND TRIM(COALESCE(si.si_number, '')) = ANY($${idx++}::text[])
+      )`);
+      params.push(nums);
+    }
+
+    if (query.invoice_numbers?.length) {
+      const nums = [...new Set(query.invoice_numbers.map((v) => v.trim()).filter(Boolean))];
+      conditions.push(`EXISTS (
+        SELECT 1 FROM export_bulking_invoices inv
+        WHERE inv.shipment_id = s.id AND TRIM(COALESCE(inv.invoice_no, '')) = ANY($${idx++}::text[])
+      )`);
+      params.push(nums);
+    }
+
+    if (query.pl_numbers?.length) {
+      const nums = [...new Set(query.pl_numbers.map((v) => v.trim()).filter(Boolean))];
+      conditions.push(`EXISTS (
+        SELECT 1 FROM export_bulking_packing_lists pl
+        WHERE pl.shipment_id = s.id AND TRIM(COALESCE(pl.packing_list_number, '')) = ANY($${idx++}::text[])
+      )`);
+      params.push(nums);
+    }
+
+    if (query.pic_documentation_names?.length) {
+      const names = [...new Set(query.pic_documentation_names.map((v) => v.trim()).filter(Boolean))];
+      const wantsUnassigned = names.includes("Unassigned");
+      const assigned = names.filter((n) => n !== "Unassigned");
+      const parts: string[] = [];
+      if (wantsUnassigned) parts.push("s.documentation_assigned_to IS NULL");
+      if (assigned.length === 1) {
+        parts.push(`EXISTS (
+          SELECT 1 FROM users u
+          WHERE u.id = s.documentation_assigned_to AND TRIM(COALESCE(u.name, '')) = $${idx}
+        )`);
+        params.push(assigned[0]);
+        idx++;
+      } else if (assigned.length > 1) {
+        parts.push(`EXISTS (
+          SELECT 1 FROM users u
+          WHERE u.id = s.documentation_assigned_to AND TRIM(COALESCE(u.name, '')) = ANY($${idx}::text[])
+        )`);
+        params.push(assigned);
+        idx++;
+      }
+      if (parts.length === 1) conditions.push(parts[0]);
+      else if (parts.length > 1) conditions.push(`(${parts.join(" OR ")})`);
     }
 
     if (query.assignment_filter === "unassigned") {
@@ -220,7 +438,9 @@ export class ExportBulkingRepository {
       peb_no: "s.peb_no",
       peb_date: "s.peb_date",
       bill_of_lading_no: "s.bill_of_lading_no",
-      bill_of_lading_date: "s.bill_of_lading_date",
+      laycan_from: "s.laycan_from",
+      est_cargo_readiness: "s.est_cargo_readiness",
+      demurrage_rate_pdpr: "s.demurrage_rate_pdpr",
     };
     const sortExpr = (query.sort_by && allowedSorts[query.sort_by]) ?? "s.created_at";
     const orderBy = `ORDER BY ${sortExpr} ${dir} NULLS LAST, s.id DESC`;
@@ -231,6 +451,8 @@ export class ExportBulkingRepository {
         (SELECT u.name FROM users u WHERE u.id = s.documentation_assigned_to) AS documentation_assignee_name,
         (SELECT COUNT(*)::int FROM export_bulking_cargo_lines cl WHERE cl.shipment_id = s.id) AS cargo_count,
         (SELECT json_agg(json_build_object(
+            'cargo_name', cl2.cargo_name,
+            'quantity', cl2.quantity,
             'item_description', cl2.item_description,
             'destination_port', cl2.destination_port
          ) ORDER BY cl2.line_order)
@@ -282,7 +504,7 @@ export class ExportBulkingRepository {
       `SELECT id, name, email
        FROM users
        WHERE is_active = true
-         AND UPPER(TRIM(role)) = 'EXPORT_BULKING_DOCUMENTATION'
+         AND UPPER(TRIM(role)) = 'EXPORT_BULKING_DOCUMENT'
        ORDER BY name ASC, email ASC`,
     );
     return result.rows;
@@ -297,7 +519,7 @@ export class ExportBulkingRepository {
       const userCheck = await this.pool.query<{ id: string }>(
         `SELECT id FROM users
          WHERE id = $1 AND is_active = true
-           AND UPPER(TRIM(role)) = 'EXPORT_BULKING_DOCUMENTATION'`,
+           AND UPPER(TRIM(role)) = 'EXPORT_BULKING_DOCUMENT'`,
         [assigneeUserId],
       );
       if (!userCheck.rows[0]) {
@@ -338,7 +560,7 @@ export class ExportBulkingRepository {
       "received_nomination", "received_shipping_instruction", "incoterms", "laycan",
       "laycan_from", "laycan_to", "est_cargo_readiness", "est_cargo_readiness_period",
       "eta", "ata", "nor", "etb", "atb", "commence_loading",
-      "etc", "atc", "hose_off", "bl_figure", "ship_figure", "npe_date",
+      "etc", "atc", "hose_on", "hose_off", "bl_figure", "ship_figure", "npe_date",
       "quantity_spb", "spb", "delivery_order_pgi", "spr", "bill_of_lading_no",
       "bill_of_lading_date", "bill_of_lading_nn_obl", "sent_bl", "sent_coo", "sent_phyto",
       "sent_hc", "sent_sr", "sent_sustainability", "present_docs", "peb_request_no", "peb_no",
@@ -356,7 +578,7 @@ export class ExportBulkingRepository {
     }
 
     const numericFields: (keyof UpdateExportBulkingShipmentDto)[] = [
-      "laytime_rate_mtph", "demurrage_rate_pdpr", "total_quantity",
+      "length_over_all", "laytime_rate_mtph", "demurrage_rate_pdpr", "total_quantity",
     ];
     for (const field of numericFields) {
       if (dto[field] !== undefined) {
@@ -425,14 +647,44 @@ export class ExportBulkingRepository {
     return result.rows[0] ?? null;
   }
 
-  async listFilterOptions(): Promise<Record<string, unknown>> {
-    const [statusRes, vesselRes, shipperRes, loadportRes, statusCountRes] = await Promise.all([
+  async listFilterOptions(): Promise<ExportBulkingListFilterOptions> {
+    const [
+      statusRes,
+      shipmentNoRes,
+      vesselRes,
+      voyageRes,
+      shipperRes,
+      loadportRes,
+      cargoNameRes,
+      cargoLineRes,
+      totalQtyRes,
+      laycanRes,
+      cargoReadinessRes,
+      demurrageRes,
+      etaRes,
+      picRes,
+      siRes,
+      invoiceRes,
+      plRes,
+      pebNoRes,
+      pebDateRes,
+      blNoRes,
+      blDateRes,
+      statusCountRes,
+    ] = await Promise.all([
       this.pool.query<{ v: string }>(
         `SELECT DISTINCT current_status AS v FROM export_bulking_shipments WHERE deleted_at IS NULL ORDER BY v`,
       ),
       this.pool.query<{ v: string }>(
+        `SELECT DISTINCT shipment_no AS v FROM export_bulking_shipments WHERE deleted_at IS NULL ORDER BY v`,
+      ),
+      this.pool.query<{ v: string }>(
         `SELECT DISTINCT TRIM(COALESCE(vessel_name,'')) AS v FROM export_bulking_shipments
          WHERE deleted_at IS NULL AND TRIM(COALESCE(vessel_name,'')) <> '' ORDER BY v`,
+      ),
+      this.pool.query<{ v: string }>(
+        `SELECT DISTINCT TRIM(COALESCE(voyage_number,'')) AS v FROM export_bulking_shipments
+         WHERE deleted_at IS NULL AND TRIM(COALESCE(voyage_number,'')) <> '' ORDER BY v`,
       ),
       this.pool.query<{ v: string }>(
         `SELECT DISTINCT TRIM(COALESCE(shipper,'')) AS v FROM export_bulking_shipments
@@ -441,6 +693,102 @@ export class ExportBulkingRepository {
       this.pool.query<{ v: string }>(
         `SELECT DISTINCT TRIM(COALESCE(loadport_name,'')) AS v FROM export_bulking_shipments
          WHERE deleted_at IS NULL AND TRIM(COALESCE(loadport_name,'')) <> '' ORDER BY v`,
+      ),
+      this.pool.query<{ v: string }>(
+        `SELECT DISTINCT TRIM(COALESCE(cl.cargo_name,'')) AS v
+         FROM export_bulking_cargo_lines cl
+         INNER JOIN export_bulking_shipments s ON s.id = cl.shipment_id AND s.deleted_at IS NULL
+         WHERE TRIM(COALESCE(cl.cargo_name,'')) <> ''
+         ORDER BY v`,
+      ),
+      this.pool.query<{ v: string }>(
+        `SELECT DISTINCT (${CARGO_LINE_LABEL_SQL}) AS v
+         FROM export_bulking_cargo_lines cl
+         INNER JOIN export_bulking_shipments s ON s.id = cl.shipment_id AND s.deleted_at IS NULL
+         WHERE (${CARGO_LINE_LABEL_SQL}) IS NOT NULL AND btrim((${CARGO_LINE_LABEL_SQL})) <> ''
+         ORDER BY v`,
+      ),
+      this.pool.query<{ v: string }>(
+        `SELECT DISTINCT (${TOTAL_QTY_LABEL_SQL}) AS v
+         FROM export_bulking_shipments s
+         WHERE s.deleted_at IS NULL
+           AND (${TOTAL_QTY_LABEL_SQL}) IS NOT NULL
+           AND btrim((${TOTAL_QTY_LABEL_SQL})) <> ''
+         ORDER BY v`,
+      ),
+      this.pool.query<{ v: string }>(
+        `SELECT DISTINCT (${LAYCAN_LABEL_SQL}) AS v
+         FROM export_bulking_shipments s
+         WHERE s.deleted_at IS NULL
+           AND (${LAYCAN_LABEL_SQL}) IS NOT NULL
+           AND btrim((${LAYCAN_LABEL_SQL})) <> ''
+         ORDER BY v`,
+      ),
+      this.pool.query<{ v: string }>(
+        `SELECT DISTINCT (${CARGO_READINESS_LABEL_SQL}) AS v
+         FROM export_bulking_shipments s
+         WHERE s.deleted_at IS NULL
+           AND (${CARGO_READINESS_LABEL_SQL}) IS NOT NULL
+           AND btrim((${CARGO_READINESS_LABEL_SQL})) <> ''
+         ORDER BY v`,
+      ),
+      this.pool.query<{ v: string }>(
+        `SELECT DISTINCT (${DEMURRAGE_RATE_LABEL_SQL}) AS v
+         FROM export_bulking_shipments s
+         WHERE s.deleted_at IS NULL
+           AND s.demurrage_rate_pdpr IS NOT NULL
+           AND btrim((${DEMURRAGE_RATE_LABEL_SQL})) <> ''
+         ORDER BY v`,
+      ),
+      this.pool.query<{ v: string }>(
+        `SELECT DISTINCT (${ETA_DATE_SQL}) AS v
+         FROM export_bulking_shipments s
+         WHERE s.deleted_at IS NULL AND COALESCE(s.ata, s.eta) IS NOT NULL
+         ORDER BY v`,
+      ),
+      this.pool.query<{ v: string }>(
+        `SELECT DISTINCT TRIM(COALESCE(u.name, 'Unassigned')) AS v
+         FROM export_bulking_shipments s
+         LEFT JOIN users u ON u.id = s.documentation_assigned_to
+         WHERE s.deleted_at IS NULL
+         ORDER BY v`,
+      ),
+      this.pool.query<{ v: string }>(
+        `SELECT DISTINCT TRIM(COALESCE(si.si_number,'')) AS v
+         FROM export_bulking_shipping_instructions si
+         INNER JOIN export_bulking_shipments s ON s.id = si.shipment_id AND s.deleted_at IS NULL
+         WHERE TRIM(COALESCE(si.si_number,'')) <> ''
+         ORDER BY v`,
+      ),
+      this.pool.query<{ v: string }>(
+        `SELECT DISTINCT TRIM(COALESCE(inv.invoice_no,'')) AS v
+         FROM export_bulking_invoices inv
+         INNER JOIN export_bulking_shipments s ON s.id = inv.shipment_id AND s.deleted_at IS NULL
+         WHERE TRIM(COALESCE(inv.invoice_no,'')) <> ''
+         ORDER BY v`,
+      ),
+      this.pool.query<{ v: string }>(
+        `SELECT DISTINCT TRIM(COALESCE(pl.packing_list_number,'')) AS v
+         FROM export_bulking_packing_lists pl
+         INNER JOIN export_bulking_shipments s ON s.id = pl.shipment_id AND s.deleted_at IS NULL
+         WHERE TRIM(COALESCE(pl.packing_list_number,'')) <> ''
+         ORDER BY v`,
+      ),
+      this.pool.query<{ v: string }>(
+        `SELECT DISTINCT TRIM(COALESCE(peb_no,'')) AS v FROM export_bulking_shipments
+         WHERE deleted_at IS NULL AND TRIM(COALESCE(peb_no,'')) <> '' ORDER BY v`,
+      ),
+      this.pool.query<{ v: string }>(
+        `SELECT DISTINCT to_char((peb_date AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS v
+         FROM export_bulking_shipments WHERE deleted_at IS NULL AND peb_date IS NOT NULL ORDER BY v`,
+      ),
+      this.pool.query<{ v: string }>(
+        `SELECT DISTINCT TRIM(COALESCE(bill_of_lading_no,'')) AS v FROM export_bulking_shipments
+         WHERE deleted_at IS NULL AND TRIM(COALESCE(bill_of_lading_no,'')) <> '' ORDER BY v`,
+      ),
+      this.pool.query<{ v: string }>(
+        `SELECT DISTINCT to_char((bill_of_lading_date AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS v
+         FROM export_bulking_shipments WHERE deleted_at IS NULL AND bill_of_lading_date IS NOT NULL ORDER BY v`,
       ),
       this.pool.query<{ status: string; cnt: number }>(
         `SELECT current_status AS status, COUNT(*)::int AS cnt
@@ -454,9 +802,26 @@ export class ExportBulkingRepository {
     }
     return {
       statuses: statusRes.rows.map((r) => r.v),
+      shipment_nos: shipmentNoRes.rows.map((r) => r.v),
       vessel_names: vesselRes.rows.map((r) => r.v),
+      voyage_numbers: voyageRes.rows.map((r) => r.v),
       shippers: shipperRes.rows.map((r) => r.v),
       loadport_names: loadportRes.rows.map((r) => r.v),
+      cargo_names: cargoNameRes.rows.map((r) => r.v),
+      cargo_line_labels: cargoLineRes.rows.map((r) => r.v),
+      total_qty_labels: totalQtyRes.rows.map((r) => r.v),
+      laycan_labels: laycanRes.rows.map((r) => r.v),
+      cargo_readiness_labels: cargoReadinessRes.rows.map((r) => r.v),
+      demurrage_rate_labels: demurrageRes.rows.map((r) => r.v),
+      eta_dates: etaRes.rows.map((r) => r.v),
+      pic_documentation_names: picRes.rows.map((r) => r.v),
+      si_numbers: siRes.rows.map((r) => r.v),
+      invoice_numbers: invoiceRes.rows.map((r) => r.v),
+      pl_numbers: plRes.rows.map((r) => r.v),
+      peb_nos: pebNoRes.rows.map((r) => r.v),
+      peb_dates: pebDateRes.rows.map((r) => r.v),
+      bl_nos: blNoRes.rows.map((r) => r.v),
+      bl_dates: blDateRes.rows.map((r) => r.v),
       status_counts: statusCounts,
     };
   }
@@ -478,7 +843,8 @@ export class ExportBulkingRepository {
     const result = await this.pool.query(
       `SELECT id, shipment_id, line_order, cargo_name, quantity, unit,
               item_description, destination_port, destination_country, country_area,
-              quantity_delivered, bl_figure, ship_figure, pe_no, pe_date,
+              quantity_delivered, bl_figure, ship_figure, reconciliation_remarks,
+              pe_no, pe_date,
               created_at, updated_at
        FROM export_bulking_cargo_lines
        WHERE shipment_id = $1
@@ -504,14 +870,16 @@ export class ExportBulkingRepository {
               line_order=$1, cargo_name=$2, quantity=$3, unit=$4,
               item_description=$5, destination_port=$6, destination_country=$7, country_area=$8,
               quantity_delivered=$9, bl_figure=$10, ship_figure=$11,
-              pe_no=$12, pe_date=$13,
+              reconciliation_remarks=$12,
+              pe_no=$13, pe_date=$14,
               updated_at=NOW()
-             WHERE id=$14 AND shipment_id=$15
+             WHERE id=$15 AND shipment_id=$16
              RETURNING *`,
             [order, line.cargo_name, line.quantity ?? null, line.unit ?? null,
              line.item_description ?? null, line.destination_port ?? null,
              line.destination_country ?? null, line.country_area ?? null,
              line.quantity_delivered ?? null, line.bl_figure ?? null, line.ship_figure ?? null,
+             line.reconciliation_remarks?.trim() || null,
              line.pe_no?.trim() || null,
              line.pe_date ? new Date(line.pe_date) : null,
              line.id, shipmentId],
@@ -526,13 +894,15 @@ export class ExportBulkingRepository {
             `INSERT INTO export_bulking_cargo_lines
               (shipment_id, line_order, cargo_name, quantity, unit,
                item_description, destination_port, destination_country, country_area,
-               quantity_delivered, bl_figure, ship_figure, pe_no, pe_date, created_at, updated_at)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW(),NOW())
+               quantity_delivered, bl_figure, ship_figure, reconciliation_remarks,
+               pe_no, pe_date, created_at, updated_at)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NOW(),NOW())
              RETURNING *`,
             [shipmentId, order, line.cargo_name, line.quantity ?? null, line.unit ?? null,
              line.item_description ?? null, line.destination_port ?? null,
              line.destination_country ?? null, line.country_area ?? null,
              line.quantity_delivered ?? null, line.bl_figure ?? null, line.ship_figure ?? null,
+             line.reconciliation_remarks?.trim() || null,
              line.pe_no?.trim() || null,
              line.pe_date ? new Date(line.pe_date) : null],
           );
@@ -540,6 +910,7 @@ export class ExportBulkingRepository {
         }
       }
 
+      await this.syncShipmentTotalQuantity(client, shipmentId);
       await client.query("COMMIT");
       return results;
     } catch (e) {
@@ -551,13 +922,40 @@ export class ExportBulkingRepository {
   }
 
   async deleteCargoLine(shipmentId: string, cargoId: string): Promise<void> {
-    const r = await this.pool.query(
-      `DELETE FROM export_bulking_cargo_lines WHERE id = $1 AND shipment_id = $2`,
-      [cargoId, shipmentId],
-    );
-    if (r.rowCount === 0) {
-      throw new AppError("Cargo line not found", 404);
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const r = await client.query(
+        `DELETE FROM export_bulking_cargo_lines WHERE id = $1 AND shipment_id = $2`,
+        [cargoId, shipmentId],
+      );
+      if (r.rowCount === 0) {
+        throw new AppError("Cargo line not found", 404);
+      }
+      await this.syncShipmentTotalQuantity(client, shipmentId);
+      await client.query("COMMIT");
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
     }
+  }
+
+  /** Keep shipment.total_quantity aligned with sum of cargo line quantities. */
+  private async syncShipmentTotalQuantity(client: PoolClient, shipmentId: string): Promise<void> {
+    await client.query(
+      `UPDATE export_bulking_shipments s SET
+        total_quantity = sub.total,
+        updated_at = NOW()
+       FROM (
+         SELECT NULLIF(COALESCE(SUM(quantity), 0), 0) AS total
+         FROM export_bulking_cargo_lines
+         WHERE shipment_id = $1
+       ) sub
+       WHERE s.id = $1`,
+      [shipmentId],
+    );
   }
 
   /* ───────── SAP lines (Data SAP per SO) ───────── */
@@ -574,7 +972,7 @@ export class ExportBulkingRepository {
     return result.rows;
   }
 
-  async upsertSapLines(shipmentId: string, lines: SapLineDto[]): Promise<unknown[]> {
+  async upsertSapLines(shipmentId: string, lines: SapLineDto[], spr?: string | null): Promise<unknown[]> {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
@@ -617,9 +1015,9 @@ export class ExportBulkingRepository {
               quantity_spb = $3,
               spb = $4,
               delivery_order_pgi = $5,
-              spr = $6,
+              spr = NULL,
               updated_at = NOW()
-             WHERE id = $7 AND shipment_id = $8
+             WHERE id = $6 AND shipment_id = $7
              RETURNING *`,
             [
               line.so_no,
@@ -627,7 +1025,6 @@ export class ExportBulkingRepository {
               line.quantity_spb ?? null,
               line.spb?.trim() || null,
               line.delivery_order_pgi?.trim() || null,
-              line.spr?.trim() || null,
               line.id,
               shipmentId,
             ],
@@ -641,13 +1038,13 @@ export class ExportBulkingRepository {
           const res = await client.query(
             `INSERT INTO export_bulking_sap_lines
               (shipment_id, so_no, line_order, quantity_spb, spb, delivery_order_pgi, spr, created_at, updated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+             VALUES ($1, $2, $3, $4, $5, $6, NULL, NOW(), NOW())
              ON CONFLICT (shipment_id, so_no) DO UPDATE SET
               line_order = EXCLUDED.line_order,
               quantity_spb = EXCLUDED.quantity_spb,
               spb = EXCLUDED.spb,
               delivery_order_pgi = EXCLUDED.delivery_order_pgi,
-              spr = EXCLUDED.spr,
+              spr = NULL,
               updated_at = NOW()
              RETURNING *`,
             [
@@ -657,11 +1054,17 @@ export class ExportBulkingRepository {
               line.quantity_spb ?? null,
               line.spb?.trim() || null,
               line.delivery_order_pgi?.trim() || null,
-              line.spr?.trim() || null,
             ],
           );
           if (res.rows[0]) results.push(res.rows[0]);
         }
+      }
+
+      if (spr !== undefined) {
+        await client.query(
+          `UPDATE export_bulking_shipments SET spr = $1, updated_at = NOW() WHERE id = $2`,
+          [spr?.trim() || null, shipmentId],
+        );
       }
 
       await client.query("COMMIT");
@@ -1326,12 +1729,28 @@ export class ExportBulkingRepository {
   }
 
   async deleteShippingInstruction(shipmentId: string, id: string): Promise<void> {
-    const r = await this.pool.query(
-      `DELETE FROM export_bulking_shipping_instructions WHERE id = $1 AND shipment_id = $2`,
-      [id, shipmentId],
-    );
-    if ((r.rowCount ?? 0) === 0) {
-      throw new AppError("Shipping instruction not found", 404);
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const cur = await client.query<{ si_number: string | null }>(
+        `SELECT si_number FROM export_bulking_shipping_instructions WHERE id = $1 AND shipment_id = $2`,
+        [id, shipmentId],
+      );
+      if (cur.rows.length === 0) {
+        throw new AppError("Shipping instruction not found", 404);
+      }
+      const siNumber = cur.rows[0].si_number;
+      await client.query(
+        `DELETE FROM export_bulking_shipping_instructions WHERE id = $1 AND shipment_id = $2`,
+        [id, shipmentId],
+      );
+      await this.releaseSerialIfLast(client, SERIES_SI_EUP, siNumber);
+      await client.query("COMMIT");
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
     }
   }
 
@@ -1570,19 +1989,31 @@ export class ExportBulkingRepository {
   }
 
   async deleteInvoice(shipmentId: string, id: string): Promise<void> {
-    const cur = await this.getInvoiceHeader(id);
-    if (!cur || cur.shipment_id !== shipmentId) {
-      throw new AppError("Invoice not found", 404);
-    }
-    if (cur.status === "FINAL") {
-      throw new AppError("Finalized invoices cannot be deleted. Use Amend first.", 409);
-    }
-    const r = await this.pool.query(
-      `DELETE FROM export_bulking_invoices WHERE id = $1 AND shipment_id = $2`,
-      [id, shipmentId],
-    );
-    if ((r.rowCount ?? 0) === 0) {
-      throw new AppError("Invoice not found", 404);
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const cur = await client.query<{ invoice_no: string | null; status: string | null }>(
+        `SELECT invoice_no, status FROM export_bulking_invoices WHERE id = $1 AND shipment_id = $2`,
+        [id, shipmentId],
+      );
+      if (cur.rows.length === 0) {
+        throw new AppError("Invoice not found", 404);
+      }
+      const row = cur.rows[0];
+      if (row.status === "FINAL") {
+        throw new AppError("Finalized invoices cannot be deleted. Use Amend first.", 409);
+      }
+      await client.query(
+        `DELETE FROM export_bulking_invoices WHERE id = $1 AND shipment_id = $2`,
+        [id, shipmentId],
+      );
+      await this.releaseSerialIfLast(client, SERIES_CI_EU, row.invoice_no);
+      await client.query("COMMIT");
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
     }
   }
 
@@ -1961,12 +2392,28 @@ export class ExportBulkingRepository {
   }
 
   async deletePackingList(shipmentId: string, id: string): Promise<void> {
-    const r = await this.pool.query(
-      `DELETE FROM export_bulking_packing_lists WHERE id = $1 AND shipment_id = $2`,
-      [id, shipmentId],
-    );
-    if ((r.rowCount ?? 0) === 0) {
-      throw new AppError("Packing list not found", 404);
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const cur = await client.query<{ packing_list_number: string | null }>(
+        `SELECT packing_list_number FROM export_bulking_packing_lists WHERE id = $1 AND shipment_id = $2`,
+        [id, shipmentId],
+      );
+      if (cur.rows.length === 0) {
+        throw new AppError("Packing list not found", 404);
+      }
+      const plNumber = cur.rows[0].packing_list_number;
+      await client.query(
+        `DELETE FROM export_bulking_packing_lists WHERE id = $1 AND shipment_id = $2`,
+        [id, shipmentId],
+      );
+      await this.releaseSerialIfLast(client, SERIES_PL_EUP, plNumber);
+      await client.query("COMMIT");
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
     }
   }
 }

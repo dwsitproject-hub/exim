@@ -1,4 +1,6 @@
 import { AppError } from "../../../middlewares/errorHandler.js";
+import { UserRepository } from "../../auth/repositories/user.repository.js";
+import { ShipmentUpdateLogRepository } from "../../shipments/repositories/shipment-update-log.repository.js";
 import { ExportBulkingRepository } from "../repositories/export-bulking.repository.js";
 import {
   STATUS_TRANSITIONS,
@@ -6,6 +8,7 @@ import {
   type CreateExportBulkingShipmentDto,
   type UpdateExportBulkingShipmentDto,
   type ListExportBulkingQuery,
+  type ExportBulkingListFilterOptions,
   type ExportBulkingShipmentRow,
   type CargoLineDto,
   type SapLineDto,
@@ -41,9 +44,18 @@ import {
 } from "./invoice-workflow.helpers.js";
 import type { InvoiceSplitDto, InvoiceAmendDto, InvoiceFinalizeDto } from "../dto/index.js";
 import { syncExportSentDocumentNotifications } from "./export-sent-doc-notifications.js";
+import { validateLoadingDatetimeRules } from "../utils/loading-datetime-validation.js";
+import {
+  collectExportBulkingFieldChanges,
+  collectExportBulkingUpdateFieldKeys,
+} from "../utils/export-bulking-update-fields.js";
 
 export class ExportBulkingService {
-  constructor(private readonly repo: ExportBulkingRepository) {}
+  constructor(
+    private readonly repo: ExportBulkingRepository,
+    private readonly updateLogRepo: ShipmentUpdateLogRepository = new ShipmentUpdateLogRepository(),
+    private readonly userRepo: UserRepository = new UserRepository(),
+  ) {}
 
   async create(dto: CreateExportBulkingShipmentDto, userId?: string): Promise<ExportBulkingShipmentRow> {
     const errors: string[] = [];
@@ -51,11 +63,36 @@ export class ExportBulkingService {
     if (!dto.voyage_number?.trim()) errors.push("Voyage number is required");
     if (!dto.shipper?.trim()) errors.push("Shipper is required");
     if (!dto.loadport_name?.trim()) errors.push("Load port is required");
-    if (dto.total_quantity == null || dto.total_quantity <= 0) errors.push("Total quantity must be greater than 0");
+
+    const cargoLines = dto.cargo_lines ?? [];
+    if (cargoLines.length > 0) {
+      cargoLines.forEach((line, idx) => {
+        if (!line.cargo_name?.trim()) {
+          errors.push(`Cargo line ${idx + 1}: commodity is required`);
+        }
+        if (line.quantity == null || Number.isNaN(Number(line.quantity)) || Number(line.quantity) <= 0) {
+          errors.push(`Cargo line ${idx + 1}: quantity must be greater than 0`);
+        }
+      });
+    } else if (dto.total_quantity == null || dto.total_quantity <= 0) {
+      errors.push("At least one cargo line with commodity and quantity is required");
+    }
+
     if (errors.length > 0) {
       throw new AppError(errors.join("; "), 400);
     }
-    return this.repo.create(dto, userId);
+
+    const normalized: CreateExportBulkingShipmentDto = { ...dto };
+    if (cargoLines.length > 0) {
+      normalized.cargo_lines = cargoLines.map((line, idx) => ({
+        cargo_name: line.cargo_name.trim(),
+        quantity: Number(line.quantity),
+        item_description: line.item_description?.trim() || null,
+      }));
+      normalized.total_quantity = normalized.cargo_lines.reduce((sum, line) => sum + line.quantity, 0);
+    }
+
+    return this.repo.create(normalized, userId);
   }
 
   async list(query: ListExportBulkingQuery): Promise<{ items: ExportBulkingShipmentRow[]; total: number }> {
@@ -67,10 +104,47 @@ export class ExportBulkingService {
     return this.repo.getById(id);
   }
 
-  async update(id: string, dto: UpdateExportBulkingShipmentDto): Promise<ExportBulkingShipmentRow | null> {
+  async update(
+    id: string,
+    dto: UpdateExportBulkingShipmentDto,
+    changedBy?: string,
+  ): Promise<ExportBulkingShipmentRow | null> {
+    const existing = await this.repo.getById(id);
+    if (!existing) return null;
+
+    const loadingKeys = ["commence_loading", "etc", "atc", "hose_off", "npe_date"] as const;
+    const touchesLoading = loadingKeys.some((k) => dto[k] !== undefined);
+    if (touchesLoading) {
+      const merged = {
+        commence_loading: dto.commence_loading !== undefined ? dto.commence_loading : existing.commence_loading,
+        etc: dto.etc !== undefined ? dto.etc : existing.etc,
+        atc: dto.atc !== undefined ? dto.atc : existing.atc,
+        hose_off: dto.hose_off !== undefined ? dto.hose_off : existing.hose_off,
+        npe_date: dto.npe_date !== undefined ? dto.npe_date : existing.npe_date,
+      };
+      const datetimeErrors = validateLoadingDatetimeRules(merged);
+      if (datetimeErrors.length > 0) {
+        throw new AppError(datetimeErrors.join("; "), 400);
+      }
+    }
+
+    const beforeUpdatedAt = new Date(existing.updated_at).getTime();
     const updated = await this.repo.update(id, dto);
     if (updated) {
       await syncExportSentDocumentNotifications(updated);
+      const actor = changedBy?.trim();
+      if (actor) {
+        const keys = collectExportBulkingUpdateFieldKeys(dto);
+        const fieldChanges = collectExportBulkingFieldChanges(existing, updated, keys);
+        if (fieldChanges.length > 0 && new Date(updated.updated_at).getTime() > beforeUpdatedAt) {
+          await this.updateLogRepo.create({
+            exportBulkingShipmentId: id,
+            changedBy: actor,
+            fieldsChanged: fieldChanges.map((x) => x.field),
+            fieldChanges,
+          });
+        }
+      }
     }
     return updated;
   }
@@ -174,12 +248,43 @@ export class ExportBulkingService {
     assigneeUserId: string | null,
     assignedByUserId: string,
   ): Promise<ExportBulkingShipmentRow | null> {
-    const existing = await this.repo.getById(shipmentId);
-    if (!existing) return null;
-    return this.repo.assignDocumentation(shipmentId, assigneeUserId, assignedByUserId);
+    const before = await this.repo.getById(shipmentId);
+    if (!before) return null;
+    const updated = await this.repo.assignDocumentation(shipmentId, assigneeUserId, assignedByUserId);
+    if (!updated) return null;
+
+    const beforeAssignee = before.documentation_assigned_to ?? null;
+    const afterAssignee = updated.documentation_assigned_to ?? null;
+    if (beforeAssignee !== afterAssignee) {
+      const actor = await this.resolveActorName(assignedByUserId);
+      const beforeName =
+        before.documentation_assignee_name?.trim() ||
+        (beforeAssignee ? await this.resolveActorName(beforeAssignee) : null);
+      const afterName =
+        updated.documentation_assignee_name?.trim() ||
+        (afterAssignee ? await this.resolveActorName(afterAssignee) : null);
+      await this.updateLogRepo.create({
+        exportBulkingShipmentId: shipmentId,
+        changedBy: actor,
+        fieldsChanged: ["documentation_assigned_to"],
+        fieldChanges: [
+          {
+            field: "documentation_assigned_to",
+            before: beforeName,
+            after: afterName,
+          },
+        ],
+      });
+    }
+    return updated;
   }
 
-  async listFilterOptions(): Promise<Record<string, unknown>> {
+  private async resolveActorName(userId: string): Promise<string> {
+    const user = await this.userRepo.findById(userId);
+    return user?.name?.trim() || user?.email?.trim() || userId;
+  }
+
+  async listFilterOptions(): Promise<ExportBulkingListFilterOptions> {
     return this.repo.listFilterOptions();
   }
 
@@ -207,8 +312,8 @@ export class ExportBulkingService {
     return this.repo.listSapLines(shipmentId);
   }
 
-  async upsertSapLines(shipmentId: string, lines: SapLineDto[]): Promise<unknown[]> {
-    return this.repo.upsertSapLines(shipmentId, lines);
+  async upsertSapLines(shipmentId: string, lines: SapLineDto[], spr?: string | null): Promise<unknown[]> {
+    return this.repo.upsertSapLines(shipmentId, lines, spr);
   }
 
   /* ───── Billing lines ───── */
