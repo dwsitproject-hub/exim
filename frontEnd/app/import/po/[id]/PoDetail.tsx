@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo, Fragment } from "react";
-import { createPortal } from "react-dom";
 import Link from "next/link";
 import { Pencil } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -33,38 +32,17 @@ import { formatPoStatusLabel } from "@/lib/po-status-label";
 import { formatDecimal, formatPoUnitPrice } from "@/lib/format-number";
 import { formatPoLineQtyDisplay } from "@/lib/po-line-qty";
 import { formatDateTime, formatDayMonthYear } from "@/lib/format-date";
-import { ActivityLogRibbonIcon } from "@/components/icons/ActivityLogRibbonIcon";
+import { ActivityLogRibbon } from "@/components/activity-log";
+import { poActivityTypeLabel } from "@/lib/activity-log-labels";
 import { formatYesNoOrLegacy } from "@/lib/yes-no-field";
 import { can } from "@/lib/permissions";
 import { anyLinkedShipmentBlocksPoEdit, PO_EDIT_BLOCKED_BY_SHIPMENT_MESSAGE } from "@/lib/po-shipment-edit-lock";
 import { isApiError } from "@/types/api";
-import type { PoDetail as PoDetailType, PoIntakeActivityItem } from "@/types/po";
+import type { ActivityLogItem } from "@/types/activity-log";
+import type { PoDetail as PoDetailType } from "@/types/po";
 import { listShipments, softDeleteShipment } from "@/services/shipments-service";
 import type { ShipmentListItem } from "@/types/shipments";
 import styles from "./PoDetail.module.css";
-
-function poActivityTypeLabel(type: PoIntakeActivityItem["type"]): string {
-  switch (type) {
-    case "po_created":
-      return "Created";
-    case "po_claimed":
-      return "Claimed";
-    case "couple_shipment":
-      return "Shipment linked";
-    case "decouple_shipment":
-      return "Shipment unlinked";
-    case "po_updated":
-      return "Update";
-    default:
-      return "Activity";
-  }
-}
-
-function renderPoActivityValue(value: string | null | undefined): string {
-  if (value == null) return "—";
-  const trimmed = value.trim();
-  return trimmed === "" ? "—" : trimmed;
-}
 
 function normalizeGroupField(value: string | null | undefined): string {
   return (value ?? "").trim().toLowerCase();
@@ -95,16 +73,11 @@ export function PoDetail({ id }: { id: string }) {
   const [removeShipmentId, setRemoveShipmentId] = useState<string | null>(null);
   const [removingShipment, setRemovingShipment] = useState(false);
   const [expandedLinkedShipmentIds, setExpandedLinkedShipmentIds] = useState<Set<string>>(() => new Set());
-  const [portalMounted, setPortalMounted] = useState(false);
   const [activityPanelOpen, setActivityPanelOpen] = useState(false);
   const [activityLoading, setActivityLoading] = useState(false);
   const [activityError, setActivityError] = useState<string | null>(null);
-  const [activityItems, setActivityItems] = useState<PoIntakeActivityItem[]>([]);
+  const [activityItems, setActivityItems] = useState<ActivityLogItem[]>([]);
   const { pushToast } = useToast();
-
-  useEffect(() => {
-    setPortalMounted(true);
-  }, []);
 
   const fetchActivityLog = useCallback(async () => {
     if (!accessToken || !id) return;
@@ -128,15 +101,6 @@ export function PoDetail({ id }: { id: string }) {
   const closeActivityPanel = useCallback(() => {
     setActivityPanelOpen(false);
   }, []);
-
-  useEffect(() => {
-    if (!activityPanelOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") closeActivityPanel();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [activityPanelOpen, closeActivityPanel]);
 
   function toggleLinkedShipmentLines(shipmentId: string) {
     setExpandedLinkedShipmentIds((prev) => {
@@ -820,82 +784,17 @@ export function PoDetail({ id }: { id: string }) {
         </label>
       </Modal>
 
-      <button
-        type="button"
-        className={styles.activityRibbonTrigger}
-        onClick={openActivityPanel}
-        aria-expanded={activityPanelOpen}
-        aria-controls="po-activity-panel"
-        title="Activity log"
-      >
-        <ActivityLogRibbonIcon className={styles.activityRibbonIcon} />
-        <span className={styles.activityRibbonLabel}>Activity</span>
-      </button>
-      {activityPanelOpen &&
-        portalMounted &&
-        createPortal(
-          <>
-            <div className={styles.activityPanelBackdrop} aria-hidden onClick={closeActivityPanel} />
-            <aside
-              id="po-activity-panel"
-              className={styles.activityPanel}
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="po-activity-title"
-            >
-              <div className={styles.activityPanelHeader}>
-                <h2 id="po-activity-title" className={styles.activityPanelTitle}>
-                  Activity log
-                </h2>
-                <Button type="button" variant="secondary" onClick={closeActivityPanel}>
-                  Close
-                </Button>
-              </div>
-              <p className={styles.activityPanelHint}>
-                When the PO was recorded, claimed, linked to a shipment, unlinked, and field updates — with time and user.
-              </p>
-              <div className={styles.activityPanelBody} role="feed" aria-busy={activityLoading}>
-                {activityLoading && <p className={styles.activityPanelState}>Loading…</p>}
-                {!activityLoading && activityError && <p className={styles.error}>{activityError}</p>}
-                {!activityLoading && !activityError && activityItems.length === 0 && (
-                  <p className={styles.activityPanelState}>No activity yet.</p>
-                )}
-                {!activityLoading && !activityError && activityItems.length > 0 && (
-                  <ul className={styles.activityList}>
-                    {activityItems.map((item) => (
-                      <li key={item.id} className={styles.activityListItem}>
-                        <div className={styles.activityListMeta}>
-                          <span className={styles.activityTypeTag}>{poActivityTypeLabel(item.type)}</span>
-                          <time className={styles.activityTime} dateTime={item.occurred_at}>
-                            {formatDateTime(item.occurred_at)}
-                          </time>
-                        </div>
-                        <p className={styles.activityTitle}>{item.title}</p>
-                        {item.detail ? <p className={styles.activityDetail}>{item.detail}</p> : null}
-                        {item.field_changes && item.field_changes.length > 0 ? (
-                          <div className={styles.activityFieldChanges}>
-                            {item.field_changes.map((change, idx) => (
-                              <div key={`${item.id}-change-${idx}`} className={styles.activityFieldChangeRow}>
-                                <span className={styles.activityFieldChangeLabel}>{change.label}</span>
-                                <span className={styles.activityFieldChangeValue}>
-                                  {renderPoActivityValue(change.before)} {" → "} {renderPoActivityValue(change.after)}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        ) : null}
-                        <p className={styles.activityActor}>
-                          <span className={styles.activityActorLabel}>By</span> {item.actor}
-                        </p>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </aside>
-          </>,
-          document.body
-        )}
+      <ActivityLogRibbon
+        panelId="po-activity-panel"
+        open={activityPanelOpen}
+        loading={activityLoading}
+        error={activityError}
+        items={activityItems}
+        onOpen={openActivityPanel}
+        onClose={closeActivityPanel}
+        typeLabel={poActivityTypeLabel}
+        visible={!!detail && !loading}
+      />
     </section>
   );
 }

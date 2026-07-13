@@ -18,5 +18,9 @@ export function PasswordChangeGate({ children }: { children: React.ReactNode }) 
     router.replace(CHANGE_PASSWORD_PATH);
   }, [initialized, user, pathname, router]);
 
+  if (initialized && user?.must_change_password && !EXEMPT_PATHS.has(pathname)) {
+    return null;
+  }
+
   return <>{children}</>;
 }

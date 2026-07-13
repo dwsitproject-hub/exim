@@ -12,8 +12,6 @@ import type { ShipmentRow } from "../dto/index.js";
 import { pibTypeStorageFolderName } from "../../../shared/pib-type.js";
 import { IMPORT_STORAGE_ROOT } from "../../../shared/storage/trade-flow-folders.js";
 
-const IMPORT_STORAGE_ROOT = "Import";
-
 const MAX_SEGMENT = 120;
 
 export interface FilingPathContext {
