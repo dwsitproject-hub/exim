@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { BarChart2, ChevronDown, ChevronRight, Filter, Plane, Ship, X } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import { BarChart2, ChevronDown, ChevronRight, Container, Filter, Package, Plane, Ship, X } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { can } from "@/lib/permissions";
 import { PT_OPTION_LABELS, getAllPlantsSorted } from "@/lib/po-create-constants";
@@ -86,11 +87,24 @@ function buildAnalyticsQueryPayload(a: AppliedFilters): ShipmentAnalyticsQuery {
 
 const CLASS_COLORS = ["#c43a31", "#6366f1", "#0ea5e9", "#16a34a", "#71717a", "#a855f7", "#ea580c"];
 
-function formatShipByLabel(mode: string): string {
-  const u = mode.trim().toUpperCase();
-  if (u === "LCL" || u === "FCL") return u;
-  if (u === "BULK") return "Bulk";
-  return mode;
+const SEA_LOAD_TYPES: { key: string; label: string; icon: LucideIcon; tab: TransportTab }[] = [
+  { key: "BULK", label: "Bulking", icon: Ship, tab: "BULK" },
+  { key: "FCL", label: "FCL", icon: Package, tab: "FCL" },
+  { key: "LCL", label: "LCL", icon: Container, tab: "LCL" },
+];
+
+function fclContainerCountUnit(slug: string): string {
+  return slug === "ISO" ? "ISO Tank" : "Container";
+}
+
+function formatFclShipmentCount(count: number): string {
+  return `${count.toLocaleString()} ${count === 1 ? "shipment" : "shipments"}`;
+}
+
+/** Strip trailing purity/concentration suffix e.g. "Methanol (99.85%)" → "Methanol". */
+function displayBulkCargoName(itemDescription: string): string {
+  const stripped = itemDescription.replace(/\s*\([^)]*%[^)]*\)\s*$/i, "").trim();
+  return stripped || itemDescription;
 }
 
 export function DashboardAnalyticsSection() {
@@ -326,26 +340,15 @@ export function DashboardAnalyticsSection() {
     };
   }, [summary?.logistics.air, summary?.logistics.sea]);
 
-  const seaBarSegments = useMemo(() => {
+  const seaLoadCounts = useMemo(() => {
     const sl = summary?.sea_logistics;
-    if (!sl?.by_ship_by.length) return [];
-    const upperMap = new Map(sl.by_ship_by.map((r) => [r.ship_by.toUpperCase(), r.count]));
-    const order = ["BULK", "LCL", "FCL"];
-    const total = sl.by_ship_by.filter((r) => order.includes(r.ship_by.toUpperCase())).reduce((s, r) => s + r.count, 0) || 1;
-    const colors: Record<string, string> = {
-      BULK: "#64748b",
-      LCL: "#6366f1",
-      FCL: "#0ea5e9",
-    };
-    return order
-      .map((key) => ({
-        key,
-        count: upperMap.get(key) ?? 0,
-        pct: ((upperMap.get(key) ?? 0) / total) * 100,
-        color: colors[key] ?? "#94a3b8",
-        label: formatShipByLabel(key),
-      }))
-      .filter((seg) => seg.count > 0);
+    const upperMap = new Map(
+      (sl?.by_ship_by ?? []).map((r) => [r.ship_by.toUpperCase(), r.count])
+    );
+    return SEA_LOAD_TYPES.map((t) => ({
+      ...t,
+      count: upperMap.get(t.key) ?? 0,
+    })).filter((t) => t.count > 0);
   }, [summary?.sea_logistics]);
 
 
@@ -739,34 +742,56 @@ export function DashboardAnalyticsSection() {
               {summary?.sea_logistics && (summary.logistics.sea ?? 0) > 0 && (
                 <div className={styles.seaLoadSection} onClick={(e) => e.stopPropagation()}>
                   <p className={styles.seaLoadLabel}>Sea — load type (shipments)</p>
-                  <div className={styles.seaSegTrack}>
-                    {seaBarSegments.map((seg) => (
-                      <div
-                        key={seg.key}
-                        className={styles.seaSegChunk}
-                        style={{ width: `${Math.max(seg.pct, 0)}%`, backgroundColor: seg.color }}
-                        title={`${seg.label}: ${seg.count}`}
-                      />
+                  <div className={styles.seaLoadTypeGrid}>
+                    {seaLoadCounts.map(({ key, label, icon: Icon, count, tab }) => (
+                      <button
+                        key={key}
+                        type="button"
+                        className={styles.seaLoadTypeItem}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          goLogisticsDetail(tab);
+                        }}
+                      >
+                        <Icon size={18} strokeWidth={1.75} aria-hidden />
+                        <span className={styles.seaLoadTypeLabel}>{label}</span>
+                        <span className={styles.seaLoadTypeValue}>{count}</span>
+                      </button>
                     ))}
                   </div>
-                  <ul className={styles.seaSegLegend}>
-                    {seaBarSegments.map((seg) => (
-                      <li key={seg.key}>
-                        <span
-                          className={styles.seaSegSwatch}
-                          style={{ backgroundColor: seg.color }}
-                        />
-                        {seg.label} · {seg.count}
-                      </li>
-                    ))}
-                  </ul>
                   <div className={styles.seaLoadMetrics}>
+                    {summary.sea_logistics.bulk_cargo?.map((bc) => (
+                      <div key={bc.item_description} className={styles.seaLoadMetricRow}>
+                        <span className={styles.seaLoadMetricBadge} style={{ background: "#f1f5f9", color: "#475569" }}>Bulk</span>
+                        <span className={styles.seaLoadMetricLabel}>{displayBulkCargoName(bc.item_description)}</span>
+                        <span className={styles.seaLoadMetricValue}>
+                          {bc.shipment_count.toLocaleString()}
+                          <span className={styles.seaLoadMetricUnit}>Vessel</span>
+                        </span>
+                      </div>
+                    ))}
+                    {summary.sea_logistics.fcl_containers.map((fc) => (
+                      <div key={fc.slug} className={styles.seaLoadMetricRow}>
+                        <span className={styles.seaLoadMetricBadge} style={{ background: "#e0f2fe", color: "#0369a1" }}>FCL</span>
+                        <span className={styles.seaLoadMetricLabel}>
+                          {fc.label}
+                          <span className={styles.seaLoadMetricShipmentCount}>
+                            ({formatFclShipmentCount(fc.shipment_count)})
+                          </span>
+                        </span>
+                        <span className={styles.seaLoadMetricValue}>
+                          {fc.count.toLocaleString()}
+                          <span className={styles.seaLoadMetricUnit}>{fclContainerCountUnit(fc.slug)}</span>
+                        </span>
+                      </div>
+                    ))}
                     {summary.sea_logistics.lcl_package_count_total > 0 && (
                       <div className={styles.seaLoadMetricRow}>
                         <span className={styles.seaLoadMetricBadge} style={{ background: "#eef2ff", color: "#4338ca" }}>LCL</span>
                         <span className={styles.seaLoadMetricLabel}>Packages</span>
                         <span className={styles.seaLoadMetricValue}>
                           {summary.sea_logistics.lcl_package_count_total.toLocaleString()}
+                          <span className={styles.seaLoadMetricUnit}>PKG</span>
                         </span>
                       </div>
                     )}
@@ -775,17 +800,11 @@ export function DashboardAnalyticsSection() {
                         <span className={styles.seaLoadMetricBadge} style={{ background: "#eef2ff", color: "#4338ca" }}>LCL</span>
                         <span className={styles.seaLoadMetricLabel}>CBM</span>
                         <span className={styles.seaLoadMetricValue}>
-                          {summary.sea_logistics.lcl_cbm_total.toLocaleString(undefined, { maximumFractionDigits: 2 })} m³
+                          {summary.sea_logistics.lcl_cbm_total.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                          <span className={styles.seaLoadMetricUnit}>m³</span>
                         </span>
                       </div>
                     )}
-                    {summary.sea_logistics.fcl_containers.map((fc) => (
-                      <div key={fc.slug} className={styles.seaLoadMetricRow}>
-                        <span className={styles.seaLoadMetricBadge} style={{ background: "#e0f2fe", color: "#0369a1" }}>FCL</span>
-                        <span className={styles.seaLoadMetricLabel}>{fc.label}</span>
-                        <span className={styles.seaLoadMetricValue}>{fc.count.toLocaleString()}</span>
-                      </div>
-                    ))}
                   </div>
                 </div>
               )}

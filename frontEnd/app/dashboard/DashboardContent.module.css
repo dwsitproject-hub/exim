@@ -795,42 +795,47 @@
   color: var(--color-primitive-text-steel, #6b6b6b);
 }
 
-.seaSegTrack {
+.seaLoadTypeGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.seaLoadTypeItem {
   display: flex;
-  height: 12px;
-  border-radius: 6px;
-  overflow: hidden;
-  background-color: var(--color-primitive-background-light, #f0f0f0);
-  margin-bottom: 8px;
-}
-
-.seaSegChunk {
-  min-width: 2px;
-  transition: width 0.25s ease;
-}
-
-.seaSegLegend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px 16px;
-  margin: 0 0 12px;
-  padding: 0;
-  list-style: none;
-}
-
-.seaSegLegend li {
-  display: inline-flex;
+  flex-direction: column;
   align-items: center;
-  gap: 6px;
-  font-size: var(--typography-fontSize-xs, 12px);
-  color: var(--color-primitive-text-charcoal, #2b2b2b);
+  gap: 4px;
+  padding: 10px 8px;
+  border: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  border-radius: 8px;
+  background: var(--color-primitive-background-lighter, #fafafa);
+  cursor: pointer;
+  color: var(--color-primitive-text-steel, #6b6b6b);
 }
 
-.seaSegSwatch {
-  width: 8px;
-  height: 8px;
-  border-radius: 2px;
-  flex-shrink: 0;
+.seaLoadTypeItem:hover {
+  background: var(--color-primitive-background-light, #f0f0f0);
+}
+
+.seaLoadTypeItem:focus-visible {
+  outline: 2px solid var(--color-primitive-border-focus, #6366f1);
+  outline-offset: 2px;
+}
+
+.seaLoadTypeLabel {
+  font-size: var(--typography-fontSize-xs, 11px);
+  font-weight: var(--typography-fontWeight-semibold, 600);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.seaLoadTypeValue {
+  font-size: 1.1rem;
+  font-weight: var(--typography-fontWeight-semibold, 600);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
 }
 
 .seaLoadCaption {
@@ -874,11 +879,26 @@
   color: var(--color-primitive-text-steel, #6b6b6b);
 }
 
+.seaLoadMetricShipmentCount {
+  margin-left: 4px;
+  font-size: 11px;
+  font-weight: var(--typography-fontWeight-normal, 400);
+  color: var(--color-primitive-text-steel, #6b6b6b);
+}
+
 .seaLoadMetricValue {
   font-size: 13px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--color-primitive-text-charcoal, #2b2b2b);
+  white-space: nowrap;
+}
+
+.seaLoadMetricUnit {
+  margin-left: 4px;
+  font-size: 11px;
+  font-weight: var(--typography-fontWeight-normal, 400);
+  color: var(--color-primitive-text-steel, #6b6b6b);
 }
 
 
