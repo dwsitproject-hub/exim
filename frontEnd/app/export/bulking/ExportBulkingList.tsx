@@ -145,7 +145,7 @@ const BASE_COLUMNS: GridColumnDef[] = [
   { id: "laycan", label: "Laycan", width: 148, minWidth: 120 },
   { id: "cargo_readiness", label: "Cargo Readiness", width: 148, minWidth: 120 },
   { id: "demurrage_rate", label: "Demurrage Rate", width: 132, minWidth: 108 },
-  { id: "pic_documentation", label: "PIC documentation", width: 168, minWidth: 140, defaultVisible: false, rbacGated: true },
+  { id: "pic_documentation", label: "PIC documentation", width: 180, minWidth: 160, defaultVisible: false, rbacGated: true },
   { id: "shipper", label: "Shipper", editable: true, dbField: "shipper", width: 152, minWidth: 120 },
   { id: "eta", label: "ETA", width: 96, minWidth: 80 },
   { id: "si_no", label: "Shipping Instruction No.", width: 220, minWidth: 200, multiValue: true, defaultVisible: false, rbacGated: true },
@@ -1295,6 +1295,8 @@ export function ExportBulkingList() {
             <ComboboxSelectById
               className={styles.docAssignCombobox}
               inputClassName={styles.docAssignComboboxInput}
+              listClassName={styles.docAssignComboboxList}
+              listMinWidth={300}
               options={docAssigneeOptions}
               value={row.documentation_assigned_to ?? ""}
               disabled={assignBusyId === row.id}

@@ -30,6 +30,9 @@ export type ComboboxSelectByIdProps = {
   disabled?: boolean;
   className?: string;
   inputClassName?: string;
+  listClassName?: string;
+  /** Dropdown panel is at least this wide (defaults to input width). */
+  listMinWidth?: number;
   "aria-label"?: string;
   onClick?: (e: MouseEvent) => void;
 };
@@ -50,6 +53,8 @@ export function ComboboxSelectById({
   disabled = false,
   className,
   inputClassName,
+  listClassName,
+  listMinWidth,
   "aria-label": ariaLabel,
   onClick,
 }: ComboboxSelectByIdProps) {
@@ -83,8 +88,14 @@ export function ComboboxSelectById({
       const el = inputRef.current;
       if (!el) return;
       const r = el.getBoundingClientRect();
+      const margin = 8;
       const maxH = Math.max(120, Math.min(320, window.innerHeight - r.bottom - 12));
-      setMenuPos({ top: r.bottom + 4, left: r.left, width: r.width, maxH });
+      const width = Math.max(r.width, listMinWidth ?? r.width);
+      let left = r.left;
+      if (left + width > window.innerWidth - margin) {
+        left = Math.max(margin, window.innerWidth - width - margin);
+      }
+      setMenuPos({ top: r.bottom + 4, left, width, maxH });
     }
     measure();
     window.addEventListener("scroll", measure, true);
@@ -93,7 +104,7 @@ export function ComboboxSelectById({
       window.removeEventListener("scroll", measure, true);
       window.removeEventListener("resize", measure);
     };
-  }, [open, disabled]);
+  }, [open, disabled, listMinWidth]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -167,7 +178,7 @@ export function ComboboxSelectById({
       <ul
         id={listboxId}
         role="listbox"
-        className={styles.list}
+        className={`${styles.list} ${listClassName ?? ""}`.trim()}
         style={{
           position: "fixed",
           top: menuPos.top,
@@ -199,6 +210,7 @@ export function ComboboxSelectById({
               tabIndex={-1}
               className={styles.option}
               aria-selected={opt.id === value}
+              title={opt.sublabel ? `${opt.label} — ${opt.sublabel}` : opt.label}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => pick(opt)}
             >

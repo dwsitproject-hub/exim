@@ -34,6 +34,15 @@ export function Modal({ open, title, onClose, children, footer, size = "default"
     const first = root?.querySelector<HTMLElement>(FOCUSABLE);
     (first ?? root)?.focus();
 
+    return () => {
+      lastFocusedRef.current?.focus();
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const root = panelRef.current;
+
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
         e.preventDefault();
@@ -60,10 +69,7 @@ export function Modal({ open, title, onClose, children, footer, size = "default"
     }
 
     document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("keydown", onKeyDown);
-      lastFocusedRef.current?.focus();
-    };
+    return () => document.removeEventListener("keydown", onKeyDown);
   }, [open, onClose]);
 
   if (!open) return null;
