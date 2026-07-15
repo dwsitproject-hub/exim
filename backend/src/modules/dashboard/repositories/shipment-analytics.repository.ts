@@ -45,8 +45,8 @@ export interface SeaLogisticsBreakdown {
    * Derived from FCL_CONTAINER_REGISTRY — add a new row there to support new types.
    */
   fcl_containers: { slug: string; label: string; count: number; shipment_count: number }[];
-  /** Bulk (BULK) sea shipments grouped by primary line item description (cargo). */
-  bulk_cargo: { item_description: string; shipment_count: number }[];
+  /** Total delivered bulk (BULK) sea shipments in the filtered set. */
+  bulk_shipment_count: number;
 }
 
 export interface ShipmentAnalyticsSummary {
@@ -71,23 +71,6 @@ const FIRST_PO_CTE = `first_po AS (
   INNER JOIN shipments s ON s.id = m.shipment_id AND s.deleted_at IS NULL
   INNER JOIN Import_purchase_order i ON i.id = m.intake_id AND m.decoupled_at IS NULL
   ORDER BY m.shipment_id, i.po_number ASC NULLS LAST, i.created_at ASC
-)`;
-
-const FIRST_DESC_CTE = `first_desc AS (
-  SELECT DISTINCT ON (m.shipment_id)
-    m.shipment_id,
-    TRIM(COALESCE(
-      NULLIF(TRIM(COALESCE(r.item_description, '')), ''),
-      NULLIF(TRIM(COALESCE(it.item_description, '')), ''),
-      '(No description)'
-    )) AS item_description
-  FROM shipment_po_mapping m
-  JOIN Import_purchase_order i ON i.id = m.intake_id AND m.decoupled_at IS NULL
-  JOIN Import_purchase_order_items it ON it.import_purchase_order_id = i.id
-  LEFT JOIN shipment_po_line_received r
-    ON r.shipment_id = m.shipment_id AND r.intake_id = m.intake_id
-    AND r.item_id = it.id AND r.deleted_at IS NULL
-  ORDER BY m.shipment_id, i.po_number ASC NULLS LAST, it.id ASC
 )`;
 
 function buildBaseWhereParams(q: ShipmentAnalyticsQuery): { whereParts: string[]; params: unknown[] } {
@@ -408,7 +391,7 @@ export class ShipmentAnalyticsRepository {
       )
     `;
 
-    const [totalRes, unclassRes, plantRes, classRes, logRes, seaByRes, lclSumRes, lclCbmSumRes, fclSumRes, bulkCargoRes, vendorsRes] =
+    const [totalRes, unclassRes, plantRes, classRes, logRes, seaByRes, lclSumRes, lclCbmSumRes, fclSumRes, bulkCountRes, vendorsRes] =
       await Promise.all([
         this.pool.query<{ c: string }>(`${baseCte} SELECT COUNT(*)::text AS c FROM base`, params),
         this.pool.query<{ c: string }>(
@@ -478,18 +461,12 @@ export class ShipmentAnalyticsRepository {
           AND UPPER(TRIM(COALESCE(ship_by, ''))) = 'FCL'`,
           params
         ),
-        this.pool.query<{ item_description: string; shipment_count: string }>(
-          `${baseCte},
-        ${FIRST_DESC_CTE}
-        SELECT
-          COALESCE(fd.item_description, '(No description)') AS item_description,
-          COUNT(*)::text AS shipment_count
-        FROM base b
-        LEFT JOIN first_desc fd ON fd.shipment_id = b.id
-        WHERE UPPER(TRIM(COALESCE(b.shipment_method, ''))) = 'SEA'
-          AND UPPER(TRIM(COALESCE(b.ship_by, ''))) = 'BULK'
-        GROUP BY COALESCE(fd.item_description, '(No description)')
-        ORDER BY COUNT(*) DESC, item_description ASC`,
+        this.pool.query<{ c: string }>(
+          `${baseCte}
+        SELECT COUNT(*)::text AS c
+        FROM base
+        WHERE UPPER(TRIM(COALESCE(shipment_method, ''))) = 'SEA'
+          AND UPPER(TRIM(COALESCE(ship_by, ''))) = 'BULK'`,
           params
         ),
         this.pool.query<{ v: string }>(
@@ -516,10 +493,7 @@ export class ShipmentAnalyticsRepository {
       }))
       .filter((t) => t.count > 0);
 
-    const bulkCargo = bulkCargoRes.rows.map((r) => ({
-      item_description: r.item_description,
-      shipment_count: parseInt(r.shipment_count, 10),
-    }));
+    const bulkShipmentCount = parseInt(bulkCountRes.rows[0]?.c ?? "0", 10);
 
     return {
       total_shipments: parseInt(totalRes.rows[0]?.c ?? "0", 10),
@@ -538,7 +512,7 @@ export class ShipmentAnalyticsRepository {
         lcl_package_count_total: parseInt(lclSumRes.rows[0]?.s ?? "0", 10),
         lcl_cbm_total: parseFloat(lclCbmSumRes.rows[0]?.s ?? "0"),
         fcl_containers: fclContainers,
-        bulk_cargo: bulkCargo,
+        bulk_shipment_count: bulkShipmentCount,
       },
       vendor_options: vendorsRes.rows.map((r) => r.v).filter(Boolean),
     };

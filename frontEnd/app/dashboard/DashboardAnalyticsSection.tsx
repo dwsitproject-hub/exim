@@ -89,8 +89,8 @@ const CLASS_COLORS = ["#c43a31", "#6366f1", "#0ea5e9", "#16a34a", "#71717a", "#a
 
 const SEA_LOAD_TYPES: { key: string; label: string; icon: LucideIcon; tab: TransportTab }[] = [
   { key: "BULK", label: "Bulking", icon: Ship, tab: "BULK" },
-  { key: "FCL", label: "FCL", icon: Package, tab: "FCL" },
-  { key: "LCL", label: "LCL", icon: Container, tab: "LCL" },
+  { key: "FCL", label: "FCL", icon: Container, tab: "FCL" },
+  { key: "LCL", label: "LCL", icon: Package, tab: "LCL" },
 ];
 
 function fclContainerCountUnit(slug: string): string {
@@ -101,11 +101,7 @@ function formatFclShipmentCount(count: number): string {
   return `${count.toLocaleString()} ${count === 1 ? "shipment" : "shipments"}`;
 }
 
-/** Strip trailing purity/concentration suffix e.g. "Methanol (99.85%)" → "Methanol". */
-function displayBulkCargoName(itemDescription: string): string {
-  const stripped = itemDescription.replace(/\s*\([^)]*%[^)]*\)\s*$/i, "").trim();
-  return stripped || itemDescription;
-}
+const BULK_CARGO_LABEL = "Methanol";
 
 export function DashboardAnalyticsSection() {
   const { user, accessToken } = useAuth();
@@ -760,16 +756,16 @@ export function DashboardAnalyticsSection() {
                     ))}
                   </div>
                   <div className={styles.seaLoadMetrics}>
-                    {summary.sea_logistics.bulk_cargo?.map((bc) => (
-                      <div key={bc.item_description} className={styles.seaLoadMetricRow}>
+                    {(summary.sea_logistics.bulk_shipment_count ?? 0) > 0 && (
+                      <div className={styles.seaLoadMetricRow}>
                         <span className={styles.seaLoadMetricBadge} style={{ background: "#f1f5f9", color: "#475569" }}>Bulk</span>
-                        <span className={styles.seaLoadMetricLabel}>{displayBulkCargoName(bc.item_description)}</span>
+                        <span className={styles.seaLoadMetricLabel}>{BULK_CARGO_LABEL}</span>
                         <span className={styles.seaLoadMetricValue}>
-                          {bc.shipment_count.toLocaleString()}
+                          {summary.sea_logistics.bulk_shipment_count.toLocaleString()}
                           <span className={styles.seaLoadMetricUnit}>Vessel</span>
                         </span>
                       </div>
-                    ))}
+                    )}
                     {summary.sea_logistics.fcl_containers.map((fc) => (
                       <div key={fc.slug} className={styles.seaLoadMetricRow}>
                         <span className={styles.seaLoadMetricBadge} style={{ background: "#e0f2fe", color: "#0369a1" }}>FCL</span>

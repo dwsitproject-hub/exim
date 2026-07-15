@@ -26,13 +26,6 @@ export interface FclContainerEntry {
   shipment_count: number;
 }
 
-export interface BulkCargoEntry {
-  /** Primary PO line item description (cargo name, e.g. "Methanol"). */
-  item_description: string;
-  /** Number of delivered bulk sea shipments carrying this cargo. */
-  shipment_count: number;
-}
-
 export interface SeaLogisticsBreakdown {
   by_ship_by: { ship_by: string; count: number }[];
   lcl_package_count_total: number;
@@ -43,8 +36,8 @@ export interface SeaLogisticsBreakdown {
    * Derived from the backend FCL_CONTAINER_REGISTRY — no frontend hardcoding required.
    */
   fcl_containers: FclContainerEntry[];
-  /** Bulk sea shipments grouped by cargo (item description). */
-  bulk_cargo: BulkCargoEntry[];
+  /** Total delivered bulk sea shipments in the filtered set. */
+  bulk_shipment_count: number;
 }
 
 export interface ShipmentAnalyticsSummary {
