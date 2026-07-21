@@ -428,6 +428,7 @@ export function ExportBulkingList() {
   const canEditDocs = canEditExportDocumentation(user);
   const canEditCargo = canEditExportCargo(user);
   const canEditAny = canEditExportBulking(user);
+  const defaultDetailMode = canEditAny ? "edit" : "view";
   const canCreateShipment = can(user, "CREATE_EXPORT_BULKING");
   const canAssignDocs = can(user, "ASSIGN_EXPORT_BULKING_DOCUMENTATION");
   const availableListViews = useMemo(() => getAvailableBulkingListViews(user), [user]);
@@ -1045,7 +1046,7 @@ export function ExportBulkingList() {
     if (col?.id === "_expand" || col?.id === "_actions") return;
     if (col?.id === "shipment_no" || col?.id === "progress") {
       const row = displayItems[rowIdx];
-      if (row) navigateToDetail(row.id, canEditAny ? "edit" : "view");
+      if (row) navigateToDetail(row.id, defaultDetailMode);
       return;
     }
 
@@ -1056,7 +1057,7 @@ export function ExportBulkingList() {
       startEditing(rowIdx, colIdx);
     } else {
       const row = displayItems[rowIdx];
-      if (row) navigateToDetail(row.id, "view");
+      if (row) navigateToDetail(row.id, defaultDetailMode);
     }
   }
 
@@ -1180,7 +1181,7 @@ export function ExportBulkingList() {
           <Link
             href={buildBulkingDetailUrl(row.id, {
               listView,
-              mode: canEditAny ? undefined : "view",
+              mode: defaultDetailMode === "view" ? "view" : undefined,
             })}
             className={`${styles.shipmentNoCell} ${styles.cellLink}`}
             onClick={(e) => e.stopPropagation()}
@@ -1331,7 +1332,7 @@ export function ExportBulkingList() {
             >
               <Eye size={15} strokeWidth={2} aria-hidden />
             </button>
-            {canEditOps && (
+            {canEditAny && (
               <button
                 type="button"
                 className={styles.rowActionBtn}
