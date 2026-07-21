@@ -186,18 +186,10 @@ export function OcrReviewModal({
   const modalRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!open || busy) return;
+    if (!open) return;
 
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onClose();
-      }
-    }
-    document.addEventListener("keydown", onKeyDown);
 
     requestAnimationFrame(() => {
       const FOCUSABLE = "button:not([disabled]), [tabindex]:not([tabindex='-1'])";
@@ -207,8 +199,20 @@ export function OcrReviewModal({
 
     return () => {
       document.body.style.overflow = prev;
-      document.removeEventListener("keydown", onKeyDown);
     };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || busy) return;
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
   }, [open, busy, onClose]);
 
   if (!open) return null;

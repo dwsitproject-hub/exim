@@ -2,6 +2,8 @@
 
 /** Download a DOM subtree as a PDF (A4 portrait). */
 export async function downloadElementAsPdf(element: HTMLElement, filename: string): Promise<void> {
+  await waitForImages(element);
+
   const html2pdf = (await import("html2pdf.js")).default;
   const safeName = filename.trim().endsWith(".pdf") ? filename.trim() : `${filename.trim()}.pdf`;
 
@@ -20,4 +22,21 @@ export async function downloadElementAsPdf(element: HTMLElement, filename: strin
     } as Record<string, unknown>)
     .from(element)
     .save();
+}
+
+async function waitForImages(element: HTMLElement): Promise<void> {
+  const imgs = [...element.querySelectorAll("img")];
+  await Promise.all(
+    imgs.map(
+      (img) =>
+        new Promise<void>((resolve) => {
+          if (img.complete && img.naturalWidth > 0) {
+            resolve();
+            return;
+          }
+          img.onload = () => resolve();
+          img.onerror = () => resolve();
+        }),
+    ),
+  );
 }

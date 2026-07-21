@@ -32,6 +32,7 @@ import {
   TableHeaderCell,
 } from "@/components/tables";
 import { Modal } from "@/components/overlays/Modal";
+import { ShipperDocumentHeaderPanel } from "./ShipperDocumentHeaderPanel";
 import styles from "./ShipperList.module.css";
 
 export function ShipperList() {
@@ -47,6 +48,7 @@ export function ShipperList() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [entityNameValue, setEntityNameValue] = useState("");
   const [shortNameValue, setShortNameValue] = useState("");
+  const [npwpValue, setNpwpValue] = useState("");
   const [saving, setSaving] = useState(false);
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -149,6 +151,7 @@ export function ShipperList() {
     setEditingId(null);
     setEntityNameValue("");
     setShortNameValue("");
+    setNpwpValue("");
     setModalOpen(true);
   }, []);
 
@@ -156,6 +159,7 @@ export function ShipperList() {
     setEditingId(shipper.id);
     setEntityNameValue(shipper.entity_name);
     setShortNameValue(shipper.short_name);
+    setNpwpValue(shipper.npwp ?? "");
     setModalOpen(true);
   }, []);
 
@@ -171,6 +175,7 @@ export function ShipperList() {
     const body = {
       entity_name: entityNameValue.trim(),
       short_name: shortNameValue.trim(),
+      npwp: npwpValue.trim() || null,
     };
     const res = editingId
       ? await updateShipper(editingId, body, accessToken)
@@ -462,6 +467,17 @@ export function ShipperList() {
                               </div>
                             </div>
                             )}
+
+                            {expandedShipper && (
+                              <ShipperDocumentHeaderPanel
+                                shipper={expandedShipper}
+                                accessToken={accessToken ?? ""}
+                                canEdit={canEditExport}
+                                canEditNpwp={canEditImport || canEditExport}
+                                onUpdated={fetchList}
+                                pushToast={pushToast}
+                              />
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -513,6 +529,16 @@ export function ShipperList() {
             value={shortNameValue}
             onChange={(e) => setShortNameValue(e.target.value)}
             placeholder="e.g. EUP — used as Import PT and Export Shipper"
+          />
+        </div>
+        <div className={styles.modalField}>
+          <label htmlFor="shipper-npwp">NPWP (Export SI)</label>
+          <input
+            id="shipper-npwp"
+            type="text"
+            value={npwpValue}
+            onChange={(e) => setNpwpValue(e.target.value)}
+            placeholder="e.g. 01.234.567.8-901.000"
           />
         </div>
       </Modal>

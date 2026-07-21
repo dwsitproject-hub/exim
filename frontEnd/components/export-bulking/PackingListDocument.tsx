@@ -2,6 +2,10 @@
 
 import { useRef } from "react";
 import { ExportDocumentToolbar } from "./ExportDocumentToolbar";
+import {
+  ExportDocumentLetterhead,
+  exportDocumentFooterCompanyName,
+} from "./ExportDocumentLetterhead";
 import { EXPORT_DOCUMENT_LETTERHEAD } from "./export-document-letterhead";
 import { exportDocumentPdfName } from "./export-document-filename";
 import styles from "./PackingListDocument.module.css";
@@ -25,13 +29,23 @@ function dash(s: string | null | undefined): string {
 export function PackingListDocument({
   data,
   downloadFilename,
+  letterheadImageUrl,
+  footerCompanyName,
 }: {
   data: PackingListDocumentPreview;
   downloadFilename?: string;
+  letterheadImageUrl?: string | null;
+  footerCompanyName?: string | null;
 }) {
   const pageRef = useRef<HTMLDivElement>(null);
   const pdfFilename =
     downloadFilename ?? exportDocumentPdfName("Packing-List", data.packing_list_number);
+  const usedImageHeader = Boolean(letterheadImageUrl);
+  const footerName = exportDocumentFooterCompanyName(
+    EXPORT_DOCUMENT_LETTERHEAD.name,
+    footerCompanyName,
+    usedImageHeader,
+  );
 
   return (
     <div className="pl-print-root">
@@ -42,15 +56,10 @@ export function PackingListDocument({
         noPrintClassName="pl-print-noPrint"
       />
       <div ref={pageRef} className={styles.printScope}>
-        <header>
-          <h1 className={styles.companyName}>{EXPORT_DOCUMENT_LETTERHEAD.name}</h1>
-          {EXPORT_DOCUMENT_LETTERHEAD.lines.map((line) => (
-            <p key={line} className={styles.companyAddr}>
-              {line}
-            </p>
-          ))}
-          <hr className={styles.rule} />
-        </header>
+        <ExportDocumentLetterhead
+          imageUrl={letterheadImageUrl}
+          name={EXPORT_DOCUMENT_LETTERHEAD.name}
+        />
 
         <div className={styles.titleBlock}>
           <h2 className={styles.title}>Packing list</h2>
@@ -83,9 +92,7 @@ export function PackingListDocument({
           <div className={styles.footerDate}>{dash(data.issued_date)}</div>
           <div>Yours faithfully,</div>
           <div className={styles.signatureReserved} aria-hidden="true" />
-          <div className={styles.footerCompany}>
-            {EXPORT_DOCUMENT_LETTERHEAD.name.replace(/\./g, "").toUpperCase()}
-          </div>
+          <div className={styles.footerCompany}>{footerName}</div>
         </footer>
       </div>
     </div>

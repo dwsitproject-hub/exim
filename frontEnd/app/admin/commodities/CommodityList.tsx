@@ -114,6 +114,8 @@ export function CommodityList() {
     setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
   }
 
+  const closeModal = useCallback(() => setModalOpen(false), []);
+
   const openCreate = useCallback(() => {
     setEditingId(null);
     setForm(EMPTY_FORM);
@@ -260,11 +262,11 @@ export function CommodityList() {
 
       <Modal
         open={modalOpen}
-        onClose={() => setModalOpen(false)}
+        onClose={closeModal}
         title={editingId ? "Edit Commodity" : "Add Commodity"}
         footer={
           <div className={styles.modalActions}>
-            <button type="button" className={styles.cancelBtn} onClick={() => setModalOpen(false)}>
+            <button type="button" className={styles.cancelBtn} onClick={closeModal}>
               Cancel
             </button>
             <button
@@ -285,7 +287,6 @@ export function CommodityList() {
             type="text"
             value={form.short_name}
             onChange={(e) => setForm((prev) => ({ ...prev, short_name: e.target.value }))}
-            autoFocus
           />
         </div>
         <div className={styles.modalField}>

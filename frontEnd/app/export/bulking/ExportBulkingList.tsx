@@ -145,7 +145,7 @@ const BASE_COLUMNS: GridColumnDef[] = [
   { id: "laycan", label: "Laycan", width: 148, minWidth: 120 },
   { id: "cargo_readiness", label: "Cargo Readiness", width: 148, minWidth: 120 },
   { id: "demurrage_rate", label: "Demurrage Rate", width: 132, minWidth: 108 },
-  { id: "pic_documentation", label: "PIC documentation", width: 168, minWidth: 140, defaultVisible: false, rbacGated: true },
+  { id: "pic_documentation", label: "PIC documentation", width: 180, minWidth: 160, defaultVisible: false, rbacGated: true },
   { id: "shipper", label: "Shipper", editable: true, dbField: "shipper", width: 152, minWidth: 120 },
   { id: "eta", label: "ETA", width: 96, minWidth: 80 },
   { id: "si_no", label: "Shipping Instruction No.", width: 220, minWidth: 200, multiValue: true, defaultVisible: false, rbacGated: true },
@@ -428,6 +428,7 @@ export function ExportBulkingList() {
   const canEditDocs = canEditExportDocumentation(user);
   const canEditCargo = canEditExportCargo(user);
   const canEditAny = canEditExportBulking(user);
+  const defaultDetailMode = canEditAny ? "edit" : "view";
   const canCreateShipment = can(user, "CREATE_EXPORT_BULKING");
   const canAssignDocs = can(user, "ASSIGN_EXPORT_BULKING_DOCUMENTATION");
   const availableListViews = useMemo(() => getAvailableBulkingListViews(user), [user]);
@@ -1045,7 +1046,7 @@ export function ExportBulkingList() {
     if (col?.id === "_expand" || col?.id === "_actions") return;
     if (col?.id === "shipment_no" || col?.id === "progress") {
       const row = displayItems[rowIdx];
-      if (row) navigateToDetail(row.id, canEditAny ? "edit" : "view");
+      if (row) navigateToDetail(row.id, defaultDetailMode);
       return;
     }
 
@@ -1056,7 +1057,7 @@ export function ExportBulkingList() {
       startEditing(rowIdx, colIdx);
     } else {
       const row = displayItems[rowIdx];
-      if (row) navigateToDetail(row.id, "view");
+      if (row) navigateToDetail(row.id, defaultDetailMode);
     }
   }
 
@@ -1180,7 +1181,7 @@ export function ExportBulkingList() {
           <Link
             href={buildBulkingDetailUrl(row.id, {
               listView,
-              mode: canEditAny ? undefined : "view",
+              mode: defaultDetailMode === "view" ? "view" : undefined,
             })}
             className={`${styles.shipmentNoCell} ${styles.cellLink}`}
             onClick={(e) => e.stopPropagation()}
@@ -1295,6 +1296,8 @@ export function ExportBulkingList() {
             <ComboboxSelectById
               className={styles.docAssignCombobox}
               inputClassName={styles.docAssignComboboxInput}
+              listClassName={styles.docAssignComboboxList}
+              listMinWidth={300}
               options={docAssigneeOptions}
               value={row.documentation_assigned_to ?? ""}
               disabled={assignBusyId === row.id}
@@ -1329,7 +1332,7 @@ export function ExportBulkingList() {
             >
               <Eye size={15} strokeWidth={2} aria-hidden />
             </button>
-            {canEditOps && (
+            {canEditAny && (
               <button
                 type="button"
                 className={styles.rowActionBtn}

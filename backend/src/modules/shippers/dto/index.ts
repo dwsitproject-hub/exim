@@ -4,6 +4,10 @@ export interface ShipperRow {
   short_name: string;
   /** Legacy column; kept in sync with short_name. */
   name: string;
+  has_document_header: boolean;
+  document_header_file_name: string | null;
+  document_header_mime_type: string | null;
+  npwp: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -32,11 +36,13 @@ export interface ShipperMasterRow extends ShipperRow {
 export interface CreateShipperDto {
   entity_name: string;
   short_name: string;
+  npwp?: string | null;
 }
 
 export interface UpdateShipperDto {
   entity_name: string;
   short_name: string;
+  npwp?: string | null;
 }
 
 export interface CreateShipperPlantDto {

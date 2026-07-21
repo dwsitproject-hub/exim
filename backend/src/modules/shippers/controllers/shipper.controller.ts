@@ -1,4 +1,5 @@
 import type { Request, Response, NextFunction } from "express";
+import { unlink } from "fs/promises";
 import { sendSuccess, sendError } from "../../../shared/response.js";
 import { ShipperService } from "../services/shipper.service.js";
 import { ShipperRepository } from "../repositories/shipper.repository.js";
@@ -6,6 +7,8 @@ import type { ListShippersQuery } from "../dto/index.js";
 
 const repo = new ShipperRepository();
 const service = new ShipperService(repo);
+
+type MulterFile = { path?: string; originalname: string; mimetype?: string };
 
 function parseListQuery(req: Request): ListShippersQuery {
   return {
@@ -168,6 +171,54 @@ export async function removeLoadport(req: Request, res: Response, next: NextFunc
       return;
     }
     sendSuccess(res, { message: "Deleted" });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/* ───────── document header ───────── */
+
+export async function uploadDocumentHeader(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const shipperId = req.params.id as string;
+  const file = (req as Request & { file?: MulterFile }).file;
+  const tempPath = file?.path;
+
+  if (!tempPath) {
+    sendError(res, "File is required (field name: file)", { statusCode: 400 });
+    return;
+  }
+
+  try {
+    const row = await service.uploadDocumentHeader(
+      shipperId,
+      tempPath,
+      file.originalname || "header.png",
+      file.mimetype,
+    );
+    sendSuccess(res, row, { message: "Document header uploaded", statusCode: 201 });
+  } catch (err) {
+    next(err);
+  } finally {
+    await unlink(tempPath).catch(() => {});
+  }
+}
+
+export async function downloadDocumentHeader(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { stream, fileName, mimeType } = await service.getDocumentHeaderStream(req.params.id as string);
+    res.setHeader("Content-Type", mimeType);
+    res.setHeader("Content-Disposition", `inline; filename="${encodeURIComponent(fileName)}"`);
+    res.setHeader("Cache-Control", "private, max-age=300");
+    stream.pipe(res);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function removeDocumentHeader(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const row = await service.removeDocumentHeader(req.params.id as string);
+    sendSuccess(res, row, { message: "Document header removed" });
   } catch (err) {
     next(err);
   }

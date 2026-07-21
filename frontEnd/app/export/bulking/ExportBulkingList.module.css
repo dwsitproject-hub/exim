@@ -1757,13 +1757,18 @@
 
 .docAssignCombobox {
   width: 100%;
-  max-width: 156px;
+  min-width: 0;
 }
 
 .docAssignComboboxInput {
   padding: 4px 24px 4px 8px;
   font-size: 12px;
   line-height: 1.35;
+  text-overflow: ellipsis;
+}
+
+.docAssignComboboxList {
+  min-width: 18rem;
 }
 
 .docAssignSelect {
