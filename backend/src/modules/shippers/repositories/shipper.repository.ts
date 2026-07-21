@@ -14,7 +14,10 @@ import type {
   ListShippersQuery,
 } from "../dto/index.js";
 
-const SHIPPER_COLS = "id, entity_name, short_name, name, created_at, updated_at";
+const SHIPPER_COLS = `id, entity_name, short_name, name,
+  (document_header_storage_key IS NOT NULL) AS has_document_header,
+  document_header_file_name, document_header_mime_type,
+  npwp, created_at, updated_at`;
 const PLANT_COLS = "id, shipper_id, name, created_at, updated_at";
 const LP_COLS = "id, shipper_id, name, created_at, updated_at";
 
@@ -115,10 +118,10 @@ export class ShipperRepository {
 
   async createShipper(dto: CreateShipperDto): Promise<ShipperRow> {
     const result = await this.pool.query<ShipperRow>(
-      `INSERT INTO master_shippers (entity_name, short_name, name, created_at, updated_at)
-       VALUES (TRIM($1), TRIM($2), TRIM($2), NOW(), NOW())
+      `INSERT INTO master_shippers (entity_name, short_name, name, npwp, created_at, updated_at)
+       VALUES (TRIM($1), TRIM($2), TRIM($2), NULLIF(TRIM($3), ''), NOW(), NOW())
        RETURNING ${SHIPPER_COLS}`,
-      [dto.entity_name, dto.short_name],
+      [dto.entity_name, dto.short_name, dto.npwp ?? ""],
     );
     if (!result.rows[0]) throw new Error("ShipperRepository.createShipper: no row returned");
     return result.rows[0];
@@ -127,10 +130,11 @@ export class ShipperRepository {
   async updateShipper(id: string, dto: UpdateShipperDto): Promise<ShipperRow | null> {
     const result = await this.pool.query<ShipperRow>(
       `UPDATE master_shippers
-       SET entity_name = TRIM($1), short_name = TRIM($2), name = TRIM($2), updated_at = NOW()
-       WHERE id = $3 AND deleted_at IS NULL
+       SET entity_name = TRIM($1), short_name = TRIM($2), name = TRIM($2),
+           npwp = NULLIF(TRIM($3), ''), updated_at = NOW()
+       WHERE id = $4 AND deleted_at IS NULL
        RETURNING ${SHIPPER_COLS}`,
-      [dto.entity_name, dto.short_name, id],
+      [dto.entity_name, dto.short_name, dto.npwp ?? "", id],
     );
     return result.rows[0] ?? null;
   }
@@ -244,6 +248,66 @@ export class ShipperRepository {
       `UPDATE shipper_loadports SET deleted_at = NOW(), updated_at = NOW()
        WHERE id = $1 AND deleted_at IS NULL
        RETURNING ${LP_COLS}`,
+      [id],
+    );
+    return result.rows[0] ?? null;
+  }
+
+  /* ───────── document header ───────── */
+
+  async getDocumentHeaderMeta(id: string): Promise<{
+    id: string;
+    short_name: string;
+    storage_key: string | null;
+    file_name: string | null;
+    mime_type: string | null;
+  } | null> {
+    const result = await this.pool.query<{
+      id: string;
+      short_name: string;
+      storage_key: string | null;
+      file_name: string | null;
+      mime_type: string | null;
+    }>(
+      `SELECT id, short_name,
+              document_header_storage_key AS storage_key,
+              document_header_file_name AS file_name,
+              document_header_mime_type AS mime_type
+       FROM master_shippers
+       WHERE id = $1 AND deleted_at IS NULL`,
+      [id],
+    );
+    return result.rows[0] ?? null;
+  }
+
+  async setDocumentHeader(
+    id: string,
+    storageKey: string,
+    fileName: string,
+    mimeType: string | null,
+  ): Promise<ShipperRow | null> {
+    const result = await this.pool.query<ShipperRow>(
+      `UPDATE master_shippers
+       SET document_header_storage_key = $2,
+           document_header_file_name = $3,
+           document_header_mime_type = $4,
+           updated_at = NOW()
+       WHERE id = $1 AND deleted_at IS NULL
+       RETURNING ${SHIPPER_COLS}`,
+      [id, storageKey, fileName, mimeType],
+    );
+    return result.rows[0] ?? null;
+  }
+
+  async clearDocumentHeader(id: string): Promise<ShipperRow | null> {
+    const result = await this.pool.query<ShipperRow>(
+      `UPDATE master_shippers
+       SET document_header_storage_key = NULL,
+           document_header_file_name = NULL,
+           document_header_mime_type = NULL,
+           updated_at = NOW()
+       WHERE id = $1 AND deleted_at IS NULL
+       RETURNING ${SHIPPER_COLS}`,
       [id],
     );
     return result.rows[0] ?? null;

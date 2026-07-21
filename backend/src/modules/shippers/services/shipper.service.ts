@@ -1,4 +1,5 @@
 import { AppError } from "../../../middlewares/errorHandler.js";
+import { LocalStorageAdapter } from "../../../shared/storage/local-storage.adapter.js";
 import { ShipperRepository } from "../repositories/shipper.repository.js";
 import type {
   ShipperRow,
@@ -13,6 +14,21 @@ import type {
   UpdateShipperLoadportDto,
   ListShippersQuery,
 } from "../dto/index.js";
+import { buildShipperDocumentHeaderDirectoryPrefix } from "../utils/shipper-document-header-storage-path.js";
+import { v4 as uuidv4 } from "uuid";
+
+const ALLOWED_HEADER_MIME_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/jpg",
+  "image/webp",
+  "image/gif",
+]);
+
+function safeFileName(name: string): string {
+  const n = name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 200);
+  return n || "header";
+}
 
 function validateShipperFields(dto: CreateShipperDto | UpdateShipperDto): void {
   if (!dto.entity_name?.trim()) {
@@ -24,6 +40,8 @@ function validateShipperFields(dto: CreateShipperDto | UpdateShipperDto): void {
 }
 
 export class ShipperService {
+  private readonly storage = new LocalStorageAdapter();
+
   constructor(private readonly repo: ShipperRepository) {}
 
   /* ───────── shippers ───────── */
@@ -132,5 +150,93 @@ export class ShipperService {
 
   async softDeleteLoadport(id: string): Promise<ShipperLoadportRow | null> {
     return this.repo.softDeleteLoadport(id);
+  }
+
+  /* ───────── document header ───────── */
+
+  async uploadDocumentHeader(
+    shipperId: string,
+    tempFilePath: string,
+    originalName: string,
+    mimeType: string | undefined,
+  ): Promise<ShipperRow> {
+    const normalizedMime = (mimeType ?? "").toLowerCase();
+    if (!ALLOWED_HEADER_MIME_TYPES.has(normalizedMime)) {
+      throw new AppError("Document header must be a PNG, JPEG, WebP, or GIF image", 400);
+    }
+
+    const shipper = await this.repo.getShipperById(shipperId);
+    if (!shipper) {
+      throw new AppError("Shipper not found", 404);
+    }
+
+    const existing = await this.repo.getDocumentHeaderMeta(shipperId);
+    const oldStorageKey = existing?.storage_key ?? null;
+
+    const directoryPrefix = buildShipperDocumentHeaderDirectoryPrefix(shipper.short_name);
+    const versionId = uuidv4();
+    const fileName = safeFileName(originalName || "header.png");
+    let newStorageKey: string | undefined;
+
+    try {
+      ({ storageKey: newStorageKey } = await this.storage.uploadFromPath(tempFilePath, {
+        documentId: shipperId,
+        versionId,
+        fileName,
+        mimeType: normalizedMime,
+        directoryPrefix,
+      }));
+
+      const updated = await this.repo.setDocumentHeader(
+        shipperId,
+        newStorageKey,
+        originalName || fileName,
+        normalizedMime,
+      );
+      if (!updated) {
+        throw new AppError("Shipper not found", 404);
+      }
+
+      if (oldStorageKey && oldStorageKey !== newStorageKey) {
+        await this.storage.delete(oldStorageKey).catch(() => {});
+      }
+
+      return updated;
+    } catch (e) {
+      if (newStorageKey) await this.storage.delete(newStorageKey).catch(() => {});
+      throw e;
+    }
+  }
+
+  async getDocumentHeaderStream(shipperId: string) {
+    const meta = await this.repo.getDocumentHeaderMeta(shipperId);
+    if (!meta?.storage_key) {
+      throw new AppError("Document header not found", 404);
+    }
+    const result = await this.storage.download(meta.storage_key);
+    if (!result) {
+      throw new AppError("Document header file not found on storage", 404);
+    }
+    return {
+      stream: result.stream,
+      fileName: meta.file_name ?? "header.png",
+      mimeType: meta.mime_type ?? result.mimeType ?? "image/png",
+    };
+  }
+
+  async removeDocumentHeader(shipperId: string): Promise<ShipperRow> {
+    const meta = await this.repo.getDocumentHeaderMeta(shipperId);
+    if (!meta) {
+      throw new AppError("Shipper not found", 404);
+    }
+    const oldStorageKey = meta.storage_key;
+    const updated = await this.repo.clearDocumentHeader(shipperId);
+    if (!updated) {
+      throw new AppError("Shipper not found", 404);
+    }
+    if (oldStorageKey) {
+      await this.storage.delete(oldStorageKey).catch(() => {});
+    }
+    return updated;
   }
 }

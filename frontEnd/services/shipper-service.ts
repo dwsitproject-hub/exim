@@ -1,5 +1,8 @@
-import { apiGet, apiPost, apiPatch, apiDelete } from "./api-client";
+import { apiGet, apiPost, apiPatch, apiDelete, apiRequest } from "./api-client";
 import type { ApiResponse } from "@/types/api";
+import { config } from "@/lib/config";
+import { COOKIE_AUTH_SENTINEL } from "@/lib/constants";
+import { getAccessToken } from "@/lib/cookies";
 
 export interface Shipper {
   id: string;
@@ -7,6 +10,10 @@ export interface Shipper {
   short_name: string;
   /** Legacy; mirrors short_name. */
   name: string;
+  has_document_header: boolean;
+  document_header_file_name: string | null;
+  document_header_mime_type: string | null;
+  npwp: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -35,6 +42,7 @@ export interface ShipperLoadport {
 export interface ShipperInput {
   entity_name: string;
   short_name: string;
+  npwp?: string | null;
 }
 
 /* ───────── shippers ───────── */
@@ -201,6 +209,70 @@ export function findShipperMatch(
   );
 }
 
+/** NPWP from shipper master for export shipping instructions. */
+export function resolveShipperNpwp(
+  shipperShortName: string | null | undefined,
+  shippers: Shipper[],
+): string {
+  return findShipperMatch(shipperShortName, shippers)?.npwp?.trim() ?? "";
+}
+
 export function shipperShortNameOptions(shippers: Shipper[]): string[] {
   return shippers.map((s) => s.short_name);
+}
+
+/* ───────── document header ───────── */
+
+export function uploadShipperDocumentHeader(
+  shipperId: string,
+  file: File,
+  accessToken: string | null,
+): Promise<ApiResponse<Shipper>> {
+  const form = new FormData();
+  form.append("file", file);
+  return apiRequest<Shipper>(`shippers/${shipperId}/document-header`, {
+    method: "POST",
+    body: form,
+    accessToken,
+  });
+}
+
+export function deleteShipperDocumentHeader(
+  shipperId: string,
+  accessToken: string | null,
+): Promise<ApiResponse<Shipper>> {
+  return apiDelete<Shipper>(`shippers/${shipperId}/document-header`, accessToken);
+}
+
+/** Authenticated blob fetch for shipper document header preview or export documents. */
+export async function fetchShipperDocumentHeaderBlob(
+  shipperId: string,
+  accessToken: string | null,
+): Promise<Blob> {
+  const base = config.apiBaseUrl.replace(/\/$/, "");
+  const url = `${base}/shippers/${shipperId}/document-header`;
+  const headers: Record<string, string> = {};
+  const token =
+    accessToken && accessToken !== COOKIE_AUTH_SENTINEL
+      ? accessToken
+      : typeof window !== "undefined"
+        ? getAccessToken()
+        : null;
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const fetchHeader = () => fetch(url, { credentials: "include", headers });
+
+  let response = await fetchHeader();
+  if (response.status === 401) {
+    const refresh = await fetch(`${base}/auth/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+      credentials: "include",
+    });
+    if (!refresh.ok) throw new Error("Failed to load document header");
+    response = await fetchHeader();
+  }
+  if (!response.ok) throw new Error("Failed to load document header");
+  return response.blob();
 }

@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
+import { useShipperDocumentHeader } from "@/hooks/use-shipper-document-header";
 import { useSessionPersistedState } from "@/hooks/use-session-persisted-state";
 import { can } from "@/lib/permissions";
 import {
@@ -129,6 +130,7 @@ import {
   listShipperLoadports,
   createShipperLoadport,
   findShipperMatch,
+  resolveShipperNpwp,
   shipperShortNameOptions,
   type Shipper,
   type ShipperLoadport,
@@ -2000,9 +2002,9 @@ function buildSiPreviewFromDraft(
     consignee: string;
     notify_party: string;
     freight: string;
-    npwp: string;
     bl_indicated: string;
   },
+  npwp: string,
   lineRows: SiLineRow[],
   cargoById: Map<string, CargoLine>,
 ): ShippingInstruction {
@@ -2032,7 +2034,7 @@ function buildSiPreviewFromDraft(
     consignee: form.consignee || null,
     notify_party: form.notify_party || null,
     freight: form.freight || null,
-    npwp: form.npwp || null,
+    npwp: npwp.trim() || null,
     bl_indicated: form.bl_indicated || null,
     lines: lines.length > 0 ? lines : si.lines,
   };
@@ -2350,6 +2352,26 @@ function SIFormWorkspace({
   const [saving, setSaving] = useState(false);
   const [showDocumentPreview, setShowDocumentPreview] = useState(false);
   const [commodityList, setCommodityList] = useState<Commodity[]>([]);
+  const [shipperList, setShipperList] = useState<Shipper[]>([]);
+  const { imageUrl: letterheadImageUrl, footerCompanyName } = useShipperDocumentHeader(
+    shipment.shipper,
+    accessToken,
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    void listShippers(accessToken).then((res) => {
+      if (!cancelled && !isApiError(res)) setShipperList(res.data ?? []);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken]);
+
+  const resolvedNpwp = useMemo(
+    () => resolveShipperNpwp(shipment.shipper, shipperList),
+    [shipment.shipper, shipperList],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -2373,7 +2395,6 @@ function SIFormWorkspace({
     consignee: si.consignee ?? "",
     notify_party: si.notify_party ?? "",
     freight: si.freight ?? "",
-    npwp: si.npwp ?? "",
     bl_indicated: si.bl_indicated ?? "",
   });
 
@@ -2387,10 +2408,10 @@ function SIFormWorkspace({
       consignee: si.consignee ?? "",
       notify_party: si.notify_party ?? "",
       freight: si.freight ?? "",
-      npwp: si.npwp ?? "",
       bl_indicated: si.bl_indicated ?? "",
     };
     if (JSON.stringify(form) !== JSON.stringify(origForm)) return true;
+    if (resolvedNpwp !== (si.npwp ?? "").trim()) return true;
     const origRows = buildSiLineRows(si, shipment.cargo_lines);
     if (lineRows.length !== origRows.length) return true;
     return lineRows.some((row, i) => {
@@ -2403,7 +2424,7 @@ function SIFormWorkspace({
         !blSplitDraftsEqual(row.bl_splits, o.bl_splits)
       );
     });
-  }, [form, lineRows, si, shipment.cargo_lines]);
+  }, [form, lineRows, si, shipment.cargo_lines, resolvedNpwp]);
 
   const siDirtyRef = useRef(false);
   siDirtyRef.current = siDirty;
@@ -2422,7 +2443,6 @@ function SIFormWorkspace({
       consignee: si.consignee ?? "",
       notify_party: si.notify_party ?? "",
       freight: si.freight ?? "",
-      npwp: si.npwp ?? "",
       bl_indicated: si.bl_indicated ?? "",
     });
     setLineRows(buildSiLineRows(si, shipment.cargo_lines));
@@ -2530,8 +2550,8 @@ function SIFormWorkspace({
   const loadportDisplay = shipment.loadport_name?.trim() || "—";
 
   const previewSi = useMemo(
-    () => buildSiPreviewFromDraft(si, form, lineRows, cargoById),
-    [si, form, lineRows, cargoById],
+    () => buildSiPreviewFromDraft(si, form, resolvedNpwp, lineRows, cargoById),
+    [si, form, resolvedNpwp, lineRows, cargoById],
   );
 
   const blSplitPreviewText = useMemo(() => {
@@ -2628,7 +2648,7 @@ function SIFormWorkspace({
         notify_party: form.notify_party || null,
         freight: form.freight || null,
         shipper_snapshot: shipment.shipper?.trim() || null,
-        npwp: form.npwp || null,
+        npwp: resolvedNpwp.trim() || null,
         bl_indicated: form.bl_indicated || null,
         lines: linesPayload,
       },
@@ -2753,7 +2773,12 @@ function SIFormWorkspace({
           </div>
           <div className={styles.field}>
             <label className={styles.fieldLabel}>NPWP</label>
-            <input className={styles.fieldInput} value={form.npwp} onChange={setFormField("npwp")} />
+            <input
+              className={`${styles.fieldInput} ${styles.fieldInputReadonly}`}
+              readOnly
+              title="Synced from shipper master when you save this shipping instruction."
+              value={resolvedNpwp}
+            />
           </div>
           <div className={`${styles.field} ${styles.fieldSiFull}`}>
             <label className={styles.fieldLabel}>B/L Indicated</label>
@@ -3011,6 +3036,8 @@ function SIFormWorkspace({
           shipment={shipment}
           si={previewSi}
           blSplitText={blSplitPreviewText}
+          letterheadImageUrl={letterheadImageUrl}
+          footerCompanyName={footerCompanyName}
         />
       </Modal>
     </>
@@ -4070,6 +4097,10 @@ function InvoiceFormWorkspace({
   const [showAudit, setShowAudit] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
   const [amending, setAmending] = useState(false);
+  const { imageUrl: letterheadImageUrl, footerCompanyName } = useShipperDocumentHeader(
+    shipment.shipper,
+    accessToken,
+  );
 
   const isReadOnly = (invoice.status ?? "DRAFT") === "FINAL";
   const [qtyChangeReason, setQtyChangeReason] = useState("");
@@ -4742,7 +4773,12 @@ function InvoiceFormWorkspace({
           </button>
         }
       >
-        <InvoiceDocument shipment={shipment} invoice={previewInvoice} />
+        <InvoiceDocument
+          shipment={shipment}
+          invoice={previewInvoice}
+          letterheadImageUrl={letterheadImageUrl}
+          footerCompanyName={footerCompanyName}
+        />
       </Modal>
 
       <InvoiceFinalizeModal
@@ -5070,6 +5106,10 @@ function PackingListFormWorkspace({
 }) {
   const [saving, setSaving] = useState(false);
   const [showDocumentPreview, setShowDocumentPreview] = useState(false);
+  const { imageUrl: letterheadImageUrl, footerCompanyName } = useShipperDocumentHeader(
+    shipment.shipper,
+    accessToken,
+  );
 
   const [siId, setSiId] = useState(packingList.shipping_instruction_id ?? "");
   const [plNumber, setPlNumber] = useState(packingList.packing_list_number ?? "");
@@ -5363,7 +5403,11 @@ function PackingListFormWorkspace({
           </button>
         }
       >
-        <PackingListDocument data={previewPackingList} />
+        <PackingListDocument
+          data={previewPackingList}
+          letterheadImageUrl={letterheadImageUrl}
+          footerCompanyName={footerCompanyName}
+        />
       </Modal>
     </>
   );

@@ -5,16 +5,12 @@ import type { ExportBulkingShipmentDetail, ShippingInstruction } from "@/types/e
 import { formatNumberDisplay } from "@/lib/format-numbers";
 import { ExportDocumentToolbar } from "./ExportDocumentToolbar";
 import { exportDocumentPdfName } from "./export-document-filename";
+import {
+  ExportDocumentLetterhead,
+  exportDocumentFooterCompanyName,
+} from "./ExportDocumentLetterhead";
+import { EXPORT_DOCUMENT_LETTERHEAD } from "./export-document-letterhead";
 import styles from "./ShippingInstructionDocument.module.css";
-
-const LETTERHEAD = {
-  name: "PT ENERGI UNGGUL PERSADA",
-  lines: [
-    "GAMA TOWER, LT 41, JL HR RASUNA SAID, KAV C 22,",
-    "KARET KUNINGAN, SETIABUDI, KOTA ADM. JAKARTA SELATAN,",
-    "DKI JAKARTA, 12940",
-  ],
-} as const;
 
 function formatVesselLine(shipment: ExportBulkingShipmentDetail): string {
   const vessel = shipment.vessel_name?.trim() ?? "";
@@ -52,12 +48,16 @@ export function ShippingInstructionDocument({
   si,
   blSplitText,
   downloadFilename,
+  letterheadImageUrl,
+  footerCompanyName,
 }: {
   shipment: ExportBulkingShipmentDetail;
   si: ShippingInstruction;
   /** Verbatim B/L split from the form (first cargo line). */
   blSplitText?: string;
   downloadFilename?: string;
+  letterheadImageUrl?: string | null;
+  footerCompanyName?: string | null;
 }) {
   const pageRef = useRef<HTMLDivElement>(null);
   const pdfFilename =
@@ -86,6 +86,12 @@ export function ShippingInstructionDocument({
   const loadport = dash(shipment.loadport_name);
 
   const issued = jakartaFooterDate(new Date());
+  const usedImageHeader = Boolean(letterheadImageUrl);
+  const footerName = exportDocumentFooterCompanyName(
+    EXPORT_DOCUMENT_LETTERHEAD.name,
+    footerCompanyName,
+    usedImageHeader,
+  );
 
   return (
     <div className="si-print-root">
@@ -96,15 +102,10 @@ export function ShippingInstructionDocument({
         noPrintClassName="si-print-noPrint"
       />
       <div ref={pageRef} className={styles.printScope}>
-      <header>
-        <h1 className={styles.companyName}>{LETTERHEAD.name}</h1>
-        {LETTERHEAD.lines.map((line) => (
-          <p key={line} className={styles.companyAddr}>
-            {line}
-          </p>
-        ))}
-        <hr className={styles.rule} />
-      </header>
+      <ExportDocumentLetterhead
+        imageUrl={letterheadImageUrl}
+        name={EXPORT_DOCUMENT_LETTERHEAD.name}
+      />
 
       <div className={styles.messrsTitleBlock}>
         <div className={styles.messrsBlock}>
@@ -162,7 +163,7 @@ export function ShippingInstructionDocument({
 
       <footer className={styles.footer}>
         <div>{issued}</div>
-        <div className={styles.footerCompany}>{LETTERHEAD.name}</div>
+        <div className={styles.footerCompany}>{footerName}</div>
       </footer>
 
       <div className={styles.signatureReserved} aria-hidden="true" />
