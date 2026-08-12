@@ -66,6 +66,8 @@ export interface UserRow {
   role: string;
   is_active: boolean;
   email_verified_at: Date | null;
+  /** DWS Hub OIDC subject; null until linked via SSO. */
+  oidc_sub: string | null;
   permission_overrides: string[] | null;
   must_change_password: boolean;
   created_at: Date;

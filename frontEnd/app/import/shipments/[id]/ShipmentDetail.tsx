@@ -31,7 +31,19 @@ import {
   uploadShipmentDocument,
   deleteShipmentDocument,
   fetchShipmentDocumentBlob,
+  listJpsPorts,
+  listJpsCommodities,
+  previewJpsSync,
+  syncShipmentToJps,
 } from "@/services/shipments-service";
+import {
+  listAllUnloadPorts,
+  type ShipperPlantUnloadPortListItem,
+} from "@/services/shipper-service";
+import {
+  listJpsMappedCommodities,
+  type CommodityJpsMapped,
+} from "@/services/commodity-service";
 import { getPoDetail, lookupPoByPoNumber } from "@/services/po-service";
 import { Card } from "@/components/cards";
 import { Badge } from "@/components/badges";
@@ -45,9 +57,10 @@ import {
   TableCell,
   TableHeaderCell,
 } from "@/components/tables";
-import { Button, ComboboxSelect } from "@/components/forms";
+import { Button, ComboboxSelect, ComboboxSelectById } from "@/components/forms";
 import { Modal } from "@/components/overlays";
 import { useToast } from "@/components/providers/ToastProvider";
+import { OcrBlockingOverlay, OcrReviewModal, type OcrFieldRow } from "@/components/ocr/OcrReviewModal";
 import { ShipmentNoteMentionTextarea } from "@/components/shipments/ShipmentNoteMentionTextarea";
 import { renderNoteWithMentions } from "@/lib/render-note-mentions";
 import { DutyFormulaInfoIcon } from "@/components/icons/DutyFormulaInfoIcon";
@@ -82,6 +95,9 @@ import type { TimelineItem as TimelineItemType, TimelineItemVariant } from "@/co
 import type { ActivityLogItem } from "@/types/activity-log";
 import type {
   ShipmentDetail as ShipmentDetailType,
+  JpsPortOption,
+  JpsCommodityOption,
+  JpsSyncPreview,
   ShipmentTimelineEntry,
   ShipmentBid,
   RecentForwarderBid,
@@ -89,6 +105,8 @@ import type {
   ShipmentNote,
   ShipmentDocumentListItem,
   FreightChargeCurrency,
+  PibOcrWarning,
+  PibOcrExtracted,
 } from "@/types/shipments";
 import type { PoDetail, PoItemSummary } from "@/types/po";
 import { config } from "@/lib/config";
@@ -218,7 +236,12 @@ function filterShipmentDocumentsBySlot(
       return d.intake_id == null;
     }
 
-    if (status == null ? d.status != null : d.status !== status) return false;
+    // PIB Final slot also shows legacy rows uploaded before DRAFT/FINAL split (status null).
+    if (documentType === "PIB_BC" && status === "FINAL") {
+      if (d.status !== "FINAL" && d.status != null) return false;
+    } else if (status == null ? d.status != null : d.status !== status) {
+      return false;
+    }
     if (intake.kind === "shipment_level") return d.intake_id == null;
     return d.intake_id === intake.intakeId;
   });
@@ -767,7 +790,30 @@ export function ShipmentDetail({ id }: { id: string }) {
   const [editNopen, setEditNopen] = useState("");
   const [editNopenDate, setEditNopenDate] = useState("");
   const [editBlAwb, setEditBlAwb] = useState("");
+  const [editVesselName, setEditVesselName] = useState("");
+  const [editVoyageNo, setEditVoyageNo] = useState("");
+  const [editAgentName, setEditAgentName] = useState("");
+  const [editDestinationUnloadPortId, setEditDestinationUnloadPortId] = useState("");
+  const [editJpsCargoType, setEditJpsCargoType] = useState("");
+  const [jpsPorts, setJpsPorts] = useState<JpsPortOption[]>([]);
+  const [unloadPorts, setUnloadPorts] = useState<ShipperPlantUnloadPortListItem[]>([]);
+  const [jpsMappedCommodities, setJpsMappedCommodities] = useState<CommodityJpsMapped[]>([]);
+  const [jpsCommodities, setJpsCommodities] = useState<JpsCommodityOption[]>([]);
+  const [jpsMastersLoading, setJpsMastersLoading] = useState(false);
+  const [jpsMastersError, setJpsMastersError] = useState<string | null>(null);
+  const [jpsPreviewOpen, setJpsPreviewOpen] = useState(false);
+  const [jpsPreview, setJpsPreview] = useState<JpsSyncPreview | null>(null);
+  const [jpsPreviewLoading, setJpsPreviewLoading] = useState(false);
+  const [jpsSyncing, setJpsSyncing] = useState(false);
   const [editInsuranceNo, setEditInsuranceNo] = useState("");
+  const [editInsuranceAmount, setEditInsuranceAmount] = useState("");
+  const [pibOcrBusy, setPibOcrBusy] = useState(false);
+  const [pibOcrReview, setPibOcrReview] = useState<{
+    extracted: PibOcrExtracted | null;
+    warnings: PibOcrWarning[];
+    fileName: string;
+    confidence: "high" | "medium" | "low";
+  } | null>(null);
   const [editCoo, setEditCoo] = useState("");
   const [editOriginPortName, setEditOriginPortName] = useState("");
   const [editOriginPortCountry, setEditOriginPortCountry] = useState("");
@@ -1005,6 +1051,202 @@ export function ShipmentDetail({ id }: { id: string }) {
       .finally(() => setSavingNote(false));
   }
 
+  const loadJpsMasters = useCallback(
+    async (refresh = false) => {
+      if (!accessToken) return;
+      setJpsMastersLoading(true);
+      setJpsMastersError(null);
+      try {
+        const [portsRes, commoditiesRes, unloadRes, mappedCmdRes] = await Promise.all([
+          listJpsPorts(accessToken, { refresh }),
+          listJpsCommodities(accessToken, { refresh }),
+          listAllUnloadPorts(accessToken),
+          listJpsMappedCommodities(accessToken),
+        ]);
+        if (isApiError(portsRes)) {
+          setJpsMastersError(portsRes.message);
+          return;
+        }
+        if (isApiError(commoditiesRes)) {
+          setJpsMastersError(commoditiesRes.message);
+          return;
+        }
+        setJpsPorts(portsRes.data?.data ?? []);
+        setJpsCommodities(commoditiesRes.data?.data ?? []);
+        if (!isApiError(unloadRes)) {
+          setUnloadPorts(unloadRes.data ?? []);
+        } else {
+          setUnloadPorts([]);
+        }
+        if (!isApiError(mappedCmdRes)) {
+          setJpsMappedCommodities(mappedCmdRes.data ?? []);
+        } else {
+          setJpsMappedCommodities([]);
+        }
+      } catch (e) {
+        setJpsMastersError(e instanceof Error ? e.message : "Failed to load Jetty masters");
+      } finally {
+        setJpsMastersLoading(false);
+      }
+    },
+    [accessToken]
+  );
+
+  useEffect(() => {
+    if (accessToken) void loadJpsMasters();
+  }, [accessToken, loadJpsMasters]);
+
+  const unloadPortOptions = useMemo(
+    () =>
+      unloadPorts.map((p) => ({
+        id: p.id,
+        label: `${p.name} · ${p.shipper_short_name}/${p.plant_name}${
+          p.jps_port_id != null ? " · Jetty" : ""
+        }`,
+      })),
+    [unloadPorts],
+  );
+
+  const selectedUnloadPort = useMemo(() => {
+    const id = isUpdatingShipment
+      ? editDestinationUnloadPortId
+      : (detail?.destination_unload_port_id ?? "");
+    if (!id) return null;
+    return unloadPorts.find((p) => p.id === id) ?? null;
+  }, [
+    isUpdatingShipment,
+    editDestinationUnloadPortId,
+    detail?.destination_unload_port_id,
+    unloadPorts,
+  ]);
+
+  const jettyEligible = useMemo(() => {
+    const method = (
+      isUpdatingShipment
+        ? editShipmentMethod.trim() || detail?.shipment_method || ""
+        : detail?.shipment_method || ""
+    ).toLowerCase();
+    if (method !== "sea") return false;
+    return (
+      selectedUnloadPort?.jps_port_id != null &&
+      Number.isFinite(Number(selectedUnloadPort.jps_port_id))
+    );
+  }, [isUpdatingShipment, editShipmentMethod, detail?.shipment_method, selectedUnloadPort]);
+
+  /** Prefer admin-mapped EOS commodities; fall back to raw JPS list. */
+  const jpsCommodityLabelOptions = useMemo(() => {
+    const mapped = jpsMappedCommodities.map((m) => {
+      const jps = jpsCommodities.find(
+        (c) => c.short_name.toUpperCase() === m.jps_short_name.toUpperCase(),
+      );
+      const jpsLabel = jps
+        ? `${jps.short_name} — ${jps.name} (${jps.commodity_type})`
+        : m.jps_short_name;
+      return `${m.short_name} · ${m.name} → ${jpsLabel}`;
+    });
+    const mappedCodes = new Set(
+      jpsMappedCommodities.map((m) => m.jps_short_name.trim().toUpperCase()),
+    );
+    const unmappedJps = jpsCommodities
+      .filter((c) => !mappedCodes.has(c.short_name.trim().toUpperCase()))
+      .map((c) => `${c.short_name} — ${c.name} (${c.commodity_type})`);
+    return [...mapped, ...unmappedJps];
+  }, [jpsMappedCommodities, jpsCommodities]);
+
+  function jpsPortLabelForId(portId: number | string | null | undefined): string {
+    if (portId == null || portId === "") return "";
+    const id = Number(portId);
+    const hit = jpsPorts.find((p) => p.id === id);
+    return hit ? `${hit.name} (${hit.id})` : `Port ${id}`;
+  }
+
+  function jpsCommodityLabelForCode(code: string | null | undefined): string {
+    const c = (code ?? "").trim();
+    if (!c) return "";
+    const mapped = jpsMappedCommodities.find(
+      (m) => m.jps_short_name.toUpperCase() === c.toUpperCase(),
+    );
+    if (mapped) {
+      const jps = jpsCommodities.find((x) => x.short_name.toUpperCase() === c.toUpperCase());
+      const jpsLabel = jps
+        ? `${jps.short_name} — ${jps.name} (${jps.commodity_type})`
+        : mapped.jps_short_name;
+      return `${mapped.short_name} · ${mapped.name} → ${jpsLabel}`;
+    }
+    const hit = jpsCommodities.find((x) => x.short_name.toUpperCase() === c.toUpperCase());
+    return hit ? `${hit.short_name} — ${hit.name} (${hit.commodity_type})` : c;
+  }
+
+  function jpsCargoCodeFromLabel(label: string): string {
+    const t = label.trim();
+    if (!t) return "";
+    const arrow = t.lastIndexOf(" → ");
+    if (arrow >= 0) {
+      const jpsPart = t.slice(arrow + 3).trim();
+      return jpsPart.split(" — ")[0]?.trim() ?? "";
+    }
+    return t.split(" — ")[0]?.trim() ?? "";
+  }
+
+  const jpsReadyToSend = useMemo(() => {
+    if (!detail) return false;
+    if (!jettyEligible) return false;
+    if (!(detail.vessel_name ?? "").trim()) return false;
+    if (!(detail.agent_name ?? "").trim()) return false;
+    if (!detail.eta) return false;
+    if (detail.net_weight_mt == null || Number(detail.net_weight_mt) <= 0) return false;
+    if (detail.jps_port_id == null) return false;
+    if (!(detail.jps_cargo_type ?? "").trim()) return false;
+    if (!(detail.destination_unload_port_id ?? "").trim()) return false;
+    return true;
+  }, [detail, jettyEligible]);
+
+  async function openJpsPreview() {
+    if (!accessToken || !id) return;
+    setJpsPreviewLoading(true);
+    setJpsPreview(null);
+    setJpsPreviewOpen(true);
+    try {
+      const res = await previewJpsSync(id, accessToken);
+      if (isApiError(res)) {
+        pushToast(res.message, "error");
+        setJpsPreviewOpen(false);
+        return;
+      }
+      setJpsPreview(res.data ?? null);
+    } catch (e) {
+      pushToast(e instanceof Error ? e.message : "Failed to load Jetty preview", "error");
+      setJpsPreviewOpen(false);
+    } finally {
+      setJpsPreviewLoading(false);
+    }
+  }
+
+  async function confirmJpsSync() {
+    if (!accessToken || !id) return;
+    setJpsSyncing(true);
+    try {
+      const res = await syncShipmentToJps(id, accessToken);
+      if (isApiError(res)) {
+        pushToast(res.message, "error");
+        return;
+      }
+      if (res.data) setDetail(res.data);
+      setJpsPreviewOpen(false);
+      pushToast(
+        res.data?.jps_si_id != null
+          ? `Sent to Jetty · status ${res.data.jps_status ?? "Pending"}`
+          : "Jetty sync completed",
+        "success"
+      );
+      load();
+    } catch (e) {
+      pushToast(e instanceof Error ? e.message : "Jetty sync failed", "error");
+    } finally {
+      setJpsSyncing(false);
+    }
+  }
+
   function enterUpdateMode() {
     if (!detail || !canEditShipment) return;
     setEditVendorName(detail.vendor_name ?? "");
@@ -1022,7 +1264,18 @@ export function ShipmentDetail({ id }: { id: string }) {
     setEditNopen(detail.nopen ?? "");
     setEditNopenDate(detail.nopen_date ? detail.nopen_date.slice(0, 10) : "");
     setEditBlAwb(detail.bl_awb ?? "");
+    setEditVesselName(detail.vessel_name ?? "");
+    setEditVoyageNo(detail.voyage_no ?? "");
+    setEditAgentName(detail.agent_name ?? "");
+    setEditDestinationUnloadPortId(detail.destination_unload_port_id ?? "");
+    setEditJpsCargoType(detail.jps_cargo_type ?? "");
     setEditInsuranceNo(detail.insurance_no ?? "");
+    void loadJpsMasters();
+    setEditInsuranceAmount(
+      detail.insurance_amount != null && Number.isFinite(Number(detail.insurance_amount))
+        ? formatPriceInputWithCommas(String(detail.insurance_amount))
+        : ""
+    );
     setEditCoo(detail.coo ?? "");
     setEditOriginPortName(detail.origin_port_name ?? "");
     setEditOriginPortCountry(detail.origin_port_country ?? "");
@@ -1456,6 +1709,8 @@ export function ShipmentDetail({ id }: { id: string }) {
     const key = shipmentDocSlotKey(documentType, status, intakeId);
     setActionError(null);
     setUploadingDocSlotKey(key);
+    const isPibDraft = documentType === "PIB_BC" && status === "DRAFT";
+    if (isPibDraft) setPibOcrBusy(true);
     uploadShipmentDocument(id, file, documentType, status, accessToken, intakeId ?? undefined)
       .then(async (res) => {
         if (isApiError(res)) {
@@ -1469,14 +1724,33 @@ export function ShipmentDetail({ id }: { id: string }) {
         } else if (res.data) {
           setShipmentDocuments((prev) => [res.data!, ...prev]);
         }
-        pushToast("Document uploaded.", "success");
+        if (isPibDraft && res.data) {
+          const warnings = res.data.ocr_warnings ?? [];
+          setPibOcrReview({
+            extracted: res.data.ocr_extracted ?? null,
+            warnings,
+            fileName: res.data.original_file_name,
+            confidence: res.data.ocr_extracted?.confidence ?? (warnings.length ? "medium" : "high"),
+          });
+          pushToast(
+            warnings.length
+              ? `PIB draft uploaded with ${warnings.length} verification warning(s).`
+              : "PIB draft uploaded — OCR matches shipment data.",
+            warnings.length ? "error" : "success"
+          );
+        } else {
+          pushToast("Document uploaded.", "success");
+        }
       })
       .catch((err) => {
         const msg = err instanceof Error ? err.message : "Upload failed";
         setActionError(msg);
         pushToast(msg, "error");
       })
-      .finally(() => setUploadingDocSlotKey(null));
+      .finally(() => {
+        setUploadingDocSlotKey(null);
+        setPibOcrBusy(false);
+      });
   }
 
   function handleShipmentDocumentDownload(doc: ShipmentDocumentListItem) {
@@ -1547,7 +1821,29 @@ export function ShipmentDetail({ id }: { id: string }) {
           <span className={styles.shipmentDocFileMeta}>
             {formatDocumentBytes(doc.size_bytes)} · {formatDate(doc.uploaded_at)} · {display(doc.uploaded_by)}
             {doc.po_number ? ` · PO ${doc.po_number}` : ""}
+            {doc.document_type === "PIB_BC" && doc.status === "DRAFT" && (doc.ocr_warnings?.length ?? 0) > 0
+              ? ` · ${doc.ocr_warnings!.length} OCR warning(s)`
+              : ""}
+            {doc.document_type === "PIB_BC" && doc.status === "DRAFT" && doc.ocr_compared_at && !(doc.ocr_warnings?.length)
+              ? " · OCR verified"
+              : ""}
           </span>
+          {doc.document_type === "PIB_BC" && doc.status === "DRAFT" && (doc.ocr_warnings?.length ?? 0) > 0 && (
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() =>
+                setPibOcrReview({
+                  extracted: doc.ocr_extracted ?? null,
+                  warnings: doc.ocr_warnings ?? [],
+                  fileName: doc.original_file_name,
+                  confidence: doc.ocr_extracted?.confidence ?? "medium",
+                })
+              }
+            >
+              View OCR warnings
+            </Button>
+          )}
         </div>
         <div className={styles.shipmentDocFileActions}>
           {canPreviewShipmentDocument(doc) && (
@@ -1895,7 +2191,11 @@ export function ShipmentDetail({ id }: { id: string }) {
       product_classification: editProductClassification.trim() || detail.product_classification,
       depo: depoVal,
       surveyor: surveyorVal,
-      destination_port_name: editDestinationPortName.trim() || detail.destination_port_name,
+      destination_port_name:
+        (editDestinationUnloadPortId
+          ? unloadPorts.find((p) => p.id === editDestinationUnloadPortId)?.name
+          : null) ||
+        detail.destination_port_name,
       destination_port_country: DESTINATION_PORT_COUNTRY,
       incoterm_amount,
       incoterm_currency: editIncotermCurrency,
@@ -1930,7 +2230,8 @@ export function ShipmentDetail({ id }: { id: string }) {
     editProductClassification,
     editDepo,
     editSurveyor,
-    editDestinationPortName,
+    editDestinationUnloadPortId,
+    unloadPorts,
     editIncotermAmount,
     editIncotermCurrency,
     editAtd,
@@ -2710,7 +3011,15 @@ export function ShipmentDetail({ id }: { id: string }) {
       nopen: editNopen.trim() || undefined,
       nopen_date: editNopenDate.trim() || undefined,
       bl_awb: editBlAwb.trim() || undefined,
+      vessel_name: editVesselName.trim() || undefined,
+      voyage_no: editVoyageNo.trim() || undefined,
+      agent_name: editAgentName.trim() || undefined,
+      jps_cargo_type: editJpsCargoType.trim() || null,
+      destination_unload_port_id: editDestinationUnloadPortId.trim() || null,
       insurance_no: editInsuranceNo.trim() || undefined,
+      insurance_amount: editInsuranceAmount.trim()
+        ? roundTo2Decimals(Number(stripCommaThousands(editInsuranceAmount.trim())))
+        : undefined,
       coo: editCoo.trim() || undefined,
       origin_port_name: hasBiddingStep
         ? biddingLanePort.trim() || undefined
@@ -2720,7 +3029,6 @@ export function ShipmentDetail({ id }: { id: string }) {
         : editOriginPortCountry.trim() || undefined,
       etd: editEtd.trim() || undefined,
       atd: editAtd.trim() || undefined,
-      destination_port_name: editDestinationPortName.trim() || undefined,
       destination_port_country: DESTINATION_PORT_COUNTRY,
       eta: editEta.trim() || undefined,
       ata: editAta.trim() || undefined,
@@ -2775,6 +3083,10 @@ export function ShipmentDetail({ id }: { id: string }) {
       pushToast("Shipment saved.", "success");
       setIsUpdatingShipment(false);
       load();
+      // JPS sync runs async after save; refresh once so status panel can catch up.
+      if ((methodForSave || "").toLowerCase() === "sea") {
+        window.setTimeout(() => load(), 1500);
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to update shipment";
       setActionError(msg);
@@ -3841,6 +4153,23 @@ export function ShipmentDetail({ id }: { id: string }) {
               <span className={styles.fieldValue}>{display(detail.insurance_no)}</span>
             )}
           </div>
+          <div className={styles.field}>
+            <span className={styles.fieldLabel}>Insurance amount</span>
+            {isUpdatingShipment ? (
+              <input
+                type="text"
+                inputMode="decimal"
+                className={styles.input}
+                value={editInsuranceAmount}
+                onChange={(e) => setEditInsuranceAmount(formatPriceInputWithCommas(e.target.value))}
+                placeholder="Asuransi / LDN"
+              />
+            ) : (
+              <span className={styles.fieldValue}>
+                {detail.insurance_amount != null ? formatDecimal(detail.insurance_amount) : "—"}
+              </span>
+            )}
+          </div>
           <div className={statusFieldClass("coo")} data-status-field="coo">
             <span className={styles.fieldLabel}>COO (Certificate of Origin)</span>
             {isUpdatingShipment ? (
@@ -3881,38 +4210,33 @@ export function ShipmentDetail({ id }: { id: string }) {
 
       <Card id="section-on-shipment" className={`${styles.card} ${styles.sectionScrollTarget}`}>
         <h2 className={styles.categoryTitle}>On Shipment</h2>
-        <h3 className={styles.subsectionTitle}>BL / AWB &amp; PPJK/EMKL</h3>
-        <div className={styles.grid}>
-          <div className={statusFieldClass("bl_awb")} data-status-field="bl_awb">
-            <span className={styles.fieldLabel}>BL/AWB</span>
-            {isUpdatingShipment ? (
-              <input type="text" className={styles.input} value={editBlAwb} onChange={(e) => setEditBlAwb(e.target.value)} />
-            ) : (
-              <span className={styles.fieldValue}>{display(detail.bl_awb)}</span>
-            )}
-          </div>
-          <div className={statusFieldClass("ppjk_mkl")} data-status-field="ppjk_mkl">
-            <span className={styles.fieldLabel}>PPJK/EMKL</span>
-            {isUpdatingShipment ? (
-              <input type="text" className={styles.input} value={editPpjkMkl} onChange={(e) => setEditPpjkMkl(e.target.value)} />
-            ) : (
-              <span className={styles.fieldValue}>{display(detail.ppjk_mkl)}</span>
-            )}
-          </div>
-        </div>
         <h3 className={styles.subsectionTitle}>Destination port (port of discharge)</h3>
         <div className={styles.grid}>
           <div className={statusFieldClass("destination_port_name")} data-status-field="destination_port_name">
             <span className={styles.fieldLabel}>Destination port name</span>
             {isUpdatingShipment ? (
-              <input type="text" className={styles.input} value={editDestinationPortName} onChange={(e) => setEditDestinationPortName(e.target.value)} />
+              <ComboboxSelectById
+                aria-label="Destination unload port"
+                className={styles.fieldControl}
+                inputClassName={styles.input}
+                options={unloadPortOptions}
+                value={editDestinationUnloadPortId}
+                onChange={setEditDestinationUnloadPortId}
+                allowEmpty
+                emptyLabel="— Select unload port —"
+                placeholder="Search registered unload ports…"
+                disabled={jpsMastersLoading}
+              />
             ) : (
-              <span className={styles.fieldValue}>{display(detail.destination_port_name)}</span>
+              <span className={styles.fieldValue}>
+                {unloadPortOptions.find((o) => o.id === (detail.destination_unload_port_id ?? ""))
+                  ?.label || display(detail.destination_port_name)}
+              </span>
             )}
           </div>
           <div className={statusFieldClass("destination_port_country")} data-status-field="destination_port_country">
             <span className={styles.fieldLabel}>Destination port country</span>
-            <span className={styles.fieldValue}>{DESTINATION_PORT_COUNTRY}</span>
+            <span className={`${styles.fieldValue} ${styles.fieldValueControl}`}>{DESTINATION_PORT_COUNTRY}</span>
           </div>
           <div className={statusFieldClass("depo")} data-status-field="depo">
             <span className={styles.fieldLabel}>Depo</span>
@@ -3948,6 +4272,229 @@ export function ShipmentDetail({ id }: { id: string }) {
               )}
             </div>
           ) : null}
+        </div>
+
+        {jettyEligible ? (
+          <>
+            <h3 className={styles.subsectionTitle}>Vessel &amp; shipping agent (Jetty)</h3>
+            <div className={styles.grid}>
+              <div className={styles.field}>
+                <span className={styles.fieldLabel}>Vessel name</span>
+                {isUpdatingShipment ? (
+                  <input
+                    type="text"
+                    className={styles.input}
+                    value={editVesselName}
+                    onChange={(e) => setEditVesselName(e.target.value)}
+                    placeholder="Vessel name"
+                    aria-label="Vessel name"
+                  />
+                ) : (
+                  <span className={styles.fieldValue}>{display(detail.vessel_name)}</span>
+                )}
+              </div>
+              <div className={styles.field}>
+                <span className={styles.fieldLabel}>Voyage no. (optional)</span>
+                {isUpdatingShipment ? (
+                  <input
+                    type="text"
+                    className={styles.input}
+                    value={editVoyageNo}
+                    onChange={(e) => setEditVoyageNo(e.target.value)}
+                    placeholder="Voyage number"
+                    aria-label="Voyage number"
+                  />
+                ) : (
+                  <span className={styles.fieldValue}>{display(detail.voyage_no)}</span>
+                )}
+              </div>
+              <div className={styles.field}>
+                <span className={styles.fieldLabel}>Shipping agent</span>
+                {isUpdatingShipment ? (
+                  <input
+                    type="text"
+                    className={styles.input}
+                    value={editAgentName}
+                    onChange={(e) => setEditAgentName(e.target.value)}
+                    placeholder="Shipping agent name"
+                    aria-label="Shipping agent"
+                  />
+                ) : (
+                  <span className={styles.fieldValue}>{display(detail.agent_name)}</span>
+                )}
+              </div>
+            </div>
+
+            <h3 className={styles.subsectionTitle}>Jetty commodity</h3>
+            <p style={{ marginBottom: "0.75rem", opacity: 0.85 }}>
+              Destination unload port is linked to Jetty
+              {selectedUnloadPort?.jps_port_id != null
+                ? ` (${jpsPortLabelForId(selectedUnloadPort.jps_port_id)})`
+                : detail.jps_port_id != null
+                  ? ` (${jpsPortLabelForId(detail.jps_port_id)})`
+                  : ""}
+              . Choose cargo for berth planning.
+              {!jpsMastersLoading && jpsMappedCommodities.length === 0
+                ? " No commodities linked to Jetty yet — ask admin to connect them."
+                : null}
+            </p>
+            <div className={styles.grid}>
+              <div className={styles.field}>
+                <span className={styles.fieldLabel}>Jetty berth port</span>
+                <span className={styles.fieldValue}>
+                  {jpsPortLabelForId(
+                    selectedUnloadPort?.jps_port_id ?? detail.jps_port_id,
+                  ) || "—"}
+                </span>
+              </div>
+              <div className={styles.field}>
+                <span className={styles.fieldLabel}>Cargo for Jetty</span>
+                {isUpdatingShipment ? (
+                  <ComboboxSelect
+                    aria-label="Jetty commodity"
+                    inputClassName={styles.input}
+                    options={jpsCommodityLabelOptions}
+                    value={jpsCommodityLabelForCode(editJpsCargoType)}
+                    onChange={(label) => {
+                      setEditJpsCargoType(jpsCargoCodeFromLabel(label));
+                    }}
+                    allowEmpty
+                    emptyLabel="— Select Jetty commodity —"
+                    placeholder="Type to search commodities…"
+                    disabled={jpsMastersLoading}
+                  />
+                ) : (
+                  <span className={styles.fieldValue}>
+                    {detail.jps_cargo_type
+                      ? jpsCommodityLabelForCode(detail.jps_cargo_type)
+                      : "—"}
+                  </span>
+                )}
+              </div>
+            </div>
+            {!isUpdatingShipment && canEditShipment ? (
+              <div style={{ marginTop: "0.75rem", display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                <Button
+                  type="button"
+                  variant="primary"
+                  disabled={!jpsReadyToSend || jpsPreviewLoading || jpsSyncing}
+                  onClick={() => void openJpsPreview()}
+                >
+                  {detail.jps_si_id != null ? "Review & update Jetty" : "Review & send to Jetty"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={jpsMastersLoading}
+                  onClick={() => void loadJpsMasters(true)}
+                >
+                  Refresh Jetty masters
+                </Button>
+              </div>
+            ) : null}
+            {!jpsReadyToSend && !isUpdatingShipment ? (
+              <p style={{ marginTop: "0.5rem", opacity: 0.8 }}>
+                To send: vessel, agent, ETA, net weight (MT), and Jetty commodity. Save destination
+                first if you just changed it.
+              </p>
+            ) : null}
+
+            <h3 className={styles.subsectionTitle}>Jetty (JPS) sync</h3>
+            <div className={styles.grid}>
+              <div className={styles.field}>
+                <span className={styles.fieldLabel}>JPS status</span>
+                <span className={styles.fieldValue}>
+                  {display(detail.jps_status)}
+                  {detail.jps_sync_dirty ? " · pending resync" : ""}
+                </span>
+              </div>
+              <div className={styles.field}>
+                <span className={styles.fieldLabel}>JPS SI id</span>
+                <span className={styles.fieldValue}>
+                  {detail.jps_si_id != null ? String(detail.jps_si_id) : "—"}
+                </span>
+              </div>
+              <div className={styles.field}>
+                <span className={styles.fieldLabel}>External reference</span>
+                <span className={styles.fieldValue}>{display(detail.jps_external_reference)}</span>
+              </div>
+              <div className={styles.field}>
+                <span className={styles.fieldLabel}>Last sent port / cargo</span>
+                <span className={styles.fieldValue}>
+                  {detail.jps_port_id != null || detail.jps_cargo_type
+                    ? `${jpsPortLabelForId(detail.jps_port_id)} · ${display(detail.jps_cargo_type)}`
+                    : "—"}
+                </span>
+              </div>
+              <div className={styles.field}>
+                <span className={styles.fieldLabel}>Jetty / berth</span>
+                <span className={styles.fieldValue}>{display(detail.jps_jetty_name)}</span>
+              </div>
+              <div className={styles.field}>
+                <span className={styles.fieldLabel}>Planned berthing</span>
+                <span className={styles.fieldValue}>
+                  {detail.jps_planned_berthing_time
+                    ? formatDate(detail.jps_planned_berthing_time)
+                    : "—"}
+                </span>
+              </div>
+              {detail.jps_rejection_reason ? (
+                <div className={`${styles.field} ${styles.fieldAddressFull}`}>
+                  <span className={styles.fieldLabel}>Rejection reason</span>
+                  <span className={`${styles.fieldValue} ${styles.fieldValueMultiline}`}>
+                    {detail.jps_rejection_reason}
+                  </span>
+                </div>
+              ) : null}
+              {detail.jps_last_error ? (
+                <div className={`${styles.field} ${styles.fieldAddressFull}`}>
+                  <span className={styles.fieldLabel}>Last sync error</span>
+                  <span className={`${styles.fieldValue} ${styles.fieldValueMultiline}`}>
+                    {detail.jps_last_error}
+                  </span>
+                </div>
+              ) : null}
+            </div>
+          </>
+        ) : detail.jps_si_id != null ? (
+          <>
+            <h3 className={styles.subsectionTitle}>Jetty (JPS) sync</h3>
+            <p style={{ marginBottom: "0.75rem", opacity: 0.85 }}>
+              Destination is no longer a Jetty-linked unload port. Previous sync history is kept.
+            </p>
+            <div className={styles.grid}>
+              <div className={styles.field}>
+                <span className={styles.fieldLabel}>JPS status</span>
+                <span className={styles.fieldValue}>{display(detail.jps_status)}</span>
+              </div>
+              <div className={styles.field}>
+                <span className={styles.fieldLabel}>JPS SI id</span>
+                <span className={styles.fieldValue}>
+                  {detail.jps_si_id != null ? String(detail.jps_si_id) : "—"}
+                </span>
+              </div>
+            </div>
+          </>
+        ) : null}
+
+        <h3 className={styles.subsectionTitle}>BL / AWB &amp; PPJK/EMKL</h3>
+        <div className={styles.grid}>
+          <div className={statusFieldClass("bl_awb")} data-status-field="bl_awb">
+            <span className={styles.fieldLabel}>BL/AWB</span>
+            {isUpdatingShipment ? (
+              <input type="text" className={styles.input} value={editBlAwb} onChange={(e) => setEditBlAwb(e.target.value)} />
+            ) : (
+              <span className={styles.fieldValue}>{display(detail.bl_awb)}</span>
+            )}
+          </div>
+          <div className={statusFieldClass("ppjk_mkl")} data-status-field="ppjk_mkl">
+            <span className={styles.fieldLabel}>PPJK/EMKL</span>
+            {isUpdatingShipment ? (
+              <input type="text" className={styles.input} value={editPpjkMkl} onChange={(e) => setEditPpjkMkl(e.target.value)} />
+            ) : (
+              <span className={styles.fieldValue}>{display(detail.ppjk_mkl)}</span>
+            )}
+          </div>
         </div>
         <h3 className={styles.subsectionTitle}>ETA (estimated arrival) &amp; ATA (actual arrival)</h3>
         <div className={styles.grid}>
@@ -4844,6 +5391,92 @@ export function ShipmentDetail({ id }: { id: string }) {
       )}
 
       <Modal
+        open={jpsPreviewOpen}
+        title={jpsPreview?.already_submitted ? "Update Jetty instruction" : "Send to Jetty"}
+        onClose={() => {
+          if (!jpsSyncing) setJpsPreviewOpen(false);
+        }}
+        footer={
+          <div className={styles.docPreviewModalFooter}>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={jpsSyncing}
+              onClick={() => setJpsPreviewOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              disabled={jpsPreviewLoading || jpsSyncing || !jpsPreview}
+              onClick={() => void confirmJpsSync()}
+            >
+              {jpsSyncing
+                ? "Sending…"
+                : jpsPreview?.already_submitted
+                  ? "Confirm update"
+                  : "Confirm send"}
+            </Button>
+          </div>
+        }
+      >
+        {jpsPreviewLoading && <p>Building Jetty payload…</p>}
+        {!jpsPreviewLoading && jpsPreview && (
+          <div className={styles.grid}>
+            <div className={styles.field}>
+              <span className={styles.fieldLabel}>External reference</span>
+              <span className={styles.fieldValue}>{jpsPreview.external_reference}</span>
+            </div>
+            <div className={styles.field}>
+              <span className={styles.fieldLabel}>Purpose</span>
+              <span className={styles.fieldValue}>{jpsPreview.purpose}</span>
+            </div>
+            <div className={styles.field}>
+              <span className={styles.fieldLabel}>Vessel</span>
+              <span className={styles.fieldValue}>
+                {jpsPreview.vessel_name}
+                {jpsPreview.voyage_no ? ` · ${jpsPreview.voyage_no}` : ""}
+              </span>
+            </div>
+            <div className={styles.field}>
+              <span className={styles.fieldLabel}>Agent</span>
+              <span className={styles.fieldValue}>{jpsPreview.agent_name}</span>
+            </div>
+            <div className={styles.field}>
+              <span className={styles.fieldLabel}>ETA</span>
+              <span className={styles.fieldValue}>{formatDate(jpsPreview.eta)}</span>
+            </div>
+            <div className={styles.field}>
+              <span className={styles.fieldLabel}>Jetty port</span>
+              <span className={styles.fieldValue}>{jpsPortLabelForId(jpsPreview.port_id)}</span>
+            </div>
+            <div className={styles.field}>
+              <span className={styles.fieldLabel}>Cargo</span>
+              <span className={styles.fieldValue}>
+                {jpsCommodityLabelForCode(jpsPreview.cargo_type)} · {jpsPreview.tonnage}{" "}
+                {jpsPreview.unit}
+              </span>
+            </div>
+            {jpsPreview.contract_no ? (
+              <div className={styles.field}>
+                <span className={styles.fieldLabel}>Contract / PO</span>
+                <span className={styles.fieldValue}>{jpsPreview.contract_no}</span>
+              </div>
+            ) : null}
+            {jpsPreview.already_submitted ? (
+              <div className={`${styles.field} ${styles.fieldAddressFull}`}>
+                <span className={styles.fieldValue}>
+                  Already submitted as SI #{jpsPreview.jps_si_id} ({jpsPreview.jps_status}). Update
+                  is only allowed while Pending.
+                </span>
+              </div>
+            ) : null}
+          </div>
+        )}
+      </Modal>
+
+      <Modal
         open={previewDoc != null}
         title={previewDoc?.original_file_name ?? "Document preview"}
         onClose={closeDocumentPreview}
@@ -5058,6 +5691,93 @@ export function ShipmentDetail({ id }: { id: string }) {
           onClose={closeActivityPanel}
           typeLabel={shipmentActivityTypeLabel}
           visible
+        />
+      )}
+
+      {pibOcrBusy && (
+        <OcrBlockingOverlay
+          title="Reading PIB draft"
+          hint="Extracting fields via OCR and comparing them to shipment data…"
+        />
+      )}
+
+      {pibOcrReview && (
+        <OcrReviewModal
+          open
+          onClose={() => setPibOcrReview(null)}
+          title="PIB draft verification"
+          subtitle={
+            <>
+              Soft check only — upload is kept even when fields differ. File:{" "}
+              <strong>{pibOcrReview.fileName}</strong>
+            </>
+          }
+          confidence={pibOcrReview.confidence}
+          warnings={pibOcrReview.warnings.map((w) => w.message)}
+          fields={(() => {
+            const ex = pibOcrReview.extracted;
+            const fmtN = (n: number | null | undefined) =>
+              n == null || !Number.isFinite(n) ? null : formatDecimal(n);
+            const rows: OcrFieldRow[] = [
+              {
+                label: "Origin port (EOS → PIB)",
+                value: `${display(detail?.origin_port_name ?? detail?.origin_port_code)} → ${display(
+                  ex?.origin_port_name ?? ex?.origin_port_code
+                )}`,
+              },
+              {
+                label: "Destination port (EOS → PIB)",
+                value: `${display(detail?.destination_port_name ?? detail?.destination_port_code)} → ${display(
+                  ex?.destination_port_name ?? ex?.destination_port_code
+                )}`,
+              },
+              {
+                label: "PIB Doc No (EOS → PIB)",
+                value: `${display(detail?.no_request_pib)} → ${display(ex?.no_request_pib)}`,
+              },
+              {
+                label: "BL/AWB (EOS → PIB)",
+                value: `${display(detail?.bl_awb)} → ${display(ex?.bl_awb)}`,
+              },
+              {
+                label: "Freight (EOS → PIB)",
+                value: `${fmtN(detail?.incoterm_amount) ?? "—"} → ${fmtN(ex?.freight) ?? "—"}`,
+              },
+              {
+                label: "Insurance amount (EOS → PIB)",
+                value: `${fmtN(detail?.insurance_amount) ?? "—"} → ${fmtN(ex?.insurance_amount) ?? "—"}`,
+              },
+              {
+                label: "Net weight MT (EOS → PIB kg÷1000)",
+                value: `${fmtN(detail?.net_weight_mt) ?? "—"} → ${
+                  ex?.net_weight_kg != null ? fmtN(ex.net_weight_kg / 1000) : "—"
+                }`,
+              },
+              {
+                label: "Gross weight MT (EOS → PIB kg÷1000)",
+                value: `${fmtN(detail?.gross_weight_mt) ?? "—"} → ${
+                  ex?.gross_weight_kg != null ? fmtN(ex.gross_weight_kg / 1000) : "—"
+                }`,
+              },
+              {
+                label: "Invoice (PIB)",
+                value: display(ex?.invoice_no),
+              },
+              {
+                label: "NDPBM / currency rate (PIB)",
+                value: fmtN(ex?.currency_rate),
+              },
+              {
+                label: "BM / PPN / PPH (EOS → PIB)",
+                value: `${fmtN(detail?.bm) ?? "—"} / ${fmtN(detail?.ppn) ?? "—"} / ${fmtN(detail?.pph) ?? "—"} → ${
+                  fmtN(ex?.bm_total) ?? "—"
+                } / ${fmtN(ex?.ppn_total) ?? "—"} / ${fmtN(ex?.pph_total) ?? "—"}`,
+              },
+            ];
+            return rows;
+          })()}
+          onApply={() => setPibOcrReview(null)}
+          applyLabel="Keep draft"
         />
       )}
     </section>

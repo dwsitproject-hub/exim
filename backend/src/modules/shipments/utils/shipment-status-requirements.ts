@@ -77,7 +77,7 @@ const STATUS_DOC_LABELS: Record<string, string> = {
   "doc:commercial_invoice": "Commercial Invoice (Documents)",
   "doc:packing_list": "Packing List (Documents)",
   "doc:bl": "Bill of Lading (Documents)",
-  "doc:pib_bc": "PIB / BC (Documents)",
+  "doc:pib_bc": "PIB / BC Final (Documents)",
   "doc:sppb": "SPPB (Documents)",
   "doc:sppbmcp": "SPPBMCP (Documents)",
   "doc:vo": "VO (Documents — required at Ready Pickup when Surveyor is Yes)",
@@ -401,7 +401,10 @@ function hasBlDoc(docs: DocumentRowForValidation[]): boolean {
 }
 
 function hasPibBcDoc(docs: DocumentRowForValidation[]): boolean {
-  return docs.some((d) => d.document_type === "PIB_BC");
+  // FINAL is required for new uploads; null status = legacy pre-draft/final PIB still counts.
+  return docs.some(
+    (d) => d.document_type === "PIB_BC" && (d.status === "FINAL" || d.status == null)
+  );
 }
 
 function hasSppbDoc(docs: DocumentRowForValidation[]): boolean {

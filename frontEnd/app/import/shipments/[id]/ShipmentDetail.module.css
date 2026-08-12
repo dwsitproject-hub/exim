@@ -417,6 +417,20 @@
   word-break: break-word;
 }
 
+/* Align static values with adjacent .input controls (same top offset / control height). */
+.fieldValueControl {
+  margin-top: var(--spacing-2, 8px);
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+}
+
+.fieldControl {
+  width: 100%;
+  min-width: 0;
+}
+
 .fieldHint {
   display: block;
   font-size: var(--typography-fontSize-small, 12px);

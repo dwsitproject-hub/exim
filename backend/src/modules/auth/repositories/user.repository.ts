@@ -1,6 +1,6 @@
 /**
  * User repository: database access only. No business logic.
- * Table: users (id, email, password_hash, name, role, is_active, email_verified_at, permission_overrides, …).
+ * Table: users (id, email, password_hash, name, role, is_active, email_verified_at, oidc_sub, permission_overrides, …).
  */
 
 import type { Pool } from "pg";
@@ -36,7 +36,7 @@ export interface UpdateUserAdminInput {
 
 export class UserRepository {
   private static readonly USER_COLUMNS = `id, email, password_hash, name, role, is_active, email_verified_at,
-              COALESCE(permission_overrides, '{}') AS permission_overrides, must_change_password,
+              oidc_sub, COALESCE(permission_overrides, '{}') AS permission_overrides, must_change_password,
               created_at, updated_at`;
 
   private get pool(): Pool {
@@ -46,7 +46,9 @@ export class UserRepository {
   private mapRow(r: UserRow): UserRow {
     return {
       ...r,
+      oidc_sub: r.oidc_sub ?? null,
       permission_overrides: Array.isArray(r.permission_overrides) ? r.permission_overrides : [],
+      must_change_password: Boolean(r.must_change_password),
     };
   }
 
@@ -90,6 +92,25 @@ export class UserRepository {
     );
     const row = result.rows[0];
     return row ? this.mapRow(row) : null;
+  }
+
+  /** Lookup by Hub OIDC subject (any status). */
+  async findByOidcSubAny(oidcSub: string): Promise<UserRow | null> {
+    const result = await this.pool.query<UserRow>(
+      `SELECT ${UserRepository.USER_COLUMNS}
+       FROM users WHERE oidc_sub = $1 LIMIT 1`,
+      [oidcSub]
+    );
+    const row = result.rows[0];
+    return row ? this.mapRow(row) : null;
+  }
+
+  /** Persist Hub subject after first successful SSO link by email. */
+  async linkOidcSub(userId: string, oidcSub: string): Promise<void> {
+    await this.pool.query(
+      `UPDATE users SET oidc_sub = $1, updated_at = NOW() WHERE id = $2`,
+      [oidcSub, userId]
+    );
   }
 
   async create(input: CreateUserInput): Promise<UserRow> {

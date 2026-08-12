@@ -44,7 +44,9 @@ export interface SeaLogisticsBreakdown {
    * One entry per FCL container type that has count > 0 in the result set.
    * Derived from FCL_CONTAINER_REGISTRY — add a new row there to support new types.
    */
-  fcl_containers: { slug: string; label: string; count: number }[];
+  fcl_containers: { slug: string; label: string; count: number; shipment_count: number }[];
+  /** Total delivered bulk (BULK) sea shipments in the filtered set. */
+  bulk_shipment_count: number;
 }
 
 export interface ShipmentAnalyticsSummary {
@@ -389,7 +391,7 @@ export class ShipmentAnalyticsRepository {
       )
     `;
 
-    const [totalRes, unclassRes, plantRes, classRes, logRes, seaByRes, lclSumRes, lclCbmSumRes, fclSumRes, vendorsRes] =
+    const [totalRes, unclassRes, plantRes, classRes, logRes, seaByRes, lclSumRes, lclCbmSumRes, fclSumRes, bulkCountRes, vendorsRes] =
       await Promise.all([
         this.pool.query<{ c: string }>(`${baseCte} SELECT COUNT(*)::text AS c FROM base`, params),
         this.pool.query<{ c: string }>(
@@ -452,10 +454,19 @@ export class ShipmentAnalyticsRepository {
         this.pool.query<Record<string, string>>(
           `${baseCte}
         SELECT
-          ${FCL_CONTAINER_REGISTRY.map((t) => `COALESCE(SUM(${t.column}), 0)::text AS "${t.slug}"`).join(",\n          ")}
+          ${FCL_CONTAINER_REGISTRY.map((t) => `COALESCE(SUM(${t.column}), 0)::text AS "${t.slug}"`).join(",\n          ")},
+          ${FCL_CONTAINER_REGISTRY.map((t) => `COUNT(*) FILTER (WHERE COALESCE(${t.column}, 0) > 0)::text AS "${t.slug}_shipments"`).join(",\n          ")}
         FROM base
         WHERE UPPER(TRIM(COALESCE(shipment_method, ''))) = 'SEA'
           AND UPPER(TRIM(COALESCE(ship_by, ''))) = 'FCL'`,
+          params
+        ),
+        this.pool.query<{ c: string }>(
+          `${baseCte}
+        SELECT COUNT(*)::text AS c
+        FROM base
+        WHERE UPPER(TRIM(COALESCE(shipment_method, ''))) = 'SEA'
+          AND UPPER(TRIM(COALESCE(ship_by, ''))) = 'BULK'`,
           params
         ),
         this.pool.query<{ v: string }>(
@@ -474,8 +485,15 @@ export class ShipmentAnalyticsRepository {
     const log = logRes.rows[0];
     const fclRow = fclSumRes.rows[0] ?? {};
     const fclContainers = FCL_CONTAINER_REGISTRY
-      .map((t) => ({ slug: t.slug, label: t.label, count: parseInt(fclRow[t.slug] ?? "0", 10) }))
+      .map((t) => ({
+        slug: t.slug,
+        label: t.label,
+        count: parseInt(fclRow[t.slug] ?? "0", 10),
+        shipment_count: parseInt(fclRow[`${t.slug}_shipments`] ?? "0", 10),
+      }))
       .filter((t) => t.count > 0);
+
+    const bulkShipmentCount = parseInt(bulkCountRes.rows[0]?.c ?? "0", 10);
 
     return {
       total_shipments: parseInt(totalRes.rows[0]?.c ?? "0", 10),
@@ -494,6 +512,7 @@ export class ShipmentAnalyticsRepository {
         lcl_package_count_total: parseInt(lclSumRes.rows[0]?.s ?? "0", 10),
         lcl_cbm_total: parseFloat(lclCbmSumRes.rows[0]?.s ?? "0"),
         fcl_containers: fclContainers,
+        bulk_shipment_count: bulkShipmentCount,
       },
       vendor_options: vendorsRes.rows.map((r) => r.v).filter(Boolean),
     };

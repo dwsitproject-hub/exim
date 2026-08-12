@@ -13,6 +13,8 @@ export type DateRangeFieldProps = {
   placeholder?: string;
   disabled?: boolean;
   className?: string;
+  /** Compact trigger for toolbars / dense filters. */
+  size?: "default" | "compact";
 };
 
 const WEEKDAYS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"] as const;
@@ -30,10 +32,19 @@ function parseIsoDate(iso: string): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+/** Trigger label: `01 Aug 2026`. */
 function formatDisplayDate(iso: string): string {
   const d = parseIsoDate(iso);
   if (!d) return "";
-  return d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+/** Popover summary: `Sat, 01 Aug 2026`. */
+function formatSummaryDate(iso: string): string {
+  const d = parseIsoDate(iso);
+  if (!d) return "—";
+  const weekday = d.toLocaleDateString("en-GB", { weekday: "short" });
+  return `${weekday}, ${formatDisplayDate(iso)}`;
 }
 
 function formatRangeLabel(from: string, to: string, placeholder: string): string {
@@ -57,6 +68,82 @@ function getMonthGrid(year: number, month: number): (Date | null)[] {
   return cells;
 }
 
+function MonthCalendar({
+  year,
+  month,
+  rangeStart,
+  rangeEnd,
+  draftFrom,
+  draftTo,
+  onDayClick,
+  onHover,
+}: {
+  year: number;
+  month: number;
+  rangeStart: string;
+  rangeEnd: string;
+  draftFrom: string;
+  draftTo: string;
+  onDayClick: (day: Date) => void;
+  onHover: (iso: string | null) => void;
+}) {
+  const grid = useMemo(() => getMonthGrid(year, month), [year, month]);
+  const monthLabel = useMemo(
+    () => new Date(year, month, 1).toLocaleDateString("en-GB", { month: "long", year: "numeric" }),
+    [year, month]
+  );
+  const todayIso = toIsoDate(new Date());
+
+  function dayInRange(iso: string): boolean {
+    if (!rangeStart || !rangeEnd) return false;
+    return compareIso(iso, rangeStart) >= 0 && compareIso(iso, rangeEnd) <= 0;
+  }
+
+  return (
+    <div className={styles.monthPane}>
+      <div className={styles.monthPaneTitle}>{monthLabel}</div>
+      <div className={styles.weekdayRow}>
+        {WEEKDAYS.map((d) => (
+          <span key={d} className={d === "Su" ? `${styles.weekday} ${styles.weekdaySunday}` : styles.weekday}>
+            {d}
+          </span>
+        ))}
+      </div>
+      <div className={styles.dayGrid}>
+        {grid.map((day, idx) => {
+          if (!day) return <span key={`empty-${year}-${month}-${idx}`} className={styles.dayEmpty} aria-hidden />;
+          const iso = toIsoDate(day);
+          const isStart = iso === rangeStart;
+          const isEnd = iso === rangeEnd;
+          const inRange = dayInRange(iso);
+          const isToday = iso === todayIso;
+
+          return (
+            <button
+              key={iso}
+              type="button"
+              className={[
+                styles.dayBtn,
+                inRange ? styles.dayInRange : "",
+                isStart ? styles.dayStart : "",
+                isEnd ? styles.dayEnd : "",
+                isToday ? styles.dayToday : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              onMouseEnter={() => draftFrom && !draftTo && onHover(iso)}
+              onMouseLeave={() => onHover(null)}
+              onClick={() => onDayClick(day)}
+            >
+              {day.getDate()}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function DateRangeField({
   id: idProp,
   label,
@@ -66,6 +153,7 @@ export function DateRangeField({
   placeholder = "Select date range…",
   disabled = false,
   className,
+  size = "default",
 }: DateRangeFieldProps) {
   const reactId = useId().replace(/:/g, "");
   const fieldId = idProp ?? `daterange-${reactId}`;
@@ -114,23 +202,19 @@ export function DateRangeField({
     };
   }, [open]);
 
-  const monthLabel = useMemo(
-    () => new Date(viewYear, viewMonth, 1).toLocaleDateString("en-GB", { month: "long", year: "numeric" }),
-    [viewYear, viewMonth],
-  );
+  const nextMonthDate = useMemo(() => new Date(viewYear, viewMonth + 1, 1), [viewYear, viewMonth]);
 
-  const grid = useMemo(() => getMonthGrid(viewYear, viewMonth), [viewYear, viewMonth]);
+  const rangeEndPreview =
+    draftFrom && !draftTo && hoverIso && compareIso(hoverIso, draftFrom) >= 0 ? hoverIso : draftTo;
 
-  const rangeEndPreview = draftFrom && !draftTo && hoverIso && compareIso(hoverIso, draftFrom) >= 0
-    ? hoverIso
-    : draftTo;
-
-  const rangeStart = draftFrom && rangeEndPreview && compareIso(rangeEndPreview, draftFrom) < 0
-    ? rangeEndPreview
-    : draftFrom;
-  const rangeEnd = draftFrom && rangeEndPreview && compareIso(rangeEndPreview, draftFrom) < 0
-    ? draftFrom
-    : rangeEndPreview;
+  const rangeStart =
+    draftFrom && rangeEndPreview && compareIso(rangeEndPreview, draftFrom) < 0
+      ? rangeEndPreview
+      : draftFrom;
+  const rangeEnd =
+    draftFrom && rangeEndPreview && compareIso(rangeEndPreview, draftFrom) < 0
+      ? draftFrom
+      : rangeEndPreview;
 
   const applyRange = useCallback(
     (nextFrom: string, nextTo: string) => {
@@ -139,7 +223,7 @@ export function DateRangeField({
       onChange(nextFrom, nextTo);
       if (nextFrom && nextTo) setOpen(false);
     },
-    [onChange],
+    [onChange]
   );
 
   function handleDayClick(day: Date) {
@@ -161,16 +245,12 @@ export function DateRangeField({
     setViewMonth(d.getMonth());
   }
 
-  function dayInRange(iso: string): boolean {
-    if (!rangeStart || !rangeEnd) return false;
-    return compareIso(iso, rangeStart) >= 0 && compareIso(iso, rangeEnd) <= 0;
-  }
-
   const displayText = formatRangeLabel(from, to, placeholder);
-  const hasValue = Boolean(from && to);
+  const hasValue = Boolean(from || to);
+  const sizeClass = size === "compact" ? styles.sizeCompact : "";
 
   return (
-    <div className={`${styles.wrap} ${className ?? ""}`} ref={wrapRef}>
+    <div className={`${styles.wrap} ${sizeClass} ${className ?? ""}`.trim()} ref={wrapRef}>
       {label ? (
         <label className={styles.label} htmlFor={fieldId}>
           {label}
@@ -186,67 +266,69 @@ export function DateRangeField({
         aria-controls={popoverId}
         onClick={() => !disabled && setOpen((p) => !p)}
       >
-        <Calendar size={18} strokeWidth={2} className={styles.triggerIcon} aria-hidden />
+        <Calendar size={size === "compact" ? 16 : 18} strokeWidth={2} className={styles.triggerIcon} aria-hidden />
         <span className={hasValue ? styles.triggerText : styles.triggerPlaceholder}>{displayText}</span>
       </button>
 
       {open && (
         <div id={popoverId} className={styles.popover} role="dialog" aria-label={label ?? "Date range"}>
+          <div className={styles.popoverTitle}>Date Range</div>
+
+          <div className={styles.summaryBox}>
+            <div className={styles.summaryCol}>
+              <span className={styles.summaryLabel}>Start date</span>
+              <span className={styles.summaryValue}>{draftFrom ? formatSummaryDate(draftFrom) : "—"}</span>
+            </div>
+            <div className={styles.summaryCol}>
+              <span className={styles.summaryLabel}>End date</span>
+              <span className={styles.summaryValue}>
+                {draftTo ? formatSummaryDate(draftTo) : draftFrom && hoverIso ? formatSummaryDate(hoverIso) : "—"}
+              </span>
+            </div>
+          </div>
+
           <div className={styles.popoverHeader}>
             <button type="button" className={styles.navBtn} onClick={() => shiftMonth(-1)} aria-label="Previous month">
               <ChevronLeft size={18} />
             </button>
-            <span className={styles.monthLabel}>{monthLabel}</span>
+            <span className={styles.monthLabel}>
+              {new Date(viewYear, viewMonth, 1).toLocaleDateString("en-GB", { month: "short", year: "numeric" })}
+              {" – "}
+              {nextMonthDate.toLocaleDateString("en-GB", { month: "short", year: "numeric" })}
+            </span>
             <button type="button" className={styles.navBtn} onClick={() => shiftMonth(1)} aria-label="Next month">
               <ChevronRight size={18} />
             </button>
           </div>
 
-          <div className={styles.weekdayRow}>
-            {WEEKDAYS.map((d) => (
-              <span key={d} className={styles.weekday}>
-                {d}
-              </span>
-            ))}
-          </div>
-
-          <div className={styles.dayGrid}>
-            {grid.map((day, idx) => {
-              if (!day) return <span key={`empty-${idx}`} className={styles.dayEmpty} aria-hidden />;
-              const iso = toIsoDate(day);
-              const isStart = iso === rangeStart;
-              const isEnd = iso === rangeEnd;
-              const inRange = dayInRange(iso);
-              const isToday = iso === toIsoDate(new Date());
-
-              return (
-                <button
-                  key={iso}
-                  type="button"
-                  className={[
-                    styles.dayBtn,
-                    inRange ? styles.dayInRange : "",
-                    isStart ? styles.dayStart : "",
-                    isEnd ? styles.dayEnd : "",
-                    isToday ? styles.dayToday : "",
-                  ].filter(Boolean).join(" ")}
-                  onMouseEnter={() => draftFrom && !draftTo && setHoverIso(iso)}
-                  onMouseLeave={() => setHoverIso(null)}
-                  onClick={() => handleDayClick(day)}
-                >
-                  {day.getDate()}
-                </button>
-              );
-            })}
+          <div className={styles.monthsRow}>
+            <MonthCalendar
+              year={viewYear}
+              month={viewMonth}
+              rangeStart={rangeStart}
+              rangeEnd={rangeEnd}
+              draftFrom={draftFrom}
+              draftTo={draftTo}
+              onDayClick={handleDayClick}
+              onHover={setHoverIso}
+            />
+            <MonthCalendar
+              year={nextMonthDate.getFullYear()}
+              month={nextMonthDate.getMonth()}
+              rangeStart={rangeStart}
+              rangeEnd={rangeEnd}
+              draftFrom={draftFrom}
+              draftTo={draftTo}
+              onDayClick={handleDayClick}
+              onHover={setHoverIso}
+            />
           </div>
 
           <p className={styles.hint}>
-            {!draftFrom || draftTo
-              ? "Click a start date, then an end date."
-              : "Now click the end date."}
+            Click a start date, then click an end date. No separate end-date field needed.
           </p>
 
-          {(draftFrom || draftTo) && (
+          {(draftFrom || draftTo || from || to) && (
             <div className={styles.popoverActions}>
               <button
                 type="button"

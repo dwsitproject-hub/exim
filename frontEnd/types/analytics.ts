@@ -22,6 +22,8 @@ export interface FclContainerEntry {
   label: string;
   /** Total container count across all delivered FCL shipments in the date range. */
   count: number;
+  /** Number of FCL shipments that include at least one of this container type. */
+  shipment_count: number;
 }
 
 export interface SeaLogisticsBreakdown {
@@ -34,6 +36,8 @@ export interface SeaLogisticsBreakdown {
    * Derived from the backend FCL_CONTAINER_REGISTRY — no frontend hardcoding required.
    */
   fcl_containers: FclContainerEntry[];
+  /** Total delivered bulk sea shipments in the filtered set. */
+  bulk_shipment_count: number;
 }
 
 export interface ShipmentAnalyticsSummary {

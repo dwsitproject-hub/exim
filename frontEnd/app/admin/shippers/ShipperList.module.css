@@ -33,6 +33,10 @@
   gap: var(--spacing-4, 24px);
 }
 
+.plantsPanel {
+  grid-column: 1 / -1;
+}
+
 .addBtn {
   display: inline-flex;
   align-items: center;
@@ -205,6 +209,83 @@
 
 .lpItem:last-child {
   border-bottom: none;
+}
+
+.lpItemMapped {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: var(--spacing-2, 8px) var(--spacing-3, 16px);
+  font-size: var(--typography-fontSize-small, 14px);
+  border-bottom: 1px solid var(--color-primitive-border-light, #e0e0e0);
+}
+
+.lpItemMapped:last-child {
+  border-bottom: none;
+}
+
+.lpMappedRow {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2, 8px);
+}
+
+.lpJpsRow {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lpJpsLabel {
+  font-size: 12px;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+}
+
+.lpJpsSelect {
+  width: 100%;
+}
+
+.lpHint {
+  margin: 0 0 var(--spacing-2, 8px);
+  font-size: var(--typography-fontSize-small, 14px);
+  color: var(--color-primitive-text-steel, #6b6b6b);
+}
+
+.plantBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: var(--spacing-3, 16px);
+  border-bottom: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  background-color: var(--color-primitive-background-white, #ffffff);
+}
+
+.plantBlock:last-child {
+  border-bottom: none;
+}
+
+.unloadList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  border-radius: var(--borderRadius-md, 8px);
+  overflow: hidden;
+  background: var(--color-primitive-background-lighter, #fafafa);
+}
+
+.unloadEmpty {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  font-style: italic;
+}
+
+.addUnloadRow {
+  display: flex;
+  gap: var(--spacing-2, 8px);
+  align-items: center;
 }
 
 .lpName {

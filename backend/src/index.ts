@@ -13,6 +13,10 @@ import {
   startShipmentEtaReminderJob,
   stopShipmentEtaReminderJob,
 } from "./integration/jobs/shipment-eta-reminder-job.js";
+import {
+  startJpsStatusPollerJob,
+  stopJpsStatusPollerJob,
+} from "./integration/jobs/jps-status-poller-job.js";
 
 let stopCoupaStagingIntegrationFn: (() => void) | null = null;
 
@@ -35,6 +39,12 @@ async function main(): Promise<void> {
 
   if (config.etaReminder.enabled) {
     startShipmentEtaReminderJob(config.etaReminder.runHourJakarta, config.etaReminder.runMinuteJakarta);
+  }
+
+  if (config.jps.enabled) {
+    const { warmJpsMasterCache } = await import("./integration/jps/index.js");
+    warmJpsMasterCache();
+    startJpsStatusPollerJob(config.jps.pollIntervalMs);
   }
 
   if (config.coupa.enabled) {
@@ -92,6 +102,7 @@ process.on("SIGTERM", async () => {
   const { stopPoPolling } = await import("./integration/saaS/index.js");
   stopPoPolling();
   stopShipmentEtaReminderJob();
+  stopJpsStatusPollerJob();
   stopCoupaStagingIntegrationFn?.();
   await closeDb();
   process.exit(0);

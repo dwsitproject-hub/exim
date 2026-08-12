@@ -9,23 +9,51 @@ import { AuthShell, authBackLinkClassName, authForgotLinkWrapClassName } from "@
 import { Alert } from "@/components/feedback";
 import { DEFAULT_AFTER_LOGIN_PATH, CHANGE_PASSWORD_PATH } from "@/lib/constants";
 import { useToast } from "@/components/providers/ToastProvider";
+import { getOidcStatus, oidcLoginUrl } from "@/services/auth-service";
 import styles from "./LoginForm.module.css";
 
 export function LoginForm() {
   const searchParams = useSearchParams();
   const from = searchParams.get("from") ?? DEFAULT_AFTER_LOGIN_PATH;
+  const ssoError = searchParams.get("sso_error");
   const { user, initialized, login, loading } = useAuth();
   const { pushToast } = useToast();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [oidcEnabled, setOidcEnabled] = useState(false);
 
   useEffect(() => {
     if (initialized && user) {
       window.location.replace(user.must_change_password ? CHANGE_PASSWORD_PATH : from);
     }
   }, [initialized, user, from]);
+
+  useEffect(() => {
+    if (ssoError) {
+      setError(ssoError);
+      pushToast(ssoError, "error");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- surface once on mount / param change
+  }, [ssoError]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await getOidcStatus();
+        if (!cancelled && res.success && res.data?.enabled) {
+          setOidcEnabled(true);
+        }
+      } catch {
+        /* SSO button stays hidden if status unavailable */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -48,6 +76,10 @@ export function LoginForm() {
       for (const { field, message } of result.errors) byField[field] = message;
       setFieldErrors(byField);
     }
+  }
+
+  function handleOidcLogin() {
+    window.location.href = oidcLoginUrl();
   }
 
   return (
@@ -82,6 +114,16 @@ export function LoginForm() {
           {loading ? "Signing in…" : "Sign in"}
         </Button>
       </form>
+      {oidcEnabled && (
+        <div className={styles.ssoBlock}>
+          <div className={styles.ssoDivider} role="separator">
+            <span>or</span>
+          </div>
+          <Button type="button" variant="outline" fullWidth onClick={handleOidcLogin}>
+            Sign in with DWS Hub
+          </Button>
+        </div>
+      )}
     </AuthShell>
   );
 }

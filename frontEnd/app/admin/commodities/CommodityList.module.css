@@ -21,6 +21,22 @@
   letter-spacing: -0.02em;
 }
 
+.pageSubtitle {
+  margin: 4px 0 0;
+  font-size: var(--typography-fontSize-small, 14px);
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  max-width: 40rem;
+}
+
+.jpsCell {
+  min-width: 220px;
+  max-width: 320px;
+}
+
+.jpsSelect {
+  width: 100%;
+}
+
 .addBtn {
   display: inline-flex;
   align-items: center;

@@ -3,12 +3,15 @@ import { getPool } from "../../../db/index.js";
 import type {
   ShipperRow,
   ShipperPlantRow,
+  ShipperPlantUnloadPortRow,
   ShipperLoadportRow,
   ShipperMasterRow,
   CreateShipperDto,
   UpdateShipperDto,
   CreateShipperPlantDto,
   UpdateShipperPlantDto,
+  CreateShipperPlantUnloadPortDto,
+  UpdateShipperPlantUnloadPortDto,
   CreateShipperLoadportDto,
   UpdateShipperLoadportDto,
   ListShippersQuery,
@@ -19,7 +22,8 @@ const SHIPPER_COLS = `id, entity_name, short_name, name,
   document_header_file_name, document_header_mime_type,
   npwp, created_at, updated_at`;
 const PLANT_COLS = "id, shipper_id, name, created_at, updated_at";
-const LP_COLS = "id, shipper_id, name, created_at, updated_at";
+const UNLOAD_PORT_COLS = "id, plant_id, name, jps_port_id, created_at, updated_at";
+const LP_COLS = "id, shipper_id, name, jps_port_id, created_at, updated_at";
 
 export class ShipperRepository {
   private get pool(): Pool {
@@ -192,10 +196,192 @@ export class ShipperRepository {
   }
 
   async softDeletePlant(id: string): Promise<ShipperPlantRow | null> {
+    await this.pool.query(
+      `UPDATE shipper_plant_unload_ports SET deleted_at = NOW(), updated_at = NOW()
+       WHERE plant_id = $1 AND deleted_at IS NULL`,
+      [id],
+    );
     const result = await this.pool.query<ShipperPlantRow>(
       `UPDATE shipper_plants SET deleted_at = NOW(), updated_at = NOW()
        WHERE id = $1 AND deleted_at IS NULL
        RETURNING ${PLANT_COLS}`,
+      [id],
+    );
+    return result.rows[0] ?? null;
+  }
+
+  /* ───────── plant unload ports (import) ───────── */
+
+  async listUnloadPortsByPlant(plantId: string): Promise<ShipperPlantUnloadPortRow[]> {
+    const result = await this.pool.query<ShipperPlantUnloadPortRow>(
+      `SELECT ${UNLOAD_PORT_COLS} FROM shipper_plant_unload_ports
+       WHERE plant_id = $1 AND deleted_at IS NULL
+       ORDER BY LOWER(name) ASC`,
+      [plantId],
+    );
+    return result.rows;
+  }
+
+  async findUnloadPortByName(
+    plantId: string,
+    name: string,
+  ): Promise<ShipperPlantUnloadPortRow | null> {
+    const result = await this.pool.query<ShipperPlantUnloadPortRow>(
+      `SELECT ${UNLOAD_PORT_COLS} FROM shipper_plant_unload_ports
+       WHERE plant_id = $1 AND LOWER(TRIM(name)) = LOWER(TRIM($2)) AND deleted_at IS NULL`,
+      [plantId, name],
+    );
+    return result.rows[0] ?? null;
+  }
+
+  async getPlantById(plantId: string): Promise<ShipperPlantRow | null> {
+    const result = await this.pool.query<ShipperPlantRow>(
+      `SELECT ${PLANT_COLS} FROM shipper_plants
+       WHERE id = $1 AND deleted_at IS NULL`,
+      [plantId],
+    );
+    return result.rows[0] ?? null;
+  }
+
+  async createUnloadPort(
+    plantId: string,
+    dto: CreateShipperPlantUnloadPortDto,
+  ): Promise<ShipperPlantUnloadPortRow> {
+    const result = await this.pool.query<ShipperPlantUnloadPortRow>(
+      `INSERT INTO shipper_plant_unload_ports (plant_id, name, jps_port_id, created_at, updated_at)
+       VALUES ($1, TRIM($2), $3, NOW(), NOW())
+       RETURNING ${UNLOAD_PORT_COLS}`,
+      [plantId, dto.name, dto.jps_port_id ?? null],
+    );
+    if (!result.rows[0]) throw new Error("ShipperRepository.createUnloadPort: no row returned");
+    return result.rows[0];
+  }
+
+  async updateUnloadPort(
+    id: string,
+    dto: UpdateShipperPlantUnloadPortDto,
+  ): Promise<ShipperPlantUnloadPortRow | null> {
+    const updates: string[] = ["updated_at = NOW()"];
+    const params: unknown[] = [];
+    let idx = 1;
+    if (dto.name !== undefined) {
+      updates.push(`name = TRIM($${idx++})`);
+      params.push(dto.name);
+    }
+    if (dto.jps_port_id !== undefined) {
+      updates.push(`jps_port_id = $${idx++}`);
+      params.push(dto.jps_port_id);
+    }
+    if (params.length === 0) {
+      const existing = await this.pool.query<ShipperPlantUnloadPortRow>(
+        `SELECT ${UNLOAD_PORT_COLS} FROM shipper_plant_unload_ports WHERE id = $1 AND deleted_at IS NULL`,
+        [id],
+      );
+      return existing.rows[0] ?? null;
+    }
+    params.push(id);
+    const result = await this.pool.query<ShipperPlantUnloadPortRow>(
+      `UPDATE shipper_plant_unload_ports SET ${updates.join(", ")}
+       WHERE id = $${idx} AND deleted_at IS NULL
+       RETURNING ${UNLOAD_PORT_COLS}`,
+      params,
+    );
+    return result.rows[0] ?? null;
+  }
+
+  async listAllUnloadPorts(): Promise<
+    Array<{
+      id: string;
+      plant_id: string;
+      plant_name: string;
+      shipper_id: string;
+      shipper_short_name: string;
+      name: string;
+      jps_port_id: number | null;
+    }>
+  > {
+    const result = await this.pool.query<{
+      id: string;
+      plant_id: string;
+      plant_name: string;
+      shipper_id: string;
+      shipper_short_name: string;
+      name: string;
+      jps_port_id: number | null;
+    }>(
+      `SELECT up.id,
+              up.plant_id,
+              p.name AS plant_name,
+              p.shipper_id,
+              s.short_name AS shipper_short_name,
+              up.name,
+              up.jps_port_id
+       FROM shipper_plant_unload_ports up
+       JOIN shipper_plants p ON p.id = up.plant_id AND p.deleted_at IS NULL
+       JOIN master_shippers s ON s.id = p.shipper_id AND s.deleted_at IS NULL
+       WHERE up.deleted_at IS NULL
+       ORDER BY LOWER(s.short_name) ASC, LOWER(p.name) ASC, LOWER(up.name) ASC`,
+    );
+    return result.rows;
+  }
+
+  async getUnloadPortListRowById(id: string): Promise<{
+    id: string;
+    plant_id: string;
+    plant_name: string;
+    shipper_id: string;
+    shipper_short_name: string;
+    name: string;
+    jps_port_id: number | null;
+  } | null> {
+    const result = await this.pool.query<{
+      id: string;
+      plant_id: string;
+      plant_name: string;
+      shipper_id: string;
+      shipper_short_name: string;
+      name: string;
+      jps_port_id: number | null;
+    }>(
+      `SELECT up.id,
+              up.plant_id,
+              p.name AS plant_name,
+              p.shipper_id,
+              s.short_name AS shipper_short_name,
+              up.name,
+              up.jps_port_id
+       FROM shipper_plant_unload_ports up
+       JOIN shipper_plants p ON p.id = up.plant_id AND p.deleted_at IS NULL
+       JOIN master_shippers s ON s.id = p.shipper_id AND s.deleted_at IS NULL
+       WHERE up.id = $1 AND up.deleted_at IS NULL`,
+      [id],
+    );
+    return result.rows[0] ?? null;
+  }
+
+  async listJpsMappedUnloadPorts(): Promise<
+    Array<{
+      id: string;
+      plant_id: string;
+      plant_name: string;
+      shipper_id: string;
+      shipper_short_name: string;
+      name: string;
+      jps_port_id: number;
+    }>
+  > {
+    const all = await this.listAllUnloadPorts();
+    return all.filter(
+      (r): r is typeof r & { jps_port_id: number } =>
+        r.jps_port_id != null && Number.isFinite(Number(r.jps_port_id)),
+    );
+  }
+
+  async softDeleteUnloadPort(id: string): Promise<ShipperPlantUnloadPortRow | null> {
+    const result = await this.pool.query<ShipperPlantUnloadPortRow>(
+      `UPDATE shipper_plant_unload_ports SET deleted_at = NOW(), updated_at = NOW()
+       WHERE id = $1 AND deleted_at IS NULL
+       RETURNING ${UNLOAD_PORT_COLS}`,
       [id],
     );
     return result.rows[0] ?? null;
@@ -234,13 +420,59 @@ export class ShipperRepository {
   }
 
   async updateLoadport(id: string, dto: UpdateShipperLoadportDto): Promise<ShipperLoadportRow | null> {
+    const updates: string[] = ["updated_at = NOW()"];
+    const params: unknown[] = [];
+    let idx = 1;
+    if (dto.name !== undefined) {
+      updates.push(`name = TRIM($${idx++})`);
+      params.push(dto.name);
+    }
+    if (dto.jps_port_id !== undefined) {
+      updates.push(`jps_port_id = $${idx++}`);
+      params.push(dto.jps_port_id);
+    }
+    if (params.length === 0) {
+      const existing = await this.pool.query<ShipperLoadportRow>(
+        `SELECT ${LP_COLS} FROM shipper_loadports WHERE id = $1 AND deleted_at IS NULL`,
+        [id],
+      );
+      return existing.rows[0] ?? null;
+    }
+    params.push(id);
     const result = await this.pool.query<ShipperLoadportRow>(
-      `UPDATE shipper_loadports SET name = TRIM($1), updated_at = NOW()
-       WHERE id = $2 AND deleted_at IS NULL
+      `UPDATE shipper_loadports SET ${updates.join(", ")}
+       WHERE id = $${idx} AND deleted_at IS NULL
        RETURNING ${LP_COLS}`,
-      [dto.name, id],
+      params,
     );
     return result.rows[0] ?? null;
+  }
+
+  /** Distinct EOS load ports that are linked to a JPS port (for import Jetty picker). */
+  async listJpsMappedLoadports(): Promise<
+    Array<{
+      id: string;
+      shipper_id: string;
+      shipper_short_name: string;
+      name: string;
+      jps_port_id: number;
+    }>
+  > {
+    const result = await this.pool.query<{
+      id: string;
+      shipper_id: string;
+      shipper_short_name: string;
+      name: string;
+      jps_port_id: number;
+    }>(
+      `SELECT lp.id, lp.shipper_id, s.short_name AS shipper_short_name, lp.name, lp.jps_port_id
+       FROM shipper_loadports lp
+       JOIN master_shippers s ON s.id = lp.shipper_id AND s.deleted_at IS NULL
+       WHERE lp.deleted_at IS NULL
+         AND lp.jps_port_id IS NOT NULL
+       ORDER BY LOWER(lp.name) ASC, LOWER(s.short_name) ASC`,
+    );
+    return result.rows;
   }
 
   async softDeleteLoadport(id: string): Promise<ShipperLoadportRow | null> {

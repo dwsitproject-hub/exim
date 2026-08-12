@@ -12,6 +12,27 @@ const P = PERMISSIONS;
 /* ───── shippers ───── */
 shipperRoutes.get("/master", authMiddleware, requirePermission(...PERMS_READ_SHIPPER_MASTER), ctrl.listShippersMaster);
 shipperRoutes.get("/", authMiddleware, requirePermission(...PERMS_READ_SHIPPER_MASTER), ctrl.listShippers);
+
+/* Static paths must be registered before /:id */
+shipperRoutes.get(
+  "/unload-ports",
+  authMiddleware,
+  requirePermission(...PERMS_READ_SHIPPER_MASTER, PERMISSIONS.VIEW_SHIPMENTS),
+  ctrl.listAllUnloadPorts
+);
+shipperRoutes.get(
+  "/unload-ports/jps-mapped",
+  authMiddleware,
+  requirePermission(...PERMS_READ_SHIPPER_MASTER, PERMISSIONS.VIEW_SHIPMENTS),
+  ctrl.listJpsMappedUnloadPorts
+);
+shipperRoutes.get(
+  "/loadports/jps-mapped",
+  authMiddleware,
+  requirePermission(...PERMS_READ_SHIPPER_MASTER, PERMISSIONS.VIEW_SHIPMENTS),
+  ctrl.listJpsMappedLoadports
+);
+
 shipperRoutes.get("/:id", authMiddleware, requirePermission(...PERMS_MANAGE_IMPORT_MASTERS, ...PERMS_MANAGE_EXPORT_MASTERS), ctrl.getShipperById);
 shipperRoutes.post("/", authMiddleware, requirePermission(...PERMS_MANAGE_IMPORT_MASTERS), ctrl.createShipper);
 shipperRoutes.patch(
@@ -28,7 +49,33 @@ shipperRoutes.post("/:id/plants", authMiddleware, requirePermission(...PERMS_MAN
 shipperRoutes.patch("/plants/:plantId", authMiddleware, requirePermission(...PERMS_MANAGE_IMPORT_MASTERS), ctrl.updatePlant);
 shipperRoutes.delete("/plants/:plantId", authMiddleware, requirePermission(...PERMS_MANAGE_IMPORT_MASTERS), ctrl.removePlant);
 
-/* ───── load ports (export) ───── */
+/* ───── unload ports under plants (import) + Jetty link ───── */
+shipperRoutes.get(
+  "/plants/:plantId/unload-ports",
+  authMiddleware,
+  requirePermission(...PERMS_READ_SHIPPER_MASTER),
+  ctrl.listUnloadPorts
+);
+shipperRoutes.post(
+  "/plants/:plantId/unload-ports",
+  authMiddleware,
+  requirePermission(...PERMS_MANAGE_IMPORT_MASTERS),
+  ctrl.createUnloadPort
+);
+shipperRoutes.patch(
+  "/unload-ports/:unloadPortId",
+  authMiddleware,
+  requirePermission(...PERMS_MANAGE_IMPORT_MASTERS),
+  ctrl.updateUnloadPort
+);
+shipperRoutes.delete(
+  "/unload-ports/:unloadPortId",
+  authMiddleware,
+  requirePermission(...PERMS_MANAGE_IMPORT_MASTERS),
+  ctrl.removeUnloadPort
+);
+
+/* ───── load ports (export) + optional Jetty link (legacy) ───── */
 shipperRoutes.get("/:id/loadports", authMiddleware, requirePermission(...PERMS_READ_SHIPPER_MASTER), ctrl.listLoadports);
 shipperRoutes.post(
   "/:id/loadports",
@@ -36,7 +83,12 @@ shipperRoutes.post(
   requirePermission(P.UPDATE_EXPORT_OPERATIONS, P.UPDATE_EXPORT_BULKING, ...PERMS_MANAGE_EXPORT_MASTERS),
   ctrl.createLoadport,
 );
-shipperRoutes.patch("/loadports/:lpId", authMiddleware, requirePermission(...PERMS_MANAGE_EXPORT_MASTERS), ctrl.updateLoadport);
+shipperRoutes.patch(
+  "/loadports/:lpId",
+  authMiddleware,
+  requirePermission(...PERMS_MANAGE_EXPORT_MASTERS, ...PERMS_MANAGE_IMPORT_MASTERS),
+  ctrl.updateLoadport
+);
 shipperRoutes.delete("/loadports/:lpId", authMiddleware, requirePermission(...PERMS_MANAGE_EXPORT_MASTERS), ctrl.removeLoadport);
 
 /* ───── document header (export printable documents) ───── */

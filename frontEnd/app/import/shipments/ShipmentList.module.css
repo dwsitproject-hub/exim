@@ -374,43 +374,16 @@
 .filterBar {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: var(--spacing-2, 8px) var(--spacing-3, 12px);
-}
-
-.filterLabel {
-  font-size: var(--typography-fontSize-small, 14px);
-  font-weight: var(--typography-fontWeight-semibold, 600);
-  color: var(--color-primitive-text-charcoal, #2b2b2b);
-}
-
-.dateField {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-2, 8px);
-}
-
-.dateFieldLabel {
-  font-size: var(--typography-fontSize-xs, 12px);
-  color: var(--color-primitive-text-steel, #6b6b6b);
-}
-
-.dateInput {
-  padding: var(--spacing-2, 8px) var(--spacing-3, 12px);
-  font-family: inherit;
-  font-size: var(--typography-fontSize-small, 14px);
-  font-weight: var(--typography-fontWeight-medium, 500);
-  border: 1px solid var(--color-primitive-border-light, #e0e0e0);
-  border-radius: var(--borderRadius-sm, 6px);
-  color: var(--color-primitive-text-charcoal, #2b2b2b);
-  min-height: 2.25rem;
+  align-items: flex-end;
+  gap: var(--spacing-3, 12px) var(--spacing-4, 20px);
+  max-width: 100%;
   box-sizing: border-box;
 }
 
-.poDateActions {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-2, 8px);
+.filterGroup {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
 .globalFilterField {

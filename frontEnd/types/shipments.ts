@@ -108,6 +108,8 @@ export interface ShipmentDetail {
   destination_port_code: string | null;
   destination_port_name: string | null;
   destination_port_country: string | null;
+  /** Master plant unload port (port of discharge). */
+  destination_unload_port_id: string | null;
   etd: string | null;
   eta: string | null;
   /** Actual time of departure */
@@ -132,6 +134,8 @@ export interface ShipmentDetail {
   ship_by: string | null;
   bl_awb: string | null;
   insurance_no: string | null;
+  /** Asuransi/LDN amount compared against PIB draft OCR. */
+  insurance_amount: number | null;
   coo: string | null;
   incoterm_amount: number | null;
   incoterm_currency: FreightChargeCurrency;
@@ -171,6 +175,60 @@ export interface ShipmentDetail {
   /** PDRI = BM + PPN + PPH (system sum). */
   pdri: number;
   linked_pos: LinkedPoSummary[];
+  /** Vessel / shipping agent for Jetty (JPS) SI sync. */
+  vessel_name: string | null;
+  voyage_no: string | null;
+  agent_name: string | null;
+  /** JPS port id from GET /ports (sent as port_id). */
+  jps_port_id: number | null;
+  /** JPS commodity short_name from GET /commodities. */
+  jps_cargo_type: string | null;
+  jps_si_id: number | null;
+  jps_status: string | null;
+  jps_external_reference: string | null;
+  jps_submitted_at: string | null;
+  jps_last_synced_at: string | null;
+  jps_sync_dirty: boolean;
+  jps_last_error: string | null;
+  jps_rejection_reason: string | null;
+  jps_jetty_name: string | null;
+  jps_planned_berthing_time: string | null;
+}
+
+export interface JpsPortOption {
+  id: number;
+  name: string;
+}
+
+export interface JpsCommodityOption {
+  id: number;
+  short_name: string;
+  name: string;
+  commodity_type: string;
+}
+
+export interface JpsMasterListResult<T> {
+  data: T[];
+  fetched_at: string;
+  cached: boolean;
+}
+
+export interface JpsSyncPreview {
+  external_reference: string;
+  purpose: "Unloading";
+  vessel_name: string;
+  voyage_no: string | null;
+  agent_name: string;
+  eta: string;
+  port_id: number;
+  cargo_type: string;
+  tonnage: number;
+  unit: "MT";
+  contract_no: string | null;
+  notes: string | null;
+  already_submitted: boolean;
+  jps_si_id: number | null;
+  jps_status: string | null;
 }
 
 /** Comment on a shipment (GET/POST /shipments/:id/notes). Newest first from API. */
@@ -181,6 +239,35 @@ export interface ShipmentNote {
   created_by_user_id: string | null;
   created_by_name: string;
   created_at: string;
+}
+
+export interface PibOcrWarning {
+  field: string;
+  label: string;
+  eos_value: string | null;
+  ocr_value: string | null;
+  severity: "mismatch" | "missing_ocr" | "missing_eos";
+  message: string;
+}
+
+export interface PibOcrExtracted {
+  form_type?: string;
+  origin_port_name?: string | null;
+  origin_port_code?: string | null;
+  destination_port_name?: string | null;
+  destination_port_code?: string | null;
+  no_request_pib?: string | null;
+  bl_awb?: string | null;
+  freight?: number | null;
+  insurance_amount?: number | null;
+  net_weight_kg?: number | null;
+  gross_weight_kg?: number | null;
+  invoice_no?: string | null;
+  currency_rate?: number | null;
+  bm_total?: number | null;
+  ppn_total?: number | null;
+  pph_total?: number | null;
+  confidence?: "high" | "medium" | "low";
 }
 
 /** GET/POST /shipments/:id/documents — files stored locally on server (storage_key). */
@@ -197,6 +284,10 @@ export interface ShipmentDocumentListItem {
   size_bytes: number;
   uploaded_by: string;
   uploaded_at: string;
+  /** Present for PIB_BC DRAFT after OCR verify. */
+  ocr_extracted?: PibOcrExtracted | null;
+  ocr_warnings?: PibOcrWarning[] | null;
+  ocr_compared_at?: string | null;
 }
 
 export interface ListShipmentsQuery {
@@ -214,6 +305,9 @@ export interface ListShipmentsQuery {
   /** Effective PO date: `imported_po_intake.po_date`, else intake created date (UTC). */
   po_from_date?: string;
   po_to_date?: string;
+  /** Inclusive YYYY-MM-DD on shipment `eta` (UTC date). */
+  eta_from_date?: string;
+  eta_to_date?: string;
   /**
    * Matches backend: not closed (`closed_at` null) and status not DELIVERED.
    * Use for KPIs such as dashboard “active” shipment count.
