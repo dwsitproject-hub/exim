@@ -70,6 +70,7 @@ function makeUser(overrides: Partial<UserRow> = {}): UserRow {
     email_verified_at: new Date(),
     oidc_sub: null,
     permission_overrides: [],
+    must_change_password: false,
     created_at: new Date(),
     updated_at: new Date(),
     ...overrides,
