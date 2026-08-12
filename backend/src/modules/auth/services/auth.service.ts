@@ -2,6 +2,7 @@
  * Auth service: business logic only. No HTTP, no raw SQL.
  * Passwords hashed with bcrypt; never store plain text.
  * Login: requires verified email. Accounts are provisioned by admins.
+ * SSO: Hub OIDC proves identity; local RBAC still authorizes.
  */
 
 import bcrypt from "bcrypt";
@@ -15,7 +16,7 @@ import { PasswordResetTokenRepository } from "../repositories/password-reset-tok
 import { sendPasswordResetEmail } from "./email.service.js";
 import { AppError } from "../../../middlewares/errorHandler.js";
 import { userRowToAuthUser } from "../auth-user-mapper.js";
-import type { AuthUser, LoginResponseData, RefreshResponseData } from "../dto/index.js";
+import type { AuthUser, LoginResponseData, RefreshResponseData, UserRow } from "../dto/index.js";
 
 const SALT_ROUNDS = 12;
 const RESET_TOKEN_EXPIRY_HOURS = 1;
@@ -61,27 +62,55 @@ export class AuthService {
       throw new AppError("Please verify your email before signing in", 403);
     }
 
-    const authUser = userRowToAuthUser(user);
-    const accessToken = this.signAccessToken(authUser);
-    const expiresIn = expiresInSeconds(config.jwt.accessExpiresIn ?? "4h");
+    return this.issueSession(user);
+  }
 
-    const refreshTokenValue = randomBytes(32).toString("hex");
-    const refreshExpires = config.jwt.refreshExpiresIn ?? "4h";
-    const refreshExpiresSeconds = expiresInSeconds(refreshExpires);
-    const refreshExpiresAt = new Date(Date.now() + refreshExpiresSeconds * 1000);
-    await this.refreshTokenRepo.create({
-      userId: user.id,
-      token: refreshTokenValue,
-      expiresAt: refreshExpiresAt,
-    });
+  /**
+   * Resolve a Hub-authenticated subject to a local EOS user and issue a session.
+   * Prefers oidc_sub; falls back to email and links sub on first success.
+   * Does not JIT-create users — admins must pre-provision.
+   */
+  async loginWithOidc(oidcSub: string, email: string): Promise<LoginResponseData> {
+    const accessSecret = config.jwt.accessSecret;
+    if (!accessSecret) {
+      throw new AppError("Auth is not configured (missing JWT_ACCESS_SECRET)", 500);
+    }
 
-    return {
-      access_token: accessToken,
-      refresh_token: refreshTokenValue,
-      token_type: "Bearer",
-      expires_in: expiresIn,
-      user: authUser,
-    };
+    const sub = oidcSub.trim();
+    if (!sub) {
+      throw new AppError("Invalid token payload (no subject)", 400);
+    }
+
+    const bySub = await this.userRepo.findByOidcSubAny(sub);
+    if (bySub) {
+      if (!bySub.is_active) {
+        throw new AppError("User account is inactive", 403);
+      }
+      return this.issueSession(bySub);
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail) {
+      throw new AppError(
+        "Your account is not provisioned in EOS. Contact an administrator.",
+        403
+      );
+    }
+
+    const byEmail = await this.userRepo.findByEmailAny(normalizedEmail);
+    if (!byEmail) {
+      throw new AppError(
+        "Your account is not provisioned in EOS. Contact an administrator.",
+        403
+      );
+    }
+    if (!byEmail.is_active) {
+      throw new AppError("User account is inactive", 403);
+    }
+
+    await this.userRepo.linkOidcSub(byEmail.id, sub);
+    const linked = { ...byEmail, oidc_sub: sub };
+    return this.issueSession(linked);
   }
 
   async refresh(refreshToken: string): Promise<RefreshResponseData> {
@@ -181,6 +210,31 @@ export class AuthService {
     const passwordHash = await this.hashPassword(newPassword);
     await this.userRepo.updatePassword(row.user_id, passwordHash);
     await this.passwordResetTokenRepo.deleteByToken(token);
+  }
+
+  /** Issue access + refresh tokens for an authenticated local user. */
+  private async issueSession(user: UserRow): Promise<LoginResponseData> {
+    const authUser = userRowToAuthUser(user);
+    const accessToken = this.signAccessToken(authUser);
+    const expiresIn = expiresInSeconds(config.jwt.accessExpiresIn ?? "4h");
+
+    const refreshTokenValue = randomBytes(32).toString("hex");
+    const refreshExpires = config.jwt.refreshExpiresIn ?? "4h";
+    const refreshExpiresSeconds = expiresInSeconds(refreshExpires);
+    const refreshExpiresAt = new Date(Date.now() + refreshExpiresSeconds * 1000);
+    await this.refreshTokenRepo.create({
+      userId: user.id,
+      token: refreshTokenValue,
+      expiresAt: refreshExpiresAt,
+    });
+
+    return {
+      access_token: accessToken,
+      refresh_token: refreshTokenValue,
+      token_type: "Bearer",
+      expires_in: expiresIn,
+      user: authUser,
+    };
   }
 
   private signAccessToken(user: AuthUser): string {

@@ -35,12 +35,15 @@ export class ShipmentRepository {
     incoterm, shipment_method, origin_port_code, origin_port_name, origin_port_country,
     destination_port_code, destination_port_name, destination_port_country, etd, eta, atd, ata, depo, depo_location, current_status,
     closed_at, close_reason, remarks, created_at, updated_at,
-    pib_type, no_request_pib, ppjk_mkl, nopen, nopen_date, ship_by, bl_awb, insurance_no, coo, incoterm_amount, incoterm_currency, cbm, net_weight_mt, gross_weight_mt, bm, ppn_amount, pph_amount, kawasan_berikat, surveyor,
+    pib_type, no_request_pib, ppjk_mkl, nopen, nopen_date, ship_by, bl_awb, insurance_no, insurance_amount, coo, incoterm_amount, incoterm_currency, cbm, net_weight_mt, gross_weight_mt, bm, ppn_amount, pph_amount, kawasan_berikat, surveyor,
     product_classification,
     unit_20ft, unit_40ft, unit_package, unit_20_iso_tank, unit_40_hc, unit_20_fr, unit_40_fr,
     container_count_20ft, container_count_40ft, package_count, container_count_20_iso_tank,
     container_count_40_hc, container_count_20_fr, container_count_40_fr,
-    deleted_at, deleted_by`;
+    deleted_at, deleted_by,
+    vessel_name, voyage_no, agent_name,
+    jps_si_id, jps_status, jps_external_reference, jps_submitted_at, jps_last_synced_at, jps_sync_dirty,
+    jps_last_error, jps_rejection_reason, jps_jetty_name, jps_planned_berthing_time`;
 
   async create(dto: CreateShipmentDto, shipmentNo: string): Promise<ShipmentRow> {
     const etd = dto.etd ? new Date(dto.etd) : null;
@@ -496,11 +499,15 @@ export class ShipmentRepository {
         s.origin_port_code, s.origin_port_name, s.origin_port_country,
         s.destination_port_code, s.destination_port_name, s.destination_port_country,
         s.etd, s.eta, s.atd, s.ata, s.depo, s.depo_location, s.current_status, s.closed_at, s.close_reason, s.remarks, s.created_at, s.updated_at,
-        s.pib_type, s.no_request_pib, s.ppjk_mkl, s.nopen, s.nopen_date, s.ship_by, s.bl_awb, s.insurance_no, s.coo,
+        s.pib_type, s.no_request_pib, s.ppjk_mkl, s.nopen, s.nopen_date, s.ship_by, s.bl_awb, s.insurance_no, s.insurance_amount, s.coo,
         s.incoterm_amount, s.incoterm_currency, s.cbm, s.net_weight_mt, s.gross_weight_mt, s.bm, s.ppn_amount, s.pph_amount, s.kawasan_berikat, s.surveyor, s.product_classification,
         s.unit_20ft, s.unit_40ft, s.unit_package, s.unit_20_iso_tank, s.unit_40_hc, s.unit_20_fr, s.unit_40_fr,
         s.container_count_20ft, s.container_count_40ft,
-        s.package_count, s.container_count_20_iso_tank, s.container_count_40_hc, s.container_count_20_fr, s.container_count_40_fr
+        s.package_count, s.container_count_20_iso_tank, s.container_count_40_hc, s.container_count_20_fr, s.container_count_40_fr,
+        s.deleted_at, s.deleted_by,
+        s.vessel_name, s.voyage_no, s.agent_name,
+        s.jps_si_id, s.jps_status, s.jps_external_reference, s.jps_submitted_at, s.jps_last_synced_at, s.jps_sync_dirty,
+        s.jps_last_error, s.jps_rejection_reason, s.jps_jetty_name, s.jps_planned_berthing_time
        FROM shipments s WHERE ${where} ${this.buildShipmentListOrderBy(query)} LIMIT $${idx} OFFSET $${idx + 1}`,
       params
     );
@@ -675,6 +682,18 @@ export class ShipmentRepository {
       updates.push(`remarks = $${idx++}`);
       params.push(dto.remarks);
     }
+    if (dto.vessel_name !== undefined) {
+      updates.push(`vessel_name = $${idx++}`);
+      params.push(dto.vessel_name);
+    }
+    if (dto.voyage_no !== undefined) {
+      updates.push(`voyage_no = $${idx++}`);
+      params.push(dto.voyage_no);
+    }
+    if (dto.agent_name !== undefined) {
+      updates.push(`agent_name = $${idx++}`);
+      params.push(dto.agent_name);
+    }
     if (dto.pib_type !== undefined) {
       updates.push(`pib_type = $${idx++}`);
       params.push(dto.pib_type);
@@ -706,6 +725,10 @@ export class ShipmentRepository {
     if (dto.insurance_no !== undefined) {
       updates.push(`insurance_no = $${idx++}`);
       params.push(dto.insurance_no);
+    }
+    if (dto.insurance_amount !== undefined) {
+      updates.push(`insurance_amount = $${idx++}`);
+      params.push(dto.insurance_amount);
     }
     if (dto.coo !== undefined) {
       updates.push(`coo = $${idx++}`);
@@ -920,6 +943,64 @@ export class ShipmentRepository {
       bm,
       id,
     ]);
+  }
+
+  /** Persist JPS partner sync bookkeeping (does not bump business updated_at intentionally via NOW on sync cols only). */
+  async updateJpsSync(
+    id: string,
+    fields: {
+      jps_si_id?: number | null;
+      jps_status?: string | null;
+      jps_external_reference?: string | null;
+      jps_submitted_at?: Date | null;
+      jps_last_synced_at?: Date | null;
+      jps_sync_dirty?: boolean;
+      jps_last_error?: string | null;
+      jps_rejection_reason?: string | null;
+      jps_jetty_name?: string | null;
+      jps_planned_berthing_time?: Date | null;
+    }
+  ): Promise<ShipmentRow | null> {
+    const updates: string[] = [];
+    const params: unknown[] = [];
+    let idx = 1;
+    const set = <T>(column: string, value: T | undefined) => {
+      if (value === undefined) return;
+      updates.push(`${column} = $${idx++}`);
+      params.push(value);
+    };
+    set("jps_si_id", fields.jps_si_id);
+    set("jps_status", fields.jps_status);
+    set("jps_external_reference", fields.jps_external_reference);
+    set("jps_submitted_at", fields.jps_submitted_at);
+    set("jps_last_synced_at", fields.jps_last_synced_at);
+    set("jps_sync_dirty", fields.jps_sync_dirty);
+    set("jps_last_error", fields.jps_last_error);
+    set("jps_rejection_reason", fields.jps_rejection_reason);
+    set("jps_jetty_name", fields.jps_jetty_name);
+    set("jps_planned_berthing_time", fields.jps_planned_berthing_time);
+    if (updates.length === 0) return this.findById(id);
+    params.push(id);
+    const result = await this.pool.query<ShipmentRow>(
+      `UPDATE shipments SET ${updates.join(", ")} WHERE id = $${idx} AND deleted_at IS NULL RETURNING ${this.selectColumns}`,
+      params
+    );
+    return result.rows[0] ?? null;
+  }
+
+  /** Shipments with open JPS SI for status polling (excludes Rejected / Allocated). */
+  async listForJpsStatusPoll(limit = 100): Promise<ShipmentRow[]> {
+    const result = await this.pool.query<ShipmentRow>(
+      `SELECT ${this.selectColumns} FROM shipments
+       WHERE deleted_at IS NULL
+         AND jps_si_id IS NOT NULL
+         AND jps_status IS NOT NULL
+         AND jps_status NOT IN ('Rejected', 'Allocated')
+       ORDER BY jps_last_synced_at NULLS FIRST, updated_at ASC
+       LIMIT $1`,
+      [Math.max(1, Math.min(500, limit))]
+    );
+    return result.rows;
   }
 
   /** Soft delete: row stays in DB; operational queries exclude `deleted_at IS NULL`. */

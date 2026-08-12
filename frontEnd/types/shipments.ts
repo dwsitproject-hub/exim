@@ -132,6 +132,8 @@ export interface ShipmentDetail {
   ship_by: string | null;
   bl_awb: string | null;
   insurance_no: string | null;
+  /** Asuransi/LDN amount compared against PIB draft OCR. */
+  insurance_amount: number | null;
   coo: string | null;
   incoterm_amount: number | null;
   incoterm_currency: FreightChargeCurrency;
@@ -171,6 +173,20 @@ export interface ShipmentDetail {
   /** PDRI = BM + PPN + PPH (system sum). */
   pdri: number;
   linked_pos: LinkedPoSummary[];
+  /** Vessel / shipping agent for Jetty (JPS) SI sync. */
+  vessel_name: string | null;
+  voyage_no: string | null;
+  agent_name: string | null;
+  jps_si_id: number | null;
+  jps_status: string | null;
+  jps_external_reference: string | null;
+  jps_submitted_at: string | null;
+  jps_last_synced_at: string | null;
+  jps_sync_dirty: boolean;
+  jps_last_error: string | null;
+  jps_rejection_reason: string | null;
+  jps_jetty_name: string | null;
+  jps_planned_berthing_time: string | null;
 }
 
 /** Comment on a shipment (GET/POST /shipments/:id/notes). Newest first from API. */
@@ -181,6 +197,35 @@ export interface ShipmentNote {
   created_by_user_id: string | null;
   created_by_name: string;
   created_at: string;
+}
+
+export interface PibOcrWarning {
+  field: string;
+  label: string;
+  eos_value: string | null;
+  ocr_value: string | null;
+  severity: "mismatch" | "missing_ocr" | "missing_eos";
+  message: string;
+}
+
+export interface PibOcrExtracted {
+  form_type?: string;
+  origin_port_name?: string | null;
+  origin_port_code?: string | null;
+  destination_port_name?: string | null;
+  destination_port_code?: string | null;
+  no_request_pib?: string | null;
+  bl_awb?: string | null;
+  freight?: number | null;
+  insurance_amount?: number | null;
+  net_weight_kg?: number | null;
+  gross_weight_kg?: number | null;
+  invoice_no?: string | null;
+  currency_rate?: number | null;
+  bm_total?: number | null;
+  ppn_total?: number | null;
+  pph_total?: number | null;
+  confidence?: "high" | "medium" | "low";
 }
 
 /** GET/POST /shipments/:id/documents — files stored locally on server (storage_key). */
@@ -197,6 +242,10 @@ export interface ShipmentDocumentListItem {
   size_bytes: number;
   uploaded_by: string;
   uploaded_at: string;
+  /** Present for PIB_BC DRAFT after OCR verify. */
+  ocr_extracted?: PibOcrExtracted | null;
+  ocr_warnings?: PibOcrWarning[] | null;
+  ocr_compared_at?: string | null;
 }
 
 export interface ListShipmentsQuery {

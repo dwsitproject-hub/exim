@@ -101,6 +101,11 @@ export const config = {
   storage: {
     type: getEnvOptional("STORAGE_TYPE", "local"),
     localPath: resolveStorageLocalPath(),
+    /**
+     * Local-only root for draft documents (e.g. PIB DRAFT) that must not land on Synology.
+     * Defaults to ./uploads-draft relative to the backend process cwd.
+     */
+    draftLocalPath: getEnvOptional("STORAGE_DRAFT_LOCAL_PATH", "./uploads-draft") ?? "./uploads-draft",
   },
   log: {
     level: getEnvOptional("LOG_LEVEL", "info"),
@@ -157,9 +162,34 @@ export const config = {
   auth: {
     allowAnyEmail: (getEnvOptional("ALLOW_ANY_EMAIL", "false") ?? "false").toLowerCase() === "true",
     allowedEmailDomain: getEnvOptional("ALLOWED_EMAIL_DOMAIN", "energi-up.com") ?? "energi-up.com",
-    /** Base URL of frontend for verification and reset links (e.g. http://localhost:3000). */
-    frontendBaseUrl: getEnvOptional("FRONTEND_BASE_URL", "http://localhost:3000") ?? "http://localhost:3000",
+    /**
+     * Base URL of frontend for verification, reset, and SSO post-login redirects.
+     * Must be a single URL (no commas) — see SSO-TARGET-APP-INTEGRATION.md.
+     */
+    frontendBaseUrl: (() => {
+      const raw = (getEnvOptional("FRONTEND_BASE_URL", "http://localhost:3000") ?? "http://localhost:3000").trim();
+      if (raw.includes(",")) {
+        throw new Error("FRONTEND_BASE_URL must be a single URL (no commas)");
+      }
+      return raw.replace(/\/$/, "");
+    })(),
   },
+  /**
+   * DWS Hub OIDC (public client + PKCE — no client_secret).
+   * All three of discoveryUrl, clientId, redirectUri must be set to enable SSO routes.
+   */
+  oidc: (() => {
+    const discoveryUrl = getEnvOptional("OIDC_DISCOVERY_URL")?.trim() || "";
+    const clientId = getEnvOptional("OIDC_CLIENT_ID")?.trim() || "";
+    const redirectUriRaw = getEnvOptional("OIDC_REDIRECT_URI")?.trim() || "";
+    if (redirectUriRaw.includes(",")) {
+      throw new Error("OIDC_REDIRECT_URI must be a single URL (no commas)");
+    }
+    const redirectUri = redirectUriRaw.replace(/\/$/, "");
+    const scopes = (getEnvOptional("OIDC_SCOPES", "openid email profile") ?? "openid email profile").trim();
+    const enabled = Boolean(discoveryUrl && clientId && redirectUri);
+    return { enabled, discoveryUrl, clientId, redirectUri, scopes };
+  })(),
   /** Display name and assets for transactional emails (password reset, etc.). */
   email: {
     appName: getEnvOptional("EMAIL_APP_NAME", "EOS") ?? "EOS",
@@ -198,6 +228,34 @@ export const config = {
       const n = parseInt(raw, 10);
       return Number.isNaN(n) ? 0 : Math.min(59, Math.max(0, n));
     })(),
+  },
+  /**
+   * Jetty Planning System (JPS) Shipping Instruction partner sync.
+   * Interim: port_id and cargo_type from env until Jetty master APIs exist.
+   * Update SI endpoint not available in partner API v1 — dirty updates wait for Phase 3.
+   */
+  jps: {
+    enabled: (getEnvOptional("JPS_SYNC_ENABLED", "false") ?? "false").toLowerCase() === "true",
+    apiBaseUrl: (getEnvOptional("JPS_API_BASE_URL", "") ?? "").replace(/\/+$/, ""),
+    apiKey: getEnvOptional("JPS_API_KEY", "") ?? "",
+    portId: (() => {
+      const raw = getEnvOptional("JPS_PORT_ID", "1") ?? "1";
+      const n = parseInt(raw, 10);
+      return Number.isNaN(n) ? 1 : n;
+    })(),
+    defaultCargoType: (getEnvOptional("JPS_DEFAULT_CARGO_TYPE", "CPO") ?? "CPO").trim() || "CPO",
+    requestTimeoutMs: (() => {
+      const raw = getEnvOptional("JPS_REQUEST_TIMEOUT_MS", "30000") ?? "30000";
+      const n = parseInt(raw, 10);
+      return Number.isNaN(n) ? 30000 : Math.max(5000, n);
+    })(),
+    pollIntervalMs: (() => {
+      const raw = getEnvOptional("JPS_POLL_INTERVAL_MS", "300000") ?? "300000";
+      const n = parseInt(raw, 10);
+      return Number.isNaN(n) ? 5 * 60 * 1000 : Math.max(5 * 60 * 1000, n);
+    })(),
+    /** Set true when JPS publishes PATCH/PUT for shipping instructions. */
+    updateApiEnabled: (getEnvOptional("JPS_UPDATE_API_ENABLED", "false") ?? "false").toLowerCase() === "true",
   },
   smtp: {
     host: getEnvOptional("SMTP_HOST", "localhost"),

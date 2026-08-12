@@ -107,6 +107,9 @@ export interface UpdateShipmentPayload {
   depo_location?: string | null;
   /** Shipment remarks (backend UpdateShipmentDto). */
   remarks?: string;
+  vessel_name?: string;
+  voyage_no?: string;
+  agent_name?: string;
   pib_type?: string;
   no_request_pib?: string;
   ppjk_mkl?: string;
@@ -115,6 +118,7 @@ export interface UpdateShipmentPayload {
   ship_by?: string | null;
   bl_awb?: string;
   insurance_no?: string;
+  insurance_amount?: number;
   coo?: string;
   incoterm_amount?: number;
   incoterm_currency?: FreightChargeCurrency;

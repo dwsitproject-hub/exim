@@ -57,9 +57,27 @@
   margin-top: var(--spacing-2, 8px);
 }
 
+.ssoBlock {
+  margin-top: var(--spacing-4, 24px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3, 16px);
+}
 
-.submit {
-  margin-top: var(--spacing-2, 8px);
+.ssoDivider {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2, 8px);
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  font-size: var(--typography-fontSize-small, 14px);
+}
+
+.ssoDivider::before,
+.ssoDivider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background-color: var(--color-primitive-border-light, #e0e0e0);
 }
 
 .footerSep {

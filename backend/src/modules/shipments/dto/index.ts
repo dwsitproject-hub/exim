@@ -43,12 +43,16 @@ export interface CreateShipmentDto {
   ship_by?: string;
   bl_awb?: string;
   insurance_no?: string;
+  insurance_amount?: number;
   coo?: string;
   incoterm_amount?: number;
   incoterm_currency?: FreightChargeCurrency;
   cbm?: number | null;
   kawasan_berikat?: string;
   product_classification?: string;
+  vessel_name?: string;
+  voyage_no?: string;
+  agent_name?: string;
 }
 
 export interface UpdateShipmentDto {
@@ -59,6 +63,9 @@ export interface UpdateShipmentDto {
   depo?: boolean;
   depo_location?: string | null;
   remarks?: string;
+  vessel_name?: string;
+  voyage_no?: string;
+  agent_name?: string;
   pib_type?: string;
   no_request_pib?: string;
   ppjk_mkl?: string;
@@ -68,6 +75,7 @@ export interface UpdateShipmentDto {
   ship_by?: string | null;
   bl_awb?: string;
   insurance_no?: string;
+  insurance_amount?: number;
   coo?: string;
   incoterm_amount?: number;
   incoterm_currency?: FreightChargeCurrency;
@@ -281,6 +289,7 @@ export interface ShipmentRow {
   ship_by: string | null;
   bl_awb: string | null;
   insurance_no: string | null;
+  insurance_amount: number | null;
   coo: string | null;
   incoterm_amount: number | null;
   incoterm_currency: FreightChargeCurrency;
@@ -310,6 +319,19 @@ export interface ShipmentRow {
   /** When set, shipment is soft-deleted (hidden from lists and detail). */
   deleted_at: Date | null;
   deleted_by: string | null;
+  vessel_name: string | null;
+  voyage_no: string | null;
+  agent_name: string | null;
+  jps_si_id: number | null;
+  jps_status: string | null;
+  jps_external_reference: string | null;
+  jps_submitted_at: Date | null;
+  jps_last_synced_at: Date | null;
+  jps_sync_dirty: boolean;
+  jps_last_error: string | null;
+  jps_rejection_reason: string | null;
+  jps_jetty_name: string | null;
+  jps_planned_berthing_time: Date | null;
 }
 
 export interface ShipmentListItem {
@@ -380,6 +402,7 @@ export interface ShipmentDetail {
   ship_by: string | null;
   bl_awb: string | null;
   insurance_no: string | null;
+  insurance_amount: number | null;
   coo: string | null;
   incoterm_amount: number | null;
   incoterm_currency: FreightChargeCurrency;
@@ -414,6 +437,19 @@ export interface ShipmentDetail {
   /** PDRI = BM + PPN + PPH (system sum). */
   pdri: number;
   linked_pos: LinkedPoSummary[];
+  vessel_name: string | null;
+  voyage_no: string | null;
+  agent_name: string | null;
+  jps_si_id: number | null;
+  jps_status: string | null;
+  jps_external_reference: string | null;
+  jps_submitted_at: string | null;
+  jps_last_synced_at: string | null;
+  jps_sync_dirty: boolean;
+  jps_last_error: string | null;
+  jps_rejection_reason: string | null;
+  jps_jetty_name: string | null;
+  jps_planned_berthing_time: string | null;
 }
 
 export interface LinkedPoLineReceived {

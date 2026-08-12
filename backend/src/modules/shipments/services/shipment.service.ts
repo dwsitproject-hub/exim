@@ -164,6 +164,7 @@ function combinedRowToCreateDto(sf: UpdateShipmentDto): CreateShipmentDto {
     nopen_date: sf.nopen_date,
     bl_awb: sf.bl_awb,
     insurance_no: sf.insurance_no,
+    insurance_amount: sf.insurance_amount,
     coo: sf.coo,
     incoterm_amount: sf.incoterm_amount,
     incoterm_currency: sf.incoterm_currency,
@@ -341,6 +342,7 @@ function toDetail(
     ship_by: row.ship_by ?? null,
     bl_awb: row.bl_awb ?? null,
     insurance_no: row.insurance_no ?? null,
+    insurance_amount: row.insurance_amount != null ? Number(row.insurance_amount) : null,
     coo: row.coo ?? null,
     incoterm_amount: row.incoterm_amount ?? null,
     incoterm_currency: row.incoterm_currency ?? DEFAULT_FREIGHT_CHARGE_CURRENCY,
@@ -370,6 +372,21 @@ function toDetail(
     pph,
     pdri,
     linked_pos: linkedPos,
+    vessel_name: row.vessel_name ?? null,
+    voyage_no: row.voyage_no ?? null,
+    agent_name: row.agent_name ?? null,
+    jps_si_id: row.jps_si_id ?? null,
+    jps_status: row.jps_status ?? null,
+    jps_external_reference: row.jps_external_reference ?? null,
+    jps_submitted_at: row.jps_submitted_at ? row.jps_submitted_at.toISOString() : null,
+    jps_last_synced_at: row.jps_last_synced_at ? row.jps_last_synced_at.toISOString() : null,
+    jps_sync_dirty: row.jps_sync_dirty === true,
+    jps_last_error: row.jps_last_error ?? null,
+    jps_rejection_reason: row.jps_rejection_reason ?? null,
+    jps_jetty_name: row.jps_jetty_name ?? null,
+    jps_planned_berthing_time: row.jps_planned_berthing_time
+      ? row.jps_planned_berthing_time.toISOString()
+      : null,
   };
 }
 
@@ -477,6 +494,7 @@ export class ShipmentService {
       remarks: null,
       changedBy: actor,
     });
+    void this.triggerJpsSync(row.id, { requestedBy: actor });
     return {
       id: row.id,
       shipment_number: row.shipment_no,
@@ -739,6 +757,7 @@ export class ShipmentService {
       }
 
       const cbm = optNonNeg("cbm", "cbm");
+      const insurance_amount = optNonNeg("insurance_amount", "insurance_amount");
       const incoterm_amount = optNonNeg("incoterm_amount", "incoterm_amount (Service & Charge)");
       const incoterm_currency_cell = csvCell(cells, idx("incoterm_currency")).trim();
       let incoterm_currencyFromCsv: UpdateShipmentDto["incoterm_currency"] | undefined;
@@ -784,6 +803,7 @@ export class ShipmentService {
         nopen_date,
         bl_awb: csvCell(cells, idx("bl_awb")).trim() || undefined,
         insurance_no: csvCell(cells, idx("insurance_no")).trim() || undefined,
+        insurance_amount,
         coo: csvCell(cells, idx("coo")).trim() || undefined,
         cbm,
         incoterm_amount,
@@ -1212,7 +1232,12 @@ export class ShipmentService {
     return toDetail(row, linkedPos, totalItemsAmount, duty);
   }
 
-  async update(id: string, dto: UpdateShipmentDto, changedBy?: string): Promise<ShipmentDetail | null> {
+  async update(
+    id: string,
+    dto: UpdateShipmentDto,
+    changedBy?: string,
+    options?: { requestedBy?: string | null }
+  ): Promise<ShipmentDetail | null> {
     const existing = await this.repo.findById(id);
     if (!existing) return null;
     if (existing.closed_at) {
@@ -1251,7 +1276,26 @@ export class ShipmentService {
       });
     }
     await this.syncComputedBmToDb(id);
+    void this.triggerJpsSync(id, {
+      requestedBy: options?.requestedBy ?? changedBy ?? null,
+      dto: dto as unknown as Record<string, unknown>,
+    });
     return this.getById(id);
+  }
+
+  /** Fire-and-forget JPS partner sync; never fails the shipment save. */
+  private async triggerJpsSync(
+    shipmentId: string,
+    options?: { requestedBy?: string | null; dto?: Record<string, unknown> }
+  ): Promise<void> {
+    try {
+      const { getJpsSyncService } = await import("../../../integration/jps/index.js");
+      await getJpsSyncService().syncAfterShipmentSave(shipmentId, options);
+    } catch (err) {
+      // Sync service already persists errors; this is a last-resort guard.
+      const { logger } = await import("../../../utils/logger.js");
+      logger.warn("JPS sync trigger failed", { shipmentId, error: String(err) });
+    }
   }
 
   async close(id: string, reason: string | null): Promise<void> {

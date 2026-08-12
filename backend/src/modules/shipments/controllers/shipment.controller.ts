@@ -141,7 +141,9 @@ export async function update(req: Request, res: Response, next: NextFunction): P
     return;
   }
   try {
-    const data = await service.update(id, validation.data, actorFromRequest(req));
+    const data = await service.update(id, validation.data, actorFromRequest(req), {
+      requestedBy: req.user?.email?.trim() || actorFromRequest(req),
+    });
     if (!data) {
       sendError(res, "Shipment not found", { statusCode: 404 });
       return;
