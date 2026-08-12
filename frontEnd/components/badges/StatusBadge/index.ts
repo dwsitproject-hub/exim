@@ -1,2 +1,2 @@
-export { StatusBadge } from "./StatusBadge";
-export type { StatusBadgeProps } from "./StatusBadge";
+export { StatusBadge, StatusFilterPill } from "./StatusBadge";
+export type { StatusBadgeProps, StatusFilterPillProps } from "./StatusBadge";

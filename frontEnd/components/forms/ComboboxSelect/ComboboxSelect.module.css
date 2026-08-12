@@ -55,6 +55,7 @@
   margin: 0;
   padding: var(--spacing-1, 4px);
   max-height: min(320px, 70vh);
+  overflow-x: hidden;
   overflow-y: auto;
   background: var(--color-primitive-background-white, #ffffff);
   border: 1px solid var(--color-primitive-border-medium, #c4c4c4);
@@ -69,8 +70,12 @@
 }
 
 .option {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
   width: 100%;
+  min-width: 0;
   padding: 7px var(--spacing-3, 12px);
   font-size: var(--typography-fontSize-small, 14px);
   font-family: inherit;
@@ -95,11 +100,20 @@
 
 .optionLabel {
   display: block;
+  width: 100%;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .optionSublabel {
   display: block;
-  margin-top: 2px;
+  width: 100%;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 11px;
   font-weight: 400;
   color: var(--color-primitive-text-steel, #6b6b6b);

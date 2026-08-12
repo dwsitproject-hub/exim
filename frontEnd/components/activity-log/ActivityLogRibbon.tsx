@@ -17,7 +17,8 @@ function renderActivityValue(value: string | null | undefined): string {
 export interface ActivityLogRibbonProps {
   panelId: string;
   title?: string;
-  hint: string;
+  /** Optional description under the panel title; omitted when empty. */
+  hint?: string;
   open: boolean;
   loading: boolean;
   error: string | null;
@@ -32,7 +33,7 @@ export interface ActivityLogRibbonProps {
 export function ActivityLogRibbon({
   panelId,
   title = "Activity log",
-  hint,
+  hint = "",
   open,
   loading,
   error,
@@ -93,7 +94,7 @@ export function ActivityLogRibbon({
                   Close
                 </Button>
               </div>
-              <p className={styles.panelHint}>{hint}</p>
+              {hint ? <p className={styles.panelHint}>{hint}</p> : null}
               <div className={styles.panelBody} role="feed" aria-busy={loading}>
                 {loading && <p className={styles.panelState}>Loading…</p>}
                 {!loading && error && <p className={styles.error}>{error}</p>}

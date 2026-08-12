@@ -10,8 +10,7 @@ import type { PoIntakeRow } from "../../po-intake/dto/index.js";
 import type { LinkedPoWithIntake } from "../repositories/shipment-po-mapping.repository.js";
 import type { ShipmentRow } from "../dto/index.js";
 import { pibTypeStorageFolderName } from "../../../shared/pib-type.js";
-
-const IMPORT_STORAGE_ROOT = "Import";
+import { IMPORT_STORAGE_ROOT } from "../../../shared/storage/trade-flow-folders.js";
 
 const MAX_SEGMENT = 120;
 

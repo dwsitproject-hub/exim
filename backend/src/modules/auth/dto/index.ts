@@ -12,6 +12,8 @@ export interface AuthUser {
   permission_overrides: string[];
   /** Role permissions ∪ overrides. */
   effective_permissions: string[];
+  /** When true, user must set a new password before using the app. */
+  must_change_password: boolean;
 }
 
 /** Login request body. */
@@ -67,6 +69,7 @@ export interface UserRow {
   /** DWS Hub OIDC subject; null until linked via SSO. */
   oidc_sub: string | null;
   permission_overrides: string[] | null;
+  must_change_password: boolean;
   created_at: Date;
   updated_at: Date;
 }

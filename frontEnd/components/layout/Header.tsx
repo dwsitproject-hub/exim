@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { HelpCircle } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import { getExportWorkspaceBadge } from "@/lib/export-workspace";
 import { LOGIN_PATH } from "@/lib/constants";
 import { CommandPalette } from "@/components/navigation";
 import { useGuideTour } from "@/components/guide-tour";
@@ -20,6 +21,7 @@ export function Header({ onMenuClick }: HeaderProps) {
   const router = useRouter();
   const { user, logout } = useAuth();
   const { startTour } = useGuideTour();
+  const workspaceBadge = getExportWorkspaceBadge(user);
 
   async function handleLogout() {
     await logout();
@@ -37,7 +39,7 @@ export function Header({ onMenuClick }: HeaderProps) {
         >
           <span className={styles.menuIcon} aria-hidden />
         </button>
-        <Link href="/dashboard" className={styles.logo}>
+        <Link href="/" className={styles.logo}>
           <span className={styles.logoMark} aria-hidden>
             <Image
               src="/brand/eos-header-mark.png"
@@ -69,6 +71,7 @@ export function Header({ onMenuClick }: HeaderProps) {
         </button>
         {user && (
           <span className={styles.user}>
+            {workspaceBadge && <span className={styles.workspaceBadge}>{workspaceBadge}</span>}
             <span className={styles.userName}>{user.name}</span>
             <button type="button" onClick={handleLogout} className={styles.logout}>
               Log out

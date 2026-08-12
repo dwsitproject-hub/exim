@@ -6,10 +6,10 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { ACCESS_COOKIE_NAME } from "@/lib/cookies";
-import { LOGIN_PATH } from "@/lib/constants";
+import { CHANGE_PASSWORD_PATH, LOGIN_PATH } from "@/lib/constants";
 
 /** Paths that require authentication (exact or prefix). */
-const PROTECTED_PREFIXES = ["/dashboard", "/import", "/admin"];
+const PROTECTED_PREFIXES = ["/import", "/export", "/admin"];
 
 function isProtectedPath(pathname: string): boolean {
   return PROTECTED_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
@@ -41,6 +41,15 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  if (pathname === CHANGE_PASSWORD_PATH) {
+    if (!accessToken) {
+      const loginUrl = new URL(LOGIN_PATH, request.url);
+      loginUrl.searchParams.set("from", CHANGE_PASSWORD_PATH);
+      return NextResponse.redirect(loginUrl);
+    }
+    return NextResponse.next();
+  }
+
   if (!isProtectedPath(pathname)) return NextResponse.next();
 
   if (!accessToken) {
@@ -53,12 +62,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: [
-    "/",
-    "/dashboard",
-    "/dashboard/:path*",
-    "/import",
-    "/import/:path*",
-    "/admin/:path*",
-  ],
+  matcher: ["/", "/change-password", "/import/:path*", "/export/:path*", "/admin/:path*"],
 };

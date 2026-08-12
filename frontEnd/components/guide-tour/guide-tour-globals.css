@@ -1,0 +1,21 @@
+/**
+ * react-joyride / react-floater — keep tour tooltips inside the viewport.
+ * Joyride portals to document.body; these rules prevent top-edge clipping on
+ * pages with fixed headers and overflow:hidden content shells.
+ */
+
+body .react-joyride__tooltip,
+body [class*="react-joyride__tooltip"] {
+  box-sizing: border-box;
+  max-height: min(70vh, 28rem);
+  overflow-y: auto;
+}
+
+body .__floater.__floater__open {
+  z-index: 10150 !important;
+  filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.12));
+}
+
+body .react-joyride__spotlight {
+  border-radius: 10px;
+}

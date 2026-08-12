@@ -1,0 +1,36 @@
+.header {
+  margin: 0;
+}
+
+.letterheadImage {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  max-height: 55mm;
+  object-fit: contain;
+  object-position: left top;
+  margin-bottom: 1rem;
+}
+
+.companyName {
+  margin: 0;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 20pt;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #1b5e20;
+}
+
+.companyAddr {
+  margin: 0.35rem 0 0;
+  max-width: 100%;
+  font-size: 9pt;
+  line-height: 1.35;
+}
+
+.rule {
+  margin: 0.65rem 0 1rem;
+  height: 3px;
+  background: #1b5e20;
+  border: none;
+}

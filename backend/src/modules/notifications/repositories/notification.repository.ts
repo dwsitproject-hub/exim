@@ -11,6 +11,7 @@ export interface NotificationRow {
   type: string;
   reference_id: string;
   shipment_id: string | null;
+  export_bulking_shipment_id: string | null;
   message: string;
   read_at: Date | null;
   created_at: Date;
@@ -47,7 +48,7 @@ export class NotificationRepository {
     const lim = Math.min(Math.max(1, options.limit), 100);
     const unreadOnly = options.unreadOnly;
     const result = await this.pool.query<NotificationRow>(
-      `SELECT id, user_id, type, reference_id, shipment_id, message, read_at, created_at
+      `SELECT id, user_id, type, reference_id, shipment_id, export_bulking_shipment_id, message, read_at, created_at
        FROM notifications
        WHERE user_id = $1::uuid
          AND (NOT $2::boolean OR read_at IS NULL)
@@ -80,6 +81,45 @@ export class NotificationRepository {
       [userId]
     );
     return result.rowCount ?? 0;
+  }
+
+  async deleteExportSentDocNotifications(
+    client: PoolClient,
+    exportBulkingShipmentId: string,
+  ): Promise<void> {
+    await client.query(
+      `DELETE FROM notifications
+       WHERE type = 'export_sent_doc_missing'
+         AND export_bulking_shipment_id = $1::uuid`,
+      [exportBulkingShipmentId],
+    );
+  }
+
+  async insertExportSentDocNotifications(
+    client: PoolClient,
+    rows: { userId: string; exportBulkingShipmentId: string; message: string }[],
+  ): Promise<void> {
+    if (rows.length === 0) return;
+    const values: unknown[] = [];
+    const placeholders: string[] = [];
+    let p = 1;
+    for (const r of rows) {
+      placeholders.push(
+        `($${p++}::uuid, $${p++}, $${p++}::uuid, $${p++}::uuid, $${p++})`,
+      );
+      values.push(
+        r.userId,
+        "export_sent_doc_missing",
+        r.exportBulkingShipmentId,
+        r.exportBulkingShipmentId,
+        r.message,
+      );
+    }
+    await client.query(
+      `INSERT INTO notifications (user_id, type, reference_id, export_bulking_shipment_id, message)
+       VALUES ${placeholders.join(", ")}`,
+      values,
+    );
   }
 
   async insertEtaReminderNotifications(

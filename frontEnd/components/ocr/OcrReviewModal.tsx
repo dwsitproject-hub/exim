@@ -158,6 +158,8 @@ export interface OcrReviewModalProps {
   /** Primary action — Apply extracted data to form. */
   onApply: () => void;
   applyLabel?: string;
+  /** When true, primary Apply action is disabled (e.g. validation failed). */
+  applyDisabled?: boolean;
 
   /** Secondary left-side actions (e.g. rescan, upload different file). */
   leftActions?: ReactNode;
@@ -178,23 +180,16 @@ export function OcrReviewModal({
   busy = false,
   onApply,
   applyLabel = "Apply to form →",
+  applyDisabled = false,
   leftActions,
 }: OcrReviewModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!open || busy) return;
+    if (!open) return;
 
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onClose();
-      }
-    }
-    document.addEventListener("keydown", onKeyDown);
 
     requestAnimationFrame(() => {
       const FOCUSABLE = "button:not([disabled]), [tabindex]:not([tabindex='-1'])";
@@ -204,8 +199,20 @@ export function OcrReviewModal({
 
     return () => {
       document.body.style.overflow = prev;
-      document.removeEventListener("keydown", onKeyDown);
     };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || busy) return;
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
   }, [open, busy, onClose]);
 
   if (!open) return null;
@@ -276,7 +283,13 @@ export function OcrReviewModal({
             <table className={styles.reviewTable}>
               <tbody>
                 {fields.map((f, i) => (
-                  <OcrFieldRowUI key={i} label={f.label} value={f.value} />
+                  <OcrFieldRowUI
+                    key={i}
+                    label={f.label}
+                    value={f.value}
+                    editable={f.editable}
+                    onChange={f.onChange}
+                  />
                 ))}
               </tbody>
             </table>
@@ -319,7 +332,7 @@ export function OcrReviewModal({
               type="button"
               className={styles.applyBtn}
               onClick={onApply}
-              disabled={busy}
+              disabled={busy || applyDisabled}
             >
               {applyLabel}
             </button>

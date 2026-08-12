@@ -117,7 +117,7 @@ function ModalTableRow({
   return (
     <tr style={trStyle}>
       <td className={styles.td}>
-        <Link href={`/dashboard/shipments/${row.id}`} className={styles.shipLink} onClick={(e) => e.stopPropagation()}>
+        <Link href={`/import/shipments/${row.id}`} className={styles.shipLink} onClick={(e) => e.stopPropagation()}>
           {row.shipmentNumber}
         </Link>
       </td>
@@ -567,7 +567,7 @@ export function ShipmentPerformanceCard() {
                 Detailed shipment list
               </h2>
               <div className={styles.modalHeaderActions}>
-                <Link href="/dashboard/shipments" className={styles.openListLink} onClick={() => setModalOpen(false)}>
+                <Link href="/import/shipments" className={styles.openListLink} onClick={() => setModalOpen(false)}>
                   Open in Shipments page
                 </Link>
                 <button

@@ -5,7 +5,7 @@
 import type { Request, Response, NextFunction } from "express";
 import { sendSuccess, sendError } from "../../../shared/response.js";
 import { clearAuthCookies, setAuthCookies } from "../auth-cookies.js";
-import { validateLoginBody, validateRefreshBody, validateVerifyEmail, validateForgotPasswordBody, validateResetPasswordBody } from "../validators/index.js";
+import { validateLoginBody, validateRefreshBody, validateVerifyEmail, validateForgotPasswordBody, validateResetPasswordBody, validateChangePasswordBody } from "../validators/index.js";
 import { AuthService } from "../services/auth.service.js";
 import { UserRepository } from "../repositories/user.repository.js";
 import { RefreshTokenRepository } from "../repositories/refresh-token.repository.js";
@@ -116,6 +116,31 @@ export async function forgotPassword(req: Request, res: Response, next: NextFunc
   try {
     await authService.forgotPassword(validation.data.email, req.get("user-agent") ?? undefined);
     sendSuccess(res, {}, { message: "If an account exists with this email, you will receive a password reset link.", statusCode: 200 });
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function changePassword(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const user = req.user;
+  if (!user) {
+    sendError(res, "Unauthorized", { statusCode: 401 });
+    return;
+  }
+  const validation = validateChangePasswordBody(req, {
+    requireCurrentPassword: !user.must_change_password,
+  });
+  if (!validation.ok) {
+    sendError(res, "Validation error", { errors: validation.errors, statusCode: 400 });
+    return;
+  }
+  try {
+    const updatedUser = await authService.changePassword(
+      user.id,
+      validation.data.new_password,
+      validation.data.current_password
+    );
+    sendSuccess(res, { user: updatedUser }, { message: "Password updated successfully", statusCode: 200 });
   } catch (e) {
     next(e);
   }

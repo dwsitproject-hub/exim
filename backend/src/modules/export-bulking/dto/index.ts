@@ -1,0 +1,422 @@
+export const EXPORT_BULKING_STATUSES = [
+  "SHIPMENT_PLANNING",
+  "NOMINATION",
+  "ARRIVAL",
+  "AT_BERTH",
+  "LOADING",
+  "CASE_OFF",
+] as const;
+
+export type ExportBulkingStatus = (typeof EXPORT_BULKING_STATUSES)[number];
+
+export const STATUS_TRANSITIONS: Record<ExportBulkingStatus, ExportBulkingStatus | null> = {
+  SHIPMENT_PLANNING: "NOMINATION",
+  NOMINATION: "ARRIVAL",
+  ARRIVAL: "AT_BERTH",
+  AT_BERTH: "LOADING",
+  LOADING: "CASE_OFF",
+  CASE_OFF: null,
+};
+
+export interface CreateExportBulkingCargoLineDto {
+  cargo_name: string;
+  quantity: number;
+  item_description?: string | null;
+}
+
+export interface CreateExportBulkingShipmentDto {
+  vessel_name: string;
+  voyage_number: string;
+  shipper: string;
+  loadport_name: string;
+  /** Derived from cargo line quantities when `cargo_lines` is sent. */
+  total_quantity?: number;
+  cargo_lines?: CreateExportBulkingCargoLineDto[];
+  remarks?: string;
+}
+
+export interface UpdateExportBulkingShipmentDto {
+  vessel_name?: string;
+  voyage_number?: string;
+  shipper?: string;
+  loadport_name?: string;
+  total_quantity?: number;
+  received_nomination?: string;
+  received_shipping_instruction?: string;
+  incoterms?: string;
+  laycan?: string;
+  laycan_from?: string;
+  laycan_to?: string;
+  est_cargo_readiness?: string;
+  est_cargo_readiness_period?: string;
+  eta?: string;
+  ata?: string;
+  nor?: string;
+  etb?: string;
+  atb?: string;
+  commence_loading?: string;
+  etc?: string;
+  atc?: string;
+  hose_off?: string;
+  bl_figure?: number;
+  ship_figure?: number;
+  npe_date?: string;
+  quantity_spb?: number;
+  spb?: string;
+  delivery_order_pgi?: string;
+  spr?: string;
+  bill_of_lading_no?: string;
+  bill_of_lading_date?: string;
+  bill_of_lading_nn_obl?: string;
+  sent_bl?: string;
+  sent_coo?: string;
+  sent_phyto?: string;
+  sent_hc?: string;
+  sent_sr?: string;
+  sent_sustainability?: string;
+  present_docs?: string;
+  required_sent_documents?: string[];
+  peb_request_no?: string;
+  peb_no?: string;
+  peb_date?: string;
+  pe_no?: string;
+  pe_date?: string;
+  hs_code?: string;
+  currency_tax?: number;
+  biaya_keluar_price_usd_mt?: number;
+  biaya_keluar_amount_idr?: number;
+  biaya_keluar_billing_no?: string;
+  levy_price_usd_mt?: number;
+  levy_amount_idr?: number;
+  levy_billing_no?: string;
+  billing_to_gl?: string;
+  td?: string;
+  surveyor?: string;
+  surveyor_reason?: string;
+  agent?: string;
+  length_over_all?: number;
+  laytime_rate_mtph?: number;
+  demurrage_rate_pdpr?: number;
+  remarks?: string;
+  hose_on?: string;
+}
+
+export interface ExportBulkingListFilterOptions {
+  statuses: string[];
+  shipment_nos: string[];
+  vessel_names: string[];
+  voyage_numbers: string[];
+  shippers: string[];
+  loadport_names: string[];
+  cargo_names: string[];
+  cargo_line_labels: string[];
+  total_qty_labels: string[];
+  laycan_labels: string[];
+  cargo_readiness_labels: string[];
+  demurrage_rate_labels: string[];
+  eta_dates: string[];
+  pic_documentation_names: string[];
+  si_numbers: string[];
+  invoice_numbers: string[];
+  pl_numbers: string[];
+  peb_nos: string[];
+  peb_dates: string[];
+  bl_nos: string[];
+  bl_dates: string[];
+  status_counts?: Record<string, number>;
+}
+
+export interface ListExportBulkingQuery {
+  page?: number;
+  limit?: number;
+  search?: string;
+  statuses?: string[];
+  shipment_nos?: string[];
+  vessel_names?: string[];
+  voyage_numbers?: string[];
+  shippers?: string[];
+  loadport_names?: string[];
+  cargo_names?: string[];
+  cargo_line_labels?: string[];
+  total_qty_labels?: string[];
+  laycan_labels?: string[];
+  cargo_readiness_labels?: string[];
+  demurrage_rate_labels?: string[];
+  eta_dates?: string[];
+  pic_documentation_names?: string[];
+  si_numbers?: string[];
+  invoice_numbers?: string[];
+  pl_numbers?: string[];
+  peb_nos?: string[];
+  peb_dates?: string[];
+  bl_nos?: string[];
+  bl_dates?: string[];
+  sort_by?: string;
+  sort_dir?: "asc" | "desc";
+  /** Filter by documentation PIC assignment. */
+  assignment_filter?: "unassigned" | "assigned_to_me";
+  /** Used with assignment_filter=assigned_to_me (set by controller from auth). */
+  documentation_assignee_id?: string;
+}
+
+export interface ExportBulkingShipmentRow {
+  id: string;
+  shipment_no: string;
+  current_status: string;
+  vessel_name: string | null;
+  voyage_number: string | null;
+  shipper: string | null;
+  loadport_name: string | null;
+  received_nomination: string | null;
+  received_shipping_instruction: string | null;
+  incoterms: string | null;
+  laycan: string | null;
+  laycan_from: string | null;
+  laycan_to: string | null;
+  est_cargo_readiness: string | null;
+  est_cargo_readiness_period: string | null;
+  eta: string | null;
+  ata: string | null;
+  nor: string | null;
+  etb: string | null;
+  atb: string | null;
+  commence_loading: string | null;
+  etc: string | null;
+  atc: string | null;
+  hose_on: string | null;
+  hose_off: string | null;
+  bl_figure: number | null;
+  ship_figure: number | null;
+  npe_date: string | null;
+  quantity_spb: number | null;
+  spb: string | null;
+  delivery_order_pgi: string | null;
+  spr: string | null;
+  bill_of_lading_no: string | null;
+  bill_of_lading_date: string | null;
+  bill_of_lading_nn_obl: string | null;
+  sent_bl: string | null;
+  sent_coo: string | null;
+  sent_phyto: string | null;
+  sent_hc: string | null;
+  sent_sr: string | null;
+  sent_sustainability: string | null;
+  present_docs: string | null;
+  required_sent_documents: string[] | null;
+  peb_request_no: string | null;
+  peb_no: string | null;
+  peb_date: string | null;
+  pe_no: string | null;
+  pe_date: string | null;
+  hs_code: string | null;
+  currency_tax: number | null;
+  biaya_keluar_price_usd_mt: number | null;
+  biaya_keluar_amount_idr: number | null;
+  biaya_keluar_billing_no: string | null;
+  levy_price_usd_mt: number | null;
+  levy_amount_idr: number | null;
+  levy_billing_no: string | null;
+  billing_to_gl: string | null;
+  td: string | null;
+  surveyor: string | null;
+  surveyor_reason: string | null;
+  agent: string | null;
+  length_over_all: number | null;
+  laytime_rate_mtph: number | null;
+  demurrage_rate_pdpr: number | null;
+  total_quantity: number | null;
+  remarks: string | null;
+  created_by: string | null;
+  documentation_assigned_to: string | null;
+  documentation_assigned_at: string | null;
+  documentation_assigned_by: string | null;
+  documentation_assignee_name?: string | null;
+  created_at: string;
+  updated_at: string;
+  cargo_count?: number;
+  cargo_summaries?: {
+    cargo_name?: string | null;
+    quantity?: number | null;
+    item_description: string | null;
+    destination_port: string | null;
+  }[] | null;
+  si_numbers?: string[] | null;
+  invoice_numbers?: string[] | null;
+  pl_numbers?: string[] | null;
+  cargo_names?: string[] | null;
+  invoice_line_summaries?: { contract_no: string | null; quantity: number | null; so_no: string | null }[] | null;
+}
+
+export interface BillingLineDto {
+  id?: string;
+  so_no: string;
+  line_order?: number;
+  biaya_keluar_price_usd_mt?: number | null;
+  biaya_keluar_amount_idr?: number | null;
+  biaya_keluar_billing_no?: string | null;
+  levy_price_usd_mt?: number | null;
+  levy_amount_idr?: number | null;
+  levy_billing_no?: string | null;
+}
+
+export interface SapLineDto {
+  id?: string;
+  so_no: string;
+  line_order?: number;
+  quantity_spb?: number | null;
+  spb?: string | null;
+  delivery_order_pgi?: string | null;
+  spr?: string | null;
+}
+
+export interface CargoLineDto {
+  id?: string;
+  line_order?: number;
+  cargo_name: string;
+  quantity?: number;
+  unit?: string;
+  item_description?: string;
+  destination_port?: string;
+  destination_country?: string;
+  country_area?: string;
+  quantity_delivered?: number;
+  bl_figure?: number;
+  ship_figure?: number;
+  reconciliation_remarks?: string | null;
+  pe_no?: string;
+  pe_date?: string;
+}
+
+export interface ShippingInstructionDto {
+  id?: string;
+  si_number?: string;
+  messrs?: string;
+  bill_of_lading_option?: string;
+  consignee?: string;
+  notify_party?: string;
+  freight?: string;
+  shipper_snapshot?: string;
+  npwp?: string;
+  bl_indicated?: string;
+  peb_request_no?: string | null;
+  peb_no?: string | null;
+  peb_date?: string | null;
+  hs_code?: string | null;
+  lines?: SiLineDto[];
+}
+
+export interface SiPebFieldsDto {
+  id: string;
+  peb_request_no?: string | null;
+  peb_no?: string | null;
+  peb_date?: string | null;
+  hs_code?: string | null;
+}
+
+export interface BillOfLadingDto {
+  id?: string;
+  line_order?: number;
+  bill_of_lading_no?: string | null;
+  bill_of_lading_date?: string | null;
+  bill_of_lading_nn_obl?: string | null;
+}
+
+export interface BlSplitEntryDto {
+  count: number;
+  quantity: number;
+  mode?: "Max" | "Min" | "Exact" | "Balance";
+}
+
+export interface SiLineDto {
+  id?: string;
+  cargo_line_id?: string;
+  description_of_goods?: string;
+  quantity?: number;
+  bl_split_qty?: number;
+  bl_splits?: BlSplitEntryDto[];
+  bl_split_text?: string;
+  destination_port?: string;
+}
+
+export interface InvoiceDto {
+  id?: string;
+  invoice_no?: string;
+  invoice_date?: string;
+  messrs?: string;
+  vessel_voyage_snapshot?: string;
+  loadport_snapshot?: string;
+  destination_snapshot?: string;
+  marks?: string;
+  /** When set on create/update, invoice is grouped under this SI (same shipment). */
+  shipping_instruction_id?: string | null;
+  /** Convenience: creates an initial invoice line tied to cargo when lines are omitted on create. */
+  cargo_line_id?: string | null;
+  lines?: InvoiceLineDto[];
+  qty_change_reason?: string;
+}
+
+export interface InvoiceSplitDto {
+  mode: "equal" | "quantities";
+  count?: number;
+  quantities?: number[];
+  cargo_line_id?: string | null;
+}
+
+export interface InvoiceAmendDto {
+  reason: string;
+}
+
+export interface InvoiceFinalizeDto {
+  note?: string;
+}
+
+export interface InvoiceLineDto {
+  id?: string;
+  cargo_line_id?: string;
+  item_no?: number;
+  description_of_goods?: string;
+  contract_no?: string;
+  so_no?: string;
+  quantity?: number;
+  unit_price?: number;
+  total_amount?: number;
+}
+
+export interface PackingListDto {
+  id?: string;
+  packing_list_number?: string;
+  loadport_snapshot?: string;
+  destination_snapshot?: string;
+  /** One packing list per shipping instruction; qty follows SI lines. */
+  shipping_instruction_id?: string | null;
+  lines?: PackingListLineDto[];
+}
+
+export interface PackingListLineDto {
+  id?: string;
+  cargo_line_id?: string;
+  description_of_goods?: string;
+  quantity?: number;
+  destination_snapshot?: string;
+  packing?: string;
+}
+
+/** GET /export-bulking/shipments/:id/activity-log — merged audit trail. */
+export interface ExportBulkingActivityItem {
+  id: string;
+  type:
+    | "export_bulking_created"
+    | "status_change"
+    | "shipment_updated"
+    | "documentation_assigned";
+  title: string;
+  detail: string | null;
+  field_changes?: Array<{
+    field: string;
+    label: string;
+    before: string | null;
+    after: string | null;
+  }>;
+  actor: string;
+  occurred_at: string;
+}

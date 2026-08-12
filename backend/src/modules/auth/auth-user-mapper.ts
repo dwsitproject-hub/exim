@@ -16,5 +16,6 @@ export function userRowToAuthUser(row: UserRow): AuthUser {
     role: row.role,
     permission_overrides,
     effective_permissions,
+    must_change_password: Boolean(row.must_change_password),
   };
 }

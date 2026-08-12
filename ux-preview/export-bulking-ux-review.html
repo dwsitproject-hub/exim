@@ -1,0 +1,1029 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Export Bulking — UX Review & Improvement Preview</title>
+<style>
+  :root {
+    --primary: #c43a31;
+    --primary-hover: #9e2c25;
+    --bg: #f5f5f5;
+    --white: #ffffff;
+    --border: #e0e0e0;
+    --border-md: #c4c4c4;
+    --text: #2b2b2b;
+    --muted: #6b6b6b;
+    --success: #16a34a;
+    --warning: #d97706;
+    --info: #1d4ed8;
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --radius-full: 9999px;
+    --status-planning-bg: #f4f4f5; --status-planning-fg: #52525b;
+    --status-nomination-bg: #eff6ff; --status-nomination-fg: #1d4ed8;
+    --status-si-bg: #fffbeb; --status-si-fg: #92400e;
+    --status-voyage-bg: #f0fdf4; --status-voyage-fg: #15803d;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; background: #e8e8e8; color: var(--text); }
+
+  /* ── Nav ── */
+  .nav { background: var(--primary); color: white; padding: 12px 24px; display: flex; align-items: center; gap: 16px; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+  .nav a { color: rgba(255,255,255,.8); text-decoration: none; font-size: 13px; padding: 4px 12px; border-radius: 4px; transition: background .15s; }
+  .nav a:hover, .nav a.active { background: rgba(255,255,255,.2); color: white; }
+  .nav-title { font-weight: 700; font-size: 15px; margin-right: 8px; }
+
+  /* ── Layout ── */
+  .page-wrap { max-width: 1400px; margin: 0 auto; padding: 24px; }
+  .section-title { font-size: 22px; font-weight: 700; color: var(--text); margin: 32px 0 8px; border-left: 4px solid var(--primary); padding-left: 12px; }
+  .section-subtitle { font-size: 13px; color: var(--muted); margin-bottom: 20px; }
+  .screen-label { display: inline-block; background: var(--primary); color: white; font-size: 11px; font-weight: 700; padding: 2px 10px; border-radius: 4px; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 12px; }
+  .improvement-label { display: inline-block; background: #16a34a; color: white; font-size: 11px; font-weight: 700; padding: 2px 10px; border-radius: 4px; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 12px; }
+  .compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 32px; }
+  @media(max-width: 900px) { .compare-grid { grid-template-columns: 1fr; } }
+  .mock-card { background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 12px rgba(0,0,0,.08); border: 1px solid var(--border); }
+  .mock-card-header { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
+  .issue-badge { background: #fef2f2; color: #991b1b; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: var(--radius-full); border: 1px solid #fca5a5; }
+  .fix-badge { background: #f0fdf4; color: #166534; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: var(--radius-full); border: 1px solid #86efac; }
+  .annotation { font-size: 11px; background: #fefce8; border: 1px dashed #fbbf24; border-radius: 4px; padding: 4px 8px; color: #78350f; display: inline-flex; align-items: center; gap: 4px; }
+  .annotation.good { background: #f0fdf4; border-color: #86efac; color: #166534; }
+
+  /* ── App shell ── */
+  .app-shell { height: 480px; display: flex; overflow: hidden; border-radius: 8px; font-size: 13px; }
+  .sidebar { width: 200px; background: #1e1e2e; flex-shrink: 0; padding: 16px 0; }
+  .sidebar-logo { padding: 0 16px 16px; color: white; font-weight: 700; font-size: 14px; }
+  .sidebar-item { padding: 8px 16px; color: rgba(255,255,255,.6); cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 12px; }
+  .sidebar-item.active { background: rgba(196,58,49,.3); color: #f87171; font-weight: 600; }
+  .sidebar-item:hover { background: rgba(255,255,255,.05); color: rgba(255,255,255,.9); }
+  .sidebar-section { padding: 8px 16px 4px; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: rgba(255,255,255,.3); }
+  .main-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .topbar { height: 44px; background: var(--white); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 16px; gap: 8px; flex-shrink: 0; }
+  .content-area { flex: 1; overflow: auto; background: #f8fafc; }
+
+  /* ── Toolbar ── */
+  .toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: var(--white); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .toolbar-left { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+  .toolbar-right { display: flex; align-items: center; gap: 8px; }
+  .search-box { display: flex; border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; max-width: 260px; }
+  .search-input { padding: 5px 10px; border: none; font-size: 13px; color: var(--text); background: transparent; flex: 1; min-width: 0; }
+  .search-input::placeholder { color: var(--muted); }
+  .search-btn { padding: 5px 10px; background: var(--primary); color: white; border: none; font-size: 12px; cursor: pointer; }
+  .btn { display: inline-flex; align-items: center; gap: 4px; padding: 5px 12px; border-radius: var(--radius-sm); font-size: 12px; font-weight: 600; cursor: pointer; border: 1px solid var(--border-md); background: #f4f4f4; color: var(--text); }
+  .btn-primary { background: var(--primary); color: white; border-color: var(--primary); }
+  .btn-sm { padding: 3px 8px; font-size: 11px; }
+  .btn-ghost { background: transparent; border-color: transparent; }
+  .page-title { font-weight: 700; font-size: 15px; }
+  .breadcrumb { font-size: 12px; color: var(--muted); text-decoration: none; }
+
+  /* ── Grid table ── */
+  .data-grid { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
+  .data-grid th { position: sticky; top: 0; background: var(--white); padding: 6px 10px; text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); border-bottom: 2px solid var(--border); z-index: 5; white-space: nowrap; }
+  .data-grid td { padding: 6px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; vertical-align: middle; }
+  .data-grid tr:hover td { background: #f8fafc; }
+  .grid-wrap { overflow: auto; flex: 1; }
+
+  /* ── Status pills ── */
+  .pill { display: inline-block; padding: 2px 8px; border-radius: var(--radius-full); font-size: 11px; font-weight: 600; white-space: nowrap; }
+  .pill-planning { background: var(--status-planning-bg); color: var(--status-planning-fg); }
+  .pill-nomination { background: var(--status-nomination-bg); color: var(--status-nomination-fg); }
+  .pill-si { background: var(--status-si-bg); color: var(--status-si-fg); }
+  .pill-voyage { background: var(--status-voyage-bg); color: var(--status-voyage-fg); }
+  .cell-empty { color: #d4d4d8; }
+  .cell-edit { background: #f1f5f9; cursor: text; }
+  .cell-active { outline: 2px solid var(--primary); outline-offset: -2px; }
+
+  /* ── Status stepper ── */
+  .stepper { display: flex; align-items: center; gap: 0; padding: 16px 24px 12px; background: var(--white); border-bottom: 1px solid var(--border); }
+  .step { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1; position: relative; }
+  .step:not(:last-child)::after { content: ''; position: absolute; top: 12px; left: 50%; width: 100%; height: 2px; background: var(--border); z-index: 0; }
+  .step.done::after { background: var(--success); }
+  .step.active::after { background: linear-gradient(to right, var(--success), var(--border)); }
+  .step-dot { width: 24px; height: 24px; border-radius: 50%; background: var(--border); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: white; position: relative; z-index: 1; }
+  .step.done .step-dot { background: var(--success); }
+  .step.active .step-dot { background: var(--primary); }
+  .step-label { font-size: 10px; font-weight: 600; color: var(--muted); text-align: center; line-height: 1.2; }
+  .step.active .step-label { color: var(--primary); }
+  .step.done .step-label { color: var(--success); }
+
+  /* ── Detail sections ── */
+  .section-header { display: flex; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--border); margin-bottom: 16px; cursor: pointer; }
+  .section-h2 { font-size: 15px; font-weight: 700; flex: 1; }
+  .field-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-bottom: 12px; }
+  .field { display: flex; flex-direction: column; gap: 3px; }
+  .field-label { font-size: 11px; font-weight: 600; color: var(--muted); }
+  .field-input { padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 13px; background: var(--white); color: var(--text); }
+  .field-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px rgba(196,58,49,.12); }
+  .actions-row { display: flex; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+
+  /* ── Modal ── */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex; align-items: center; justify-content: center; z-index: 200; }
+  .modal { background: var(--white); border-radius: 10px; width: 420px; max-width: 90vw; box-shadow: 0 8px 32px rgba(0,0,0,.2); overflow: hidden; }
+  .modal-header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .modal-title { font-weight: 700; font-size: 15px; }
+  .modal-close { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 18px; line-height: 1; }
+  .modal-body { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+  .modal-footer { padding: 14px 20px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
+  .form-field { display: flex; flex-direction: column; gap: 4px; }
+  .form-label { font-size: 12px; font-weight: 600; color: var(--muted); }
+  .form-label.required::after { content: ' *'; color: var(--primary); }
+  .form-input { padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 13px; background: var(--white); color: var(--text); }
+  .form-input:focus { outline: none; border-color: var(--primary); }
+  .field-error { font-size: 11px; color: #dc2626; margin-top: 2px; }
+  .form-hint { font-size: 11px; color: var(--muted); }
+  .progress-steps { display: flex; gap: 4px; margin-bottom: 16px; }
+  .p-step { flex: 1; height: 3px; border-radius: 2px; background: var(--border); }
+  .p-step.done { background: var(--success); }
+  .p-step.active { background: var(--primary); }
+
+  /* ── Annotation overlays ── */
+  .annotated { position: relative; }
+  .annot-pin { position: absolute; background: #ef4444; color: white; font-size: 10px; font-weight: 700; width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 4px rgba(0,0,0,.3); cursor: default; z-index: 10; }
+  .annot-pin.fix { background: #16a34a; }
+  .annot-key { display: grid; grid-template-columns: 20px 1fr; gap: 8px; align-items: start; margin: 8px 0; font-size: 12px; }
+  .annot-num { width: 18px; height: 18px; border-radius: 50%; background: #ef4444; color: white; font-size: 10px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .annot-num.fix { background: #16a34a; }
+
+  /* ── Cards ── */
+  .card { background: var(--white); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+  .card + .card { margin-top: 12px; }
+
+  /* ── Recommendation cards ── */
+  .rec-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; margin-bottom: 32px; }
+  .rec-card { background: var(--white); border-radius: 8px; border: 1px solid var(--border); padding: 16px; box-shadow: 0 1px 4px rgba(0,0,0,.06); }
+  .rec-priority { display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: var(--radius-full); margin-bottom: 8px; text-transform: uppercase; letter-spacing: .05em; }
+  .p1 { background: #fee2e2; color: #991b1b; }
+  .p2 { background: #fef9c3; color: #713f12; }
+  .p3 { background: #e0f2fe; color: #0c4a6e; }
+  .rec-title { font-weight: 700; font-size: 13px; margin-bottom: 6px; }
+  .rec-body { font-size: 12px; color: var(--muted); line-height: 1.6; }
+  .rec-impact { display: flex; align-items: center; gap: 4px; margin-top: 8px; font-size: 11px; font-weight: 600; color: var(--success); }
+
+  /* ── Misc ── */
+  .divider { height: 1px; background: var(--border); margin: 24px 0; }
+  .tag { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 600; margin-right: 4px; }
+  .tag-new { background: #dbeafe; color: #1e40af; }
+  .tag-fix { background: #dcfce7; color: #15803d; }
+  .tag-remove { background: #fee2e2; color: #991b1b; }
+  .tag-enhance { background: #fef9c3; color: #92400e; }
+  summary { cursor: pointer; font-weight: 600; padding: 8px 0; list-style: none; display: flex; align-items: center; gap: 6px; }
+  details { border: 1px solid var(--border); border-radius: 6px; padding: 0 12px; margin-bottom: 8px; }
+  details[open] { padding-bottom: 12px; }
+  .chevron-icon { font-size: 12px; transition: transform .15s; }
+  details[open] .chevron-icon { transform: rotate(90deg); }
+  table.compare { width: 100%; border-collapse: collapse; font-size: 12px; }
+  table.compare th { background: #f8fafc; padding: 8px 12px; text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase; border: 1px solid var(--border); }
+  table.compare td { padding: 8px 12px; border: 1px solid var(--border); vertical-align: top; }
+  table.compare tr:hover td { background: #fafafa; }
+  .before-tag { color: #991b1b; font-weight: 700; font-size: 11px; }
+  .after-tag { color: #166534; font-weight: 700; font-size: 11px; }
+  .confirm-inline { display: flex; align-items: center; gap: 6px; background: #fef2f2; border: 1px solid #fca5a5; border-radius: 6px; padding: 6px 10px; font-size: 12px; }
+  .ci-actions { display: flex; gap: 6px; margin-top: 4px; }
+  .multi-tag { display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px; background: #f1f5f9; border-radius: var(--radius-full); font-size: 11px; font-weight: 600; color: var(--muted); cursor: pointer; }
+  .unsaved-bar { background: #fef3c7; border: 1px solid #fcd34d; border-radius: 6px; padding: 8px 12px; font-size: 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+  .status-event-row { display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+  .event-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--primary); flex-shrink: 0; margin-top: 3px; }
+  .event-text { font-size: 12px; color: var(--text); }
+  .event-meta { font-size: 11px; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <span class="nav-title">EOS — Export Bulking UX Review</span>
+  <a href="#overview" class="active">Overview</a>
+  <a href="#dashboard">Dashboard</a>
+  <a href="#list">List View</a>
+  <a href="#create">Create Modal</a>
+  <a href="#detail">Detail / Edit</a>
+  <a href="#recommendations">Recommendations</a>
+</div>
+
+<div class="page-wrap">
+
+  <!-- ══════════════════════════════════════════════ OVERVIEW ══ -->
+  <a name="overview"></a>
+  <h1 style="font-size:28px;font-weight:800;margin:8px 0 4px;">Export Bulking — UI/UX Review</h1>
+  <p style="color:var(--muted);margin-bottom:24px;">A complete analysis of the current UI with annotated issues and improved mockups.</p>
+
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:32px;">
+    <div class="card" style="border-left:4px solid #ef4444;">
+      <div style="font-size:24px;font-weight:800;color:#ef4444;">12</div>
+      <div style="font-size:12px;color:var(--muted);font-weight:600;">Critical Issues</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;">Blocking or confusing interactions</div>
+    </div>
+    <div class="card" style="border-left:4px solid #f59e0b;">
+      <div style="font-size:24px;font-weight:800;color:#f59e0b;">8</div>
+      <div style="font-size:12px;color:var(--muted);font-weight:600;">Enhancement Opportunities</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;">Quality-of-life improvements</div>
+    </div>
+    <div class="card" style="border-left:4px solid #3b82f6;">
+      <div style="font-size:24px;font-weight:800;color:#3b82f6;">5</div>
+      <div style="font-size:12px;color:var(--muted);font-weight:600;">Feature Gaps</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;">Missing functionality for operations</div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════ DASHBOARD ══ -->
+  <a name="dashboard"></a>
+  <div class="section-title">1. Export Dashboard</div>
+  <p class="section-subtitle">Current state is an empty placeholder. Below is a recommended design.</p>
+
+  <div class="compare-grid">
+    <div class="mock-card">
+      <div class="mock-card-header">
+        <span class="screen-label">Current</span>
+        <span class="issue-badge">Empty placeholder</span>
+      </div>
+      <div style="padding:24px;text-align:center;">
+        <div class="card" style="padding:32px;text-align:center;">
+          <p style="color:var(--muted);">Export dashboard is coming soon. Use <strong>Bulking</strong> from the sidebar.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="mock-card">
+      <div class="mock-card-header">
+        <span class="improvement-label">Recommended</span>
+        <span class="fix-badge">Operational overview added</span>
+      </div>
+      <div style="padding:16px;background:#f8fafc;">
+        <div style="font-size:16px;font-weight:700;margin-bottom:12px;">Export Dashboard</div>
+        <!-- KPI row -->
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px;">
+          <div class="card" style="padding:10px;text-align:center;">
+            <div style="font-size:22px;font-weight:800;color:var(--primary);">7</div>
+            <div style="font-size:11px;color:var(--muted);font-weight:600;">Active Shipments</div>
+          </div>
+          <div class="card" style="padding:10px;text-align:center;">
+            <div style="font-size:22px;font-weight:800;color:var(--info);">3</div>
+            <div style="font-size:11px;color:var(--muted);font-weight:600;">Pending Nomination</div>
+          </div>
+          <div class="card" style="padding:10px;text-align:center;">
+            <div style="font-size:22px;font-weight:800;color:var(--warning);">2</div>
+            <div style="font-size:11px;color:var(--muted);font-weight:600;">ETA This Week</div>
+          </div>
+          <div class="card" style="padding:10px;text-align:center;">
+            <div style="font-size:22px;font-weight:800;color:var(--success);">14</div>
+            <div style="font-size:11px;color:var(--muted);font-weight:600;">Completed (30d)</div>
+          </div>
+        </div>
+        <!-- Status breakdown -->
+        <div class="card" style="padding:12px;margin-bottom:8px;">
+          <div style="font-size:12px;font-weight:700;margin-bottom:8px;">Shipments by Status</div>
+          <div style="display:flex;flex-direction:column;gap:6px;">
+            <div style="display:flex;align-items:center;gap:8px;font-size:12px;">
+              <span class="pill pill-planning" style="width:120px;text-align:center;">Shipment Planning</span>
+              <div style="flex:1;height:8px;background:#f4f4f5;border-radius:4px;overflow:hidden;"><div style="width:40%;height:100%;background:#52525b;border-radius:4px;"></div></div>
+              <span style="color:var(--muted);font-size:11px;">2 shipments</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;font-size:12px;">
+              <span class="pill pill-nomination" style="width:120px;text-align:center;">Nomination</span>
+              <div style="flex:1;height:8px;background:#eff6ff;border-radius:4px;overflow:hidden;"><div style="width:60%;height:100%;background:#1d4ed8;border-radius:4px;"></div></div>
+              <span style="color:var(--muted);font-size:11px;">3 shipments</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;font-size:12px;">
+              <span class="pill pill-si" style="width:120px;text-align:center;">SI Receive</span>
+              <div style="flex:1;height:8px;background:#fffbeb;border-radius:4px;overflow:hidden;"><div style="width:20%;height:100%;background:#92400e;border-radius:4px;"></div></div>
+              <span style="color:var(--muted);font-size:11px;">1 shipment</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;font-size:12px;">
+              <span class="pill pill-voyage" style="width:120px;text-align:center;">Voyage Ops</span>
+              <div style="flex:1;height:8px;background:#f0fdf4;border-radius:4px;overflow:hidden;"><div style="width:20%;height:100%;background:#15803d;border-radius:4px;"></div></div>
+              <span style="color:var(--muted);font-size:11px;">1 shipment</span>
+            </div>
+          </div>
+        </div>
+        <!-- Quick actions -->
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-primary btn-sm">+ New Shipment</button>
+          <button class="btn btn-sm">View All Bulking →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════ LIST ══ -->
+  <a name="list"></a>
+  <div class="section-title">2. Bulking List View</div>
+  <p class="section-subtitle">The editable data grid. Numbers show issues; green pins show improvements.</p>
+
+  <!-- Current issues annotated -->
+  <div class="mock-card" style="margin-bottom:16px;">
+    <div class="mock-card-header">
+      <span class="screen-label">Current — Annotated Issues</span>
+    </div>
+    <div style="position:relative;">
+      <!-- Toolbar -->
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <a class="breadcrumb">← Export</a>
+          <span class="page-title">Bulking</span>
+          <div class="search-box">
+            <input class="search-input" placeholder="Search shipment, vessel, shipper…" />
+            <button class="search-btn">Search</button><!-- pin 1 -->
+          </div>
+          <!-- Pin 1: separate search button -->
+          <span class="annot-pin" style="position:relative;top:0;right:0;display:inline-flex;">1</span>
+        </div>
+        <div class="toolbar-right">
+          <button class="btn btn-sm">Clear filters</button>
+          <button class="btn btn-sm">Columns</button>
+          <button class="btn btn-sm">↻</button>
+          <button class="btn btn-primary btn-sm">+ New shipment</button>
+        </div>
+      </div>
+      <!-- Grid -->
+      <div style="overflow:auto;max-height:260px;">
+        <table class="data-grid">
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Vessel Name</th><!-- pin 2: no shipment no -->
+              <th>Voyage No.</th>
+              <th>Shipper</th>
+              <th>Total Qty</th>
+              <th>Desc. of Goods</th>
+              <th>Load Port</th>
+              <th>Destination</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="pill pill-planning">Shipment Planning</span></td>
+              <td class="cell-edit">MV GLORY</td>
+              <td class="cell-edit">V.001</td>
+              <td class="cell-edit">PT Shipper A</td>
+              <td class="cell-edit">50,000</td>
+              <td><span class="multi-tag">Coal <span style="background:#e2e8f0;border-radius:9999px;padding:0 4px;font-size:10px;">+2</span></span></td>
+              <td class="cell-edit">Tuban</td>
+              <td><span class="cell-empty">—</span></td>
+            </tr>
+            <tr>
+              <td><span class="pill pill-nomination">Nomination</span></td>
+              <td class="cell-edit">MV OCEAN</td>
+              <td class="cell-edit">V.012</td>
+              <td class="cell-edit">PT Shipper B</td>
+              <td class="cell-edit">25,000</td>
+              <td><span>Iron Ore</span></td>
+              <td class="cell-edit">Surabaya</td>
+              <td>Mumbai</td>
+            </tr>
+            <tr>
+              <td><span class="pill pill-si">SI Receive</span></td>
+              <td class="cell-edit">MV SUNRISE</td>
+              <td class="cell-edit">V.023</td>
+              <td class="cell-edit">PT Shipper C</td>
+              <td class="cell-edit">80,000</td>
+              <td><span class="cell-empty">—</span></td>
+              <td class="cell-edit">Muara Jawa</td>
+              <td><span class="multi-tag">Rotterdam <span style="background:#e2e8f0;border-radius:9999px;padding:0 4px;font-size:10px;">+1</span></span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="toolbar" style="justify-content:space-between;">
+        <button class="btn btn-sm">Previous</button>
+        <span style="font-size:12px;color:var(--muted);">Page 1 of 3 (68 total)</span>
+        <button class="btn btn-sm">Next</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Issue key -->
+  <div class="card" style="margin-bottom:16px;background:#fef2f2;border-color:#fca5a5;">
+    <div style="font-weight:700;font-size:13px;margin-bottom:8px;color:#991b1b;">Issues Found in List View</div>
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px;">
+      <div class="annot-key"><span class="annot-num">1</span><span>Separate <strong>Search button</strong> — should be live search with debounce</span></div>
+      <div class="annot-key"><span class="annot-num">2</span><span><strong>Shipment No.</strong> column is missing — can't identify records without clicking in</span></div>
+      <div class="annot-key"><span class="annot-num">3</span><span>No <strong>key date columns</strong> (ETA, ETB, TD) — scheduling context is hidden</span></div>
+      <div class="annot-key"><span class="annot-num">4</span><span><strong>Click vs double-click</strong> inconsistency — single click navigates non-editable, but activates editable</span></div>
+      <div class="annot-key"><span class="annot-num">5</span><span>No <strong>row count indicator</strong> per status — can't see at-a-glance distribution</span></div>
+      <div class="annot-key"><span class="annot-num">6</span><span>No <strong>ETA sorting or date range filter</strong> — important for operations scheduling</span></div>
+    </div>
+  </div>
+
+  <!-- Improved list -->
+  <div class="mock-card" style="margin-bottom:8px;">
+    <div class="mock-card-header">
+      <span class="improvement-label">Recommended — Improved List</span>
+    </div>
+    <!-- Improved toolbar -->
+    <div class="toolbar">
+      <div class="toolbar-left">
+        <a class="breadcrumb">← Export</a>
+        <span class="page-title">Bulking</span>
+        <!-- Live search with debounce label -->
+        <div class="search-box" style="max-width:280px;border-radius:6px;">
+          <span style="padding:5px 8px;color:var(--muted);">🔍</span>
+          <input class="search-input" placeholder="Search…  (live, debounced)" style="font-size:12px;" />
+          <!-- NO separate submit button -->
+        </div>
+        <!-- Quick status filter pills -->
+        <span class="pill pill-planning" style="cursor:pointer;font-size:11px;">Planning <strong>2</strong></span>
+        <span class="pill pill-nomination" style="cursor:pointer;font-size:11px;border:2px solid #1d4ed8;">Nomination <strong>3</strong></span>
+        <span class="pill pill-si" style="cursor:pointer;font-size:11px;">SI Recv <strong>1</strong></span>
+        <span class="pill pill-voyage" style="cursor:pointer;font-size:11px;">Voyage <strong>1</strong></span>
+      </div>
+      <div class="toolbar-right">
+        <button class="btn btn-sm" style="gap:4px;">📅 Date range</button>
+        <button class="btn btn-sm">Columns</button>
+        <button class="btn btn-sm">↻</button>
+        <button class="btn btn-primary btn-sm">+ New shipment</button>
+      </div>
+    </div>
+    <div style="overflow:auto;max-height:240px;">
+      <table class="data-grid">
+        <thead>
+          <tr>
+            <th style="width:80px;">Shipment No <span style="font-size:10px;color:var(--primary);">NEW</span></th>
+            <th>Status</th>
+            <th>Vessel Name</th>
+            <th>Voyage No.</th>
+            <th>Shipper</th>
+            <th style="color:var(--primary);">ETA ↑ <span style="font-size:10px;">NEW</span></th>
+            <th>Total Qty</th>
+            <th>Load Port</th>
+            <th>Destination</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="font-weight:600;color:var(--primary);">EBS-2024-001</td>
+            <td><span class="pill pill-nomination">Nomination</span></td>
+            <td class="cell-edit">MV OCEAN</td>
+            <td class="cell-edit">V.012</td>
+            <td class="cell-edit">PT Shipper B</td>
+            <td style="color:var(--warning);font-weight:600;">May 17</td>
+            <td class="cell-edit">25,000</td>
+            <td class="cell-edit">Surabaya</td>
+            <td>Mumbai</td>
+          </tr>
+          <tr>
+            <td style="font-weight:600;color:var(--primary);">EBS-2024-002</td>
+            <td><span class="pill pill-planning">Shipment Planning</span></td>
+            <td class="cell-edit">MV GLORY</td>
+            <td class="cell-edit">V.001</td>
+            <td class="cell-edit">PT Shipper A</td>
+            <td style="color:var(--muted);">May 24</td>
+            <td class="cell-edit">50,000</td>
+            <td class="cell-edit">Tuban</td>
+            <td><span class="multi-tag">Coal <span style="background:#e2e8f0;border-radius:9999px;padding:0 4px;font-size:10px;">+2</span></span></td>
+          </tr>
+          <tr>
+            <td style="font-weight:600;color:var(--primary);">EBS-2024-003</td>
+            <td><span class="pill pill-si">SI Receive</span></td>
+            <td class="cell-edit">MV SUNRISE</td>
+            <td class="cell-edit">V.023</td>
+            <td class="cell-edit">PT Shipper C</td>
+            <td style="color:var(--success);font-weight:600;">Jun 02</td>
+            <td class="cell-edit">80,000</td>
+            <td class="cell-edit">Muara Jawa</td>
+            <td><span class="multi-tag">Rotterdam <span style="background:#e2e8f0;border-radius:9999px;padding:0 4px;font-size:10px;">+1</span></span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="toolbar" style="justify-content:space-between;">
+      <button class="btn btn-sm">← Previous</button>
+      <span style="font-size:12px;color:var(--muted);">Page 1 of 3 · <strong>68</strong> shipments</span>
+      <button class="btn btn-sm">Next →</button>
+    </div>
+  </div>
+  <div class="card" style="margin-bottom:24px;background:#f0fdf4;border-color:#86efac;">
+    <div style="font-weight:700;font-size:13px;margin-bottom:8px;color:#166534;">Improvements Applied</div>
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px;">
+      <div class="annot-key"><span class="annot-num fix">✓</span><span>Live search input — no button, debounced 400ms</span></div>
+      <div class="annot-key"><span class="annot-num fix">✓</span><span>Shipment No. column added as first column</span></div>
+      <div class="annot-key"><span class="annot-num fix">✓</span><span>ETA column with date-sorted by default (soonest first)</span></div>
+      <div class="annot-key"><span class="annot-num fix">✓</span><span>Quick status filter pills in toolbar with count badges</span></div>
+      <div class="annot-key"><span class="annot-num fix">✓</span><span>Date range filter button for ETA/ETB/TD ranges</span></div>
+      <div class="annot-key"><span class="annot-num fix">✓</span><span>ETA color-coded: orange = this week, green = future, red = overdue</span></div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════ CREATE MODAL ══ -->
+  <a name="create"></a>
+  <div class="section-title">3. Create Shipment Modal</div>
+  <p class="section-subtitle">Comparison of current vs improved create modal.</p>
+
+  <div class="compare-grid">
+    <!-- Current modal -->
+    <div class="mock-card">
+      <div class="mock-card-header">
+        <span class="screen-label">Current</span>
+        <span class="issue-badge">3 UX problems</span>
+      </div>
+      <div style="padding:12px;">
+        <div class="modal" style="position:relative;width:100%;max-width:100%;box-shadow:none;border:1px solid var(--border);">
+          <div class="modal-header">
+            <span class="modal-title">New Export Shipment</span>
+            <button class="modal-close">✕</button>
+          </div>
+          <div class="modal-body" style="padding:16px;">
+            <!-- No progress indicator -->
+            <div class="form-field">
+              <label class="form-label required">Vessel name</label>
+              <input class="form-input" value="" style="border-color:#ef4444;" />
+              <!-- Issue: error shown only at top as concatenated string -->
+            </div>
+            <div class="form-field">
+              <label class="form-label required">Voyage number</label>
+              <input class="form-input" value="V.001" />
+            </div>
+            <div class="form-field">
+              <label class="form-label required">Shipper</label>
+              <div style="border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:13px;color:var(--muted);">Select shipper… ▾</div>
+            </div>
+            <div class="form-field">
+              <label class="form-label required">Load port</label>
+              <div style="border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:13px;color:var(--muted);opacity:.5;">Select a shipper first… ▾</div>
+              <span class="annotation">⚠ window.confirm() used for creating new port</span>
+            </div>
+            <div class="form-field">
+              <label class="form-label required">Total quantity</label>
+              <input class="form-input" value="" placeholder="0" />
+            </div>
+            <!-- Concatenated error -->
+            <p style="color:#dc2626;font-size:12px;background:#fef2f2;padding:8px;border-radius:6px;">Vessel name is required. Total quantity must be greater than 0.</p>
+          </div>
+          <div class="modal-footer">
+            <button class="btn">Cancel</button>
+            <button class="btn btn-primary">Create shipment</button>
+          </div>
+        </div>
+        <div style="margin-top:12px;">
+          <div class="annot-key"><span class="annot-num">A</span><span>All validation errors merged into one paragraph — no per-field indication</span></div>
+          <div class="annot-key"><span class="annot-num">B</span><span><code>window.confirm()</code> for "Add new load port" — browser native dialog, no styling</span></div>
+          <div class="annot-key"><span class="annot-num">C</span><span>No progress step / context — user doesn't know what happens next after creation</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Improved modal -->
+    <div class="mock-card">
+      <div class="mock-card-header">
+        <span class="improvement-label">Recommended</span>
+        <span class="fix-badge">All 3 issues resolved</span>
+      </div>
+      <div style="padding:12px;">
+        <div class="modal" style="position:relative;width:100%;max-width:100%;box-shadow:none;border:1px solid var(--border);">
+          <div class="modal-header">
+            <span class="modal-title">New Export Shipment</span>
+            <button class="modal-close">✕</button>
+          </div>
+          <div class="modal-body" style="padding:16px;">
+            <!-- Progress steps -->
+            <div style="margin-bottom:12px;">
+              <div style="font-size:11px;color:var(--muted);margin-bottom:4px;">Step 1 of 1 — Basic Information</div>
+              <div class="progress-steps"><div class="p-step active"></div><div class="p-step"></div><div class="p-step"></div><div class="p-step"></div></div>
+              <div style="font-size:11px;color:var(--muted);">After creating, you'll be taken to the shipment detail to fill in dates, cargo lines, and documents.</div>
+            </div>
+
+            <div class="form-field">
+              <label class="form-label required">Vessel name</label>
+              <input class="form-input" value="" style="border-color:#ef4444;" />
+              <span class="field-error">Vessel name is required</span>
+            </div>
+            <div class="form-field">
+              <label class="form-label required">Voyage number</label>
+              <input class="form-input" value="V.001" />
+            </div>
+            <div class="form-field">
+              <label class="form-label required">Shipper</label>
+              <div style="border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:13px;color:var(--text);">PT Shipper A ▾</div>
+            </div>
+            <div class="form-field">
+              <label class="form-label required">Load port</label>
+              <div style="border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:13px;color:var(--text);">Tuban ▾</div>
+              <!-- Inline confirm instead of window.confirm -->
+              <div class="confirm-inline" style="margin-top:4px;">
+                <span>Add <strong>"Muara Jawa"</strong> as a new port for PT Shipper A?</span>
+                <div class="ci-actions">
+                  <button class="btn btn-primary btn-sm">Add port</button>
+                  <button class="btn btn-sm">Cancel</button>
+                </div>
+              </div>
+            </div>
+            <div class="form-field">
+              <label class="form-label required">Total quantity (MT)</label>
+              <input class="form-input" value="50,000" placeholder="0" />
+              <span class="form-hint">Enter metric tonnes. Use numbers only.</span>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn">Cancel</button>
+            <button class="btn btn-primary">Create &amp; Open →</button>
+          </div>
+        </div>
+        <div style="margin-top:12px;">
+          <div class="annot-key"><span class="annot-num fix">✓</span><span>Per-field error messages directly below each invalid input</span></div>
+          <div class="annot-key"><span class="annot-num fix">✓</span><span>Inline confirmation card replaces <code>window.confirm()</code></span></div>
+          <div class="annot-key"><span class="annot-num fix">✓</span><span>Progress step + context message sets expectations for next steps</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════ DETAIL PAGE ══ -->
+  <a name="detail"></a>
+  <div class="section-title">4. Shipment Detail / Edit Page</div>
+  <p class="section-subtitle">The most complex screen — 6 collapsible sections, multiple save buttons, no workflow stepper.</p>
+
+  <!-- Current issues -->
+  <div class="mock-card" style="margin-bottom:16px;">
+    <div class="mock-card-header">
+      <span class="screen-label">Current — Issues</span>
+    </div>
+    <div style="padding:16px;">
+      <div class="card" style="background:#fef2f2;border-color:#fca5a5;margin-bottom:12px;">
+        <div style="font-weight:700;font-size:13px;margin-bottom:10px;color:#991b1b;">Critical Problems Found</div>
+        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;">
+          <div class="annot-key"><span class="annot-num">1</span><span><strong>6 separate Save buttons</strong> (one per section). Users regularly forget to save after editing a section.</span></div>
+          <div class="annot-key"><span class="annot-num">2</span><span><strong>No status workflow stepper</strong> — just an "Advance to X" button. Users don't see the full path.</span></div>
+          <div class="annot-key"><span class="annot-num">3</span><span><strong>window.confirm() for all deletes</strong> — SI, Invoice, Packing List all use browser confirm dialogs.</span></div>
+          <div class="annot-key"><span class="annot-num">4</span><span><strong>No unsaved changes warning</strong> — navigating away silently discards edits.</span></div>
+          <div class="annot-key"><span class="annot-num">5</span><span><strong>Section titles at 24px h2</strong> — too large for a dense detail form. Should be ~15px.</span></div>
+          <div class="annot-key"><span class="annot-num">6</span><span><strong>Nomination section has 12 datetime-local fields</strong> — overwhelming, no logical grouping.</span></div>
+          <div class="annot-key"><span class="annot-num">7</span><span><strong>Status history not shown</strong> — API supports it (`/status-events`) but UI doesn't display it.</span></div>
+          <div class="annot-key"><span class="annot-num">8</span><span><strong>Remarks field missing</strong> from General Information section (exists in DB, not rendered).</span></div>
+          <div class="annot-key"><span class="annot-num">9</span><span><strong>SI/Invoice/PL lines are read-only</strong> — cargo_line_id FK exists but UI doesn't let users link them.</span></div>
+          <div class="annot-key"><span class="annot-num">10</span><span><strong>formatDayMonthYear import is unused</strong> — dead import in ExportBulkingDetail.tsx.</span></div>
+        </div>
+      </div>
+
+      <!-- Mock current detail header -->
+      <div style="background:var(--white);border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+        <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;">
+          <span style="color:var(--muted);font-size:12px;">← Bulking</span>
+          <span style="font-weight:700;font-size:16px;">EBS-2024-001</span>
+          <span class="pill pill-nomination">Nomination</span>
+        </div>
+        <!-- Status bar with just one button -->
+        <div style="padding:10px 16px;background:#f8fafc;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;">
+          <span style="font-size:12px;color:var(--muted);">Current status: <strong>Nomination</strong></span>
+          <button class="btn btn-primary btn-sm">Advance to SI Receive</button>
+          <span class="annotation">No workflow visibility — just one "next step" button</span>
+        </div>
+        <!-- Section A (too large title) -->
+        <div style="padding:12px 16px;">
+          <div class="section-header" style="margin-bottom:8px;">
+            <span style="font-size:10px;color:var(--muted);">▶</span>
+            <span style="font-size:24px;font-weight:600;">General Information</span>
+            <span class="annotation" style="margin-left:auto;">⚠ 24px h2 — too large</span>
+          </div>
+          <div style="font-size:12px;color:var(--muted);">... vessel name, voyage, shipper, loadport fields ...</div>
+          <div style="margin-top:8px;"><button class="btn btn-primary btn-sm">Save General Info</button> <span class="annotation">⚠ Section-level save #1 of 6</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Improved detail -->
+  <div class="mock-card" style="margin-bottom:8px;">
+    <div class="mock-card-header">
+      <span class="improvement-label">Recommended — Improved Detail</span>
+    </div>
+    <div style="font-size:13px;">
+      <!-- Topbar with breadcrumb -->
+      <div class="topbar" style="height:auto;padding:8px 16px;gap:8px;">
+        <span style="font-size:12px;color:var(--muted);">Export</span>
+        <span style="color:var(--muted);">/</span>
+        <span style="font-size:12px;color:var(--muted);">Bulking</span>
+        <span style="color:var(--muted);">/</span>
+        <span style="font-weight:700;">EBS-2024-001</span>
+        <span class="pill pill-nomination" style="margin-left:4px;">Nomination</span>
+        <div style="flex:1;"></div>
+        <!-- Single Save All button -->
+        <div class="unsaved-bar" style="margin:0;padding:4px 10px;">
+          <span>⚠ Unsaved changes in <strong>Nomination</strong></span>
+          <button class="btn btn-primary btn-sm">Save All</button>
+        </div>
+      </div>
+
+      <!-- Status stepper — NEW -->
+      <div class="stepper">
+        <div class="step done">
+          <div class="step-dot">✓</div>
+          <div class="step-label">Shipment<br>Planning</div>
+        </div>
+        <div class="step active">
+          <div class="step-dot">2</div>
+          <div class="step-label">Nomination</div>
+        </div>
+        <div class="step">
+          <div class="step-dot">3</div>
+          <div class="step-label">SI Receive</div>
+        </div>
+        <div class="step">
+          <div class="step-dot">4</div>
+          <div class="step-label">Voyage Ops</div>
+        </div>
+        <div style="margin-left:12px;">
+          <button class="btn btn-primary btn-sm">→ Advance to SI Receive</button>
+        </div>
+      </div>
+
+      <!-- Main content -->
+      <div style="padding:16px;display:grid;grid-template-columns:1fr 300px;gap:16px;background:#f8fafc;max-height:460px;overflow:auto;">
+        <!-- Left column: sections -->
+        <div>
+          <!-- A. General Info (smaller title) -->
+          <div class="card" style="margin-bottom:12px;">
+            <div class="section-header">
+              <span style="color:var(--muted);">▾</span>
+              <span class="section-h2">A. General Information</span>
+              <span class="tag tag-fix" style="font-size:10px;">15px title</span>
+            </div>
+            <div class="field-grid">
+              <div class="field"><label class="field-label">Vessel Name</label><input class="field-input" value="MV OCEAN" /></div>
+              <div class="field"><label class="field-label">Voyage Number</label><input class="field-input" value="V.012" /></div>
+              <div class="field"><label class="field-label">Shipper</label><div style="border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:13px;">PT Shipper B ▾</div></div>
+              <div class="field"><label class="field-label">Load Port</label><div style="border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:13px;">Surabaya ▾</div></div>
+              <div class="field" style="grid-column:span 2"><label class="field-label">Remarks</label><textarea class="field-input" rows="2" style="resize:vertical;">—</textarea> <span class="tag tag-fix" style="font-size:10px;">Previously missing</span></div>
+            </div>
+          </div>
+
+          <!-- B. Nomination (grouped dates) -->
+          <div class="card" style="margin-bottom:12px;">
+            <div class="section-header">
+              <span style="color:var(--muted);">▾</span>
+              <span class="section-h2">B. Nomination</span>
+            </div>
+            <!-- Grouped sub-sections -->
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:6px;">Document Dates</div>
+            <div class="field-grid" style="margin-bottom:12px;">
+              <div class="field"><label class="field-label">Received Nomination</label><input type="date" class="field-input" value="2024-05-10" /></div>
+              <div class="field"><label class="field-label">Received SI</label><input type="date" class="field-input" /></div>
+            </div>
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:6px;">Vessel Schedule</div>
+            <div class="field-grid" style="margin-bottom:12px;">
+              <div class="field"><label class="field-label">ETA</label><input type="date" class="field-input" value="2024-05-17" /></div>
+              <div class="field"><label class="field-label">ATA</label><input type="date" class="field-input" /></div>
+              <div class="field"><label class="field-label">ETB</label><input type="date" class="field-input" /></div>
+              <div class="field"><label class="field-label">ATB</label><input type="date" class="field-input" /></div>
+            </div>
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:6px;">Loading</div>
+            <div class="field-grid">
+              <div class="field"><label class="field-label">Commence Loading</label><input type="date" class="field-input" /></div>
+              <div class="field"><label class="field-label">ETC</label><input type="date" class="field-input" /></div>
+              <div class="field"><label class="field-label">ATC</label><input type="date" class="field-input" /></div>
+              <div class="field"><label class="field-label">Time of Departure</label><input type="date" class="field-input" /></div>
+            </div>
+            <span class="tag tag-fix" style="font-size:10px;">12 date fields now grouped into 3 logical sub-sections</span>
+          </div>
+
+          <!-- D. SI with inline delete confirm -->
+          <div class="card" style="margin-bottom:12px;">
+            <div class="section-header" style="margin-bottom:0;">
+              <span style="color:var(--muted);">▾</span>
+              <span class="section-h2">D. Shipping Instructions</span>
+              <button class="btn btn-sm" style="margin-left:auto;">+ Add SI</button>
+            </div>
+            <div style="margin-top:12px;border:1px solid var(--border);border-radius:6px;overflow:hidden;">
+              <div style="background:#fafafa;padding:10px 12px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border);">
+                <span style="color:var(--muted);">▾</span>
+                <span style="font-weight:600;">SI: SI-2024-001</span>
+                <span style="display:inline-block;padding:2px 6px;background:#f0f0f0;border-radius:9999px;font-size:11px;font-weight:500;">DRAFT</span>
+                <div style="flex:1;"></div>
+                <!-- Inline delete confirm instead of window.confirm -->
+                <div style="display:flex;gap:4px;align-items:center;background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;padding:4px 8px;font-size:11px;">
+                  <span>Delete SI?</span>
+                  <button class="btn btn-sm" style="background:#dc2626;color:white;border-color:#dc2626;padding:2px 6px;">Yes, delete</button>
+                  <button class="btn btn-sm" style="padding:2px 6px;">Cancel</button>
+                </div>
+                <span class="tag tag-fix" style="font-size:10px;">Inline confirm, not window.confirm()</span>
+              </div>
+              <div style="padding:12px;">
+                <div class="field-grid">
+                  <div class="field"><label class="field-label">SI Number</label><input class="field-input" value="SI-2024-001" /></div>
+                  <div class="field"><label class="field-label">B/L Option</label><input class="field-input" value="3 OBL" /></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right sidebar: status history + summary -->
+        <div>
+          <!-- Status history panel — NEW -->
+          <div class="card" style="margin-bottom:12px;">
+            <div style="font-weight:700;font-size:12px;margin-bottom:10px;display:flex;align-items:center;gap:6px;">
+              📋 Status History
+              <span class="tag tag-new" style="font-size:10px;">NEW</span>
+            </div>
+            <div class="status-event-row">
+              <div class="event-dot" style="background:var(--info);"></div>
+              <div><div class="event-text">→ <strong>Nomination</strong></div><div class="event-meta">admin · May 12, 10:30</div></div>
+            </div>
+            <div class="status-event-row">
+              <div class="event-dot" style="background:#52525b;"></div>
+              <div><div class="event-text">→ <strong>Shipment Planning</strong></div><div class="event-meta">admin · May 10, 09:00</div></div>
+            </div>
+            <div class="status-event-row" style="border:none;">
+              <div class="event-dot" style="background:#d4d4d8;"></div>
+              <div><div class="event-text" style="color:var(--muted);">Created</div><div class="event-meta">admin · May 10, 08:45</div></div>
+            </div>
+          </div>
+
+          <!-- Quick summary card -->
+          <div class="card">
+            <div style="font-weight:700;font-size:12px;margin-bottom:10px;">Summary</div>
+            <div style="display:flex;flex-direction:column;gap:6px;font-size:12px;">
+              <div style="display:flex;justify-content:space-between;"><span style="color:var(--muted);">Cargo Lines</span><strong>3</strong></div>
+              <div style="display:flex;justify-content:space-between;"><span style="color:var(--muted);">Total Quantity</span><strong>25,000 MT</strong></div>
+              <div style="display:flex;justify-content:space-between;"><span style="color:var(--muted);">SI Documents</span><strong>1 (draft)</strong></div>
+              <div style="display:flex;justify-content:space-between;"><span style="color:var(--muted);">Invoices</span><strong>0</strong></div>
+              <div style="display:flex;justify-content:space-between;"><span style="color:var(--muted);">Packing Lists</span><strong>0</strong></div>
+              <div style="border-top:1px solid var(--border);margin-top:4px;padding-top:6px;display:flex;justify-content:space-between;"><span style="color:var(--muted);">ETA</span><strong style="color:var(--warning);">May 17 (2d)</strong></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Single save all bar at bottom -->
+      <div style="padding:10px 16px;background:var(--white);border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
+        <span style="font-size:12px;color:var(--muted);">Auto-saves when you navigate away · or save manually</span>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-sm">Discard changes</button>
+          <button class="btn btn-primary">Save All Changes</button>
+          <span class="tag tag-fix" style="font-size:10px;">1 Save All replaces 6 Save buttons</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════ RECOMMENDATIONS ══ -->
+  <a name="recommendations"></a>
+  <div class="section-title">5. Full Recommendations</div>
+  <p class="section-subtitle">Prioritized by impact vs effort. P1 = critical, P2 = important, P3 = nice-to-have.</p>
+
+  <div class="rec-grid">
+    <div class="rec-card">
+      <span class="rec-priority p1">P1 — Critical</span>
+      <div class="rec-title">Replace all window.confirm() dialogs</div>
+      <div class="rec-body">3 locations use browser-native confirm dialogs: add loadport, delete SI, delete Invoice, delete Packing List. These are unstyled, blocking, and break the app's design language. Replace with inline confirmation cards or a styled confirmation modal.</div>
+      <div class="rec-impact">⚡ High impact · Low effort · <span class="tag tag-fix" style="font-size:10px;">3 files</span></div>
+    </div>
+
+    <div class="rec-card">
+      <span class="rec-priority p1">P1 — Critical</span>
+      <div class="rec-title">Unify Save: "Save All" instead of 6 section saves</div>
+      <div class="rec-body">Currently each of the 6 sections (General, Nomination, Cargo, SI, Invoice, PL) has its own Save button. Users routinely forget to save sections. Replace with: (1) a sticky "Save All" button at the bottom/top, and (2) an "unsaved changes" indicator on modified sections.</div>
+      <div class="rec-impact">⚡ High impact · Medium effort · <span class="tag tag-fix" style="font-size:10px;">ExportBulkingDetail.tsx</span></div>
+    </div>
+
+    <div class="rec-card">
+      <span class="rec-priority p1">P1 — Critical</span>
+      <div class="rec-title">Add Status Workflow Stepper</div>
+      <div class="rec-body">The 4-step workflow (Shipment Planning → Nomination → SI Receive → Voyage Operations) is invisible to users. Add a horizontal stepper at the top of the detail page showing completed/current/upcoming steps. The "Advance" button should be next to the stepper, not in a separate status bar.</div>
+      <div class="rec-impact">⚡ High impact · Low effort · CSS + JSX only</div>
+    </div>
+
+    <div class="rec-card">
+      <span class="rec-priority p1">P1 — Critical</span>
+      <div class="rec-title">Add Shipment No. &amp; ETA to List Grid</div>
+      <div class="rec-body">The list grid is missing the shipment number column (EBS-YYYY-NNN) — users can't identify records without clicking in. Add it as the first column. Also add ETA column sorted by default (soonest first), color-coded: red=overdue, orange=this week, green=future.</div>
+      <div class="rec-impact">⚡ High impact · Low effort · <span class="tag tag-fix" style="font-size:10px;">ExportBulkingList.tsx</span></div>
+    </div>
+
+    <div class="rec-card">
+      <span class="rec-priority p1">P1 — Critical</span>
+      <div class="rec-title">Per-field Validation Errors in Create Modal</div>
+      <div class="rec-body">Currently all validation errors are concatenated into a single paragraph at the bottom of the form. This makes it hard to identify which field needs fixing. Display inline errors directly below each invalid field immediately after attempting submission.</div>
+      <div class="rec-impact">⚡ Medium impact · Low effort · <span class="tag tag-fix" style="font-size:10px;">CreateShipmentModal</span></div>
+    </div>
+
+    <div class="rec-card">
+      <span class="rec-priority p1">P1 — Critical</span>
+      <div class="rec-title">Show Status History (Audit Trail)</div>
+      <div class="rec-body">The backend already has <code>/shipments/:id/status-events</code> returning full audit trail. The frontend never calls it. Add a "Status History" sidebar panel on the detail page showing who changed the status and when. This is especially important for compliance.</div>
+      <div class="rec-impact">⚡ High impact · Low effort · API already exists</div>
+    </div>
+
+    <div class="rec-card">
+      <span class="rec-priority p2">P2 — Important</span>
+      <div class="rec-title">Group Nomination Date Fields</div>
+      <div class="rec-body">The Nomination section shows 12 date-time fields in a flat grid — overwhelming. Group them into 3 logical sub-sections: "Document Dates" (received nom, received SI), "Vessel Schedule" (ETA/ATA/ETB/ATB), and "Loading Operations" (commence, ETC, ATC, TD). Use <code>date</code> inputs instead of <code>datetime-local</code> where time isn't needed.</div>
+      <div class="rec-impact">🔸 Medium impact · Low effort</div>
+    </div>
+
+    <div class="rec-card">
+      <span class="rec-priority p2">P2 — Important</span>
+      <div class="rec-title">Live Search in List (Remove Search Button)</div>
+      <div class="rec-body">The list page requires clicking a "Search" button to execute the search. Replace with a live search input that debounces after 400ms. The search icon is enough affordance; a separate submit button creates friction and is not standard web UX today.</div>
+      <div class="rec-impact">🔸 Medium impact · Low effort</div>
+    </div>
+
+    <div class="rec-card">
+      <span class="rec-priority p2">P2 — Important</span>
+      <div class="rec-title">Unsaved Changes Navigation Guard</div>
+      <div class="rec-body">Currently, navigating away from the detail page silently discards all edited but unsaved fields. Add a <code>beforeunload</code> event and a Next.js route change listener that warns the user with an inline banner ("You have unsaved changes") before they leave.</div>
+      <div class="rec-impact">🔸 High impact · Medium effort</div>
+    </div>
+
+    <div class="rec-card">
+      <span class="rec-priority p2">P2 — Important</span>
+      <div class="rec-title">Export Dashboard with KPIs</div>
+      <div class="rec-body">The export dashboard is currently an empty "coming soon" placeholder. At minimum add: total active shipments KPI cards (by status), a list of upcoming ETAs this week, and quick-action buttons. The backend already has the data; this is a pure frontend addition.</div>
+      <div class="rec-impact">🔸 High impact · Medium effort · <span class="tag tag-fix" style="font-size:10px;">dashboard/page.tsx</span></div>
+    </div>
+
+    <div class="rec-card">
+      <span class="rec-priority p2">P2 — Important</span>
+      <div class="rec-title">Add Remarks Field to General Information</div>
+      <div class="rec-body">The <code>remarks</code> field exists in the database schema and <code>UpdateExportBulkingShipmentDto</code>, but it's completely missing from the General Information section UI. Add a full-width textarea for remarks in the GeneralSection component.</div>
+      <div class="rec-impact">🔸 Medium impact · Very low effort · 5 lines of code</div>
+    </div>
+
+    <div class="rec-card">
+      <span class="rec-priority p2">P2 — Important</span>
+      <div class="rec-title">Quick Status Filter Pills in Toolbar</div>
+      <div class="rec-body">Instead of (or in addition to) the column filter dropdown, show clickable status count pills in the toolbar (e.g., "Planning 2 · Nomination 3"). This is much faster for users who want to filter by a single status — one click instead of opening a dropdown, selecting, and closing.</div>
+      <div class="rec-impact">🔸 Medium impact · Low effort</div>
+    </div>
+
+    <div class="rec-card">
+      <span class="rec-priority p3">P3 — Enhancement</span>
+      <div class="rec-title">Link Cargo Lines to Document Lines (SI/Invoice/PL)</div>
+      <div class="rec-body">The database has <code>cargo_line_id</code> FK in all document line tables (SI lines, invoice lines, packing list lines). The UI never exposes this relationship. Add a dropdown in each document line to select the linked cargo line. This enables auto-fill of description/quantity from the cargo line.</div>
+      <div class="rec-impact">🔹 High impact · High effort</div>
+    </div>
+
+    <div class="rec-card">
+      <span class="rec-priority p3">P3 — Enhancement</span>
+      <div class="rec-title">Document Status Workflow (DRAFT → CONFIRMED)</div>
+      <div class="rec-body">SI, Invoice, and Packing List all have a <code>status</code> field (currently always "DRAFT"). Add status progression buttons for these sub-documents and visually distinguish DRAFT vs CONFIRMED/SUBMITTED with different badge colors.</div>
+      <div class="rec-impact">🔹 Medium impact · Medium effort</div>
+    </div>
+
+    <div class="rec-card">
+      <span class="rec-priority p3">P3 — Enhancement</span>
+      <div class="rec-title">Keyboard Shortcut: Ctrl+S to Save</div>
+      <div class="rec-body">Power users editing the detail page will expect Ctrl+S (or Cmd+S) to save. Add a <code>keydown</code> listener to the detail page that triggers "Save All". Also show the shortcut hint in the save button tooltip.</div>
+      <div class="rec-impact">🔹 Medium impact · Very low effort</div>
+    </div>
+
+    <div class="rec-card">
+      <span class="rec-priority p3">P3 — Enhancement</span>
+      <div class="rec-title">Reduce Section Title Size</div>
+      <div class="rec-body">Section titles in the detail page use <code>var(--typography-fontSize-h3, 24px)</code> which is excessively large for a dense data form. Reduce to 15px with a left border accent (like a tab heading) to maintain hierarchy while reducing visual noise. Already fixed in the improvement mockup above.</div>
+      <div class="rec-impact">🔹 Low impact · 1-line CSS fix</div>
+    </div>
+
+    <div class="rec-card">
+      <span class="rec-priority p3">P3 — Enhancement</span>
+      <div class="rec-title">Remove Dead Import (formatDayMonthYear)</div>
+      <div class="rec-body"><code>formatDayMonthYear</code> is imported in <code>ExportBulkingDetail.tsx</code> but never used. Remove the dead import. This is a code quality / linting fix — may cause a build warning.</div>
+      <div class="rec-impact">🔹 Code quality · 1-line fix</div>
+    </div>
+  </div>
+
+  <!-- ── Summary table ── -->
+  <div class="section-title" style="margin-top:32px;">6. Before / After Summary</div>
+  <table class="compare" style="margin-bottom:48px;">
+    <thead>
+      <tr><th>Feature</th><th>Before</th><th>After (Recommended)</th><th>Priority</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Export Dashboard</td><td class="before-tag">Empty placeholder</td><td class="after-tag">KPI cards + status breakdown + quick actions</td><td><span class="rec-priority p1">P1</span></td></tr>
+      <tr><td>List: Record Identity</td><td class="before-tag">No shipment number column</td><td class="after-tag">Shipment No. as first column</td><td><span class="rec-priority p1">P1</span></td></tr>
+      <tr><td>List: Scheduling Context</td><td class="before-tag">No date columns visible</td><td class="after-tag">ETA column sorted soonest-first, color-coded</td><td><span class="rec-priority p1">P1</span></td></tr>
+      <tr><td>List: Search</td><td class="before-tag">Separate Submit button required</td><td class="after-tag">Live search, debounced 400ms</td><td><span class="rec-priority p2">P2</span></td></tr>
+      <tr><td>List: Status Filter</td><td class="before-tag">Column filter dropdown only</td><td class="after-tag">Quick status pills with counts in toolbar</td><td><span class="rec-priority p2">P2</span></td></tr>
+      <tr><td>Create: Validation</td><td class="before-tag">Concatenated error string</td><td class="after-tag">Per-field inline error messages</td><td><span class="rec-priority p1">P1</span></td></tr>
+      <tr><td>Create: Add Loadport</td><td class="before-tag">window.confirm()</td><td class="after-tag">Inline confirmation card in form</td><td><span class="rec-priority p1">P1</span></td></tr>
+      <tr><td>Create: Next Steps</td><td class="before-tag">No guidance after creation</td><td class="after-tag">Progress step + context message</td><td><span class="rec-priority p2">P2</span></td></tr>
+      <tr><td>Detail: Status Visibility</td><td class="before-tag">Just one "Advance" button</td><td class="after-tag">Full 4-step stepper with current position</td><td><span class="rec-priority p1">P1</span></td></tr>
+      <tr><td>Detail: Saving</td><td class="before-tag">6 separate section Save buttons</td><td class="after-tag">Single "Save All" + unsaved section indicators</td><td><span class="rec-priority p1">P1</span></td></tr>
+      <tr><td>Detail: Delete Confirmations</td><td class="before-tag">window.confirm() (4 locations)</td><td class="after-tag">Inline styled confirmation cards</td><td><span class="rec-priority p1">P1</span></td></tr>
+      <tr><td>Detail: Unsaved Warning</td><td class="before-tag">Silent discard on navigate away</td><td class="after-tag">Banner + route change guard</td><td><span class="rec-priority p2">P2</span></td></tr>
+      <tr><td>Detail: Status History</td><td class="before-tag">Not shown (API exists)</td><td class="after-tag">Right sidebar panel with audit trail</td><td><span class="rec-priority p1">P1</span></td></tr>
+      <tr><td>Detail: Section Titles</td><td class="before-tag">24px h2 — too large</td><td class="after-tag">15px with left-border accent</td><td><span class="rec-priority p3">P3</span></td></tr>
+      <tr><td>Detail: Nomination Fields</td><td class="before-tag">12 flat datetime-local inputs</td><td class="after-tag">3 grouped sub-sections with date inputs</td><td><span class="rec-priority p2">P2</span></td></tr>
+      <tr><td>Detail: Remarks Field</td><td class="before-tag">Missing from UI (exists in DB)</td><td class="after-tag">Full-width textarea in General Info</td><td><span class="rec-priority p2">P2</span></td></tr>
+      <tr><td>Detail: Summary Sidebar</td><td class="before-tag">Not present</td><td class="after-tag">Quick summary of cargo count, qty, docs, ETA</td><td><span class="rec-priority p2">P2</span></td></tr>
+      <tr><td>Code: Dead import</td><td class="before-tag">formatDayMonthYear imported but unused</td><td class="after-tag">Remove import</td><td><span class="rec-priority p3">P3</span></td></tr>
+    </tbody>
+  </table>
+
+</div>
+
+<script>
+  // Smooth scroll for nav links
+  document.querySelectorAll('.nav a').forEach(a => {
+    a.addEventListener('click', e => {
+      const href = a.getAttribute('href');
+      if (href && href.startsWith('#')) {
+        e.preventDefault();
+        const el = document.querySelector(href) || document.querySelector('a[name="' + href.slice(1) + '"]');
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        document.querySelectorAll('.nav a').forEach(x => x.classList.remove('active'));
+        a.classList.add('active');
+      }
+    });
+  });
+</script>
+</body>
+</html>

@@ -34,9 +34,9 @@ export const GUIDE_TOUR_STEPS: GuideTourStepsByRoute = {
     },
     {
       target: '[data-tour="po-primary-actions"]',
-      title: "Claim, new shipment & couple",
+      title: "New shipment & couple",
       content:
-        "Claim (when shown) takes ownership and creates the first shipment from this PO. Create another shipment appears once this PO is already linked—use it when you need a second new shipment while the first is still in progress (split cargo, second voyage). Couple to shipment attaches this PO to an existing open shipment that matches grouping rules (incoterm, currency, etc.).",
+        "New shipment creates a linked shipment from this PO—claiming ownership when needed (first time or after a delivered leg with quantity still open). Use it again while a shipment is in progress for split cargo or a second booking. Couple to shipment attaches this PO to an existing open shipment that matches grouping rules (incoterm, currency, etc.).",
       placement: "top",
       skipBeacon: true,
     },
@@ -119,6 +119,100 @@ export const GUIDE_TOUR_STEPS: GuideTourStepsByRoute = {
       skipBeacon: true,
     },
   ],
+
+  exportBulkingList: [
+    {
+      target: '[data-tour="export-bulking-page"]',
+      title: "Welcome to Export Bulking",
+      content:
+        "This workspace tracks export bulk shipments from planning through voyage completion. Operations teams manage vessel schedules and status; documentation teams handle shipping instructions, invoices, and customs paperwork—all on one list.",
+      placement: "center",
+      skipBeacon: true,
+    },
+    {
+      target: '[data-tour="export-bulking-create-btn"]',
+      title: "New shipment",
+      content:
+        "Start here to register a new export bulking shipment. You will enter vessel, voyage, shipper, load port, and at least one cargo line. The shipment is created in Shipment Planning status and opens on the detail page.",
+      placement: "bottom",
+      skipBeacon: true,
+    },
+    {
+      target: '[data-tour="export-bulking-create-submit"]',
+      title: "Create & Open",
+      content:
+        "After filling out the form, click Create & Open → to save the shipment and go straight to its detail page. Required fields are validated before submit—fix any errors shown under the inputs.",
+      placement: "top",
+      skipBeacon: true,
+    },
+    {
+      target: '[data-tour="export-bulking-search"]',
+      title: "Search shipments",
+      content:
+        "Search by shipment number, vessel, shipper, or—on the Document view—document numbers (SI, invoice, packing list, PEB, BL). Results update as you type.",
+      placement: "bottom",
+      skipBeacon: true,
+    },
+    {
+      target: '[data-tour="export-bulking-view-tabs"]',
+      title: "Operations vs Document view",
+      content:
+        "Switch list columns to match your role: Operations shows laycan, cargo readiness, and ETA; Document shows SI, invoice, PL, PEB, and BL numbers plus PIC assignment. All shows both when you have access.",
+      placement: "bottom",
+      skipBeacon: true,
+    },
+    {
+      target: '[data-tour="export-bulking-status-filters"]',
+      title: "Status filters",
+      content:
+        "Filter the grid by workflow status (Shipment Planning, Nomination, Arrival, and so on). Counts on each pill show how many shipments are in that stage. Clear resets column filters.",
+      placement: "bottom",
+      skipBeacon: true,
+    },
+    {
+      target: '[data-tour="export-bulking-grid"]',
+      title: "Shipment grid",
+      content:
+        "Each row shows progress, status, and key voyage data. Click a shipment number to open the detail page—operations advances status there; documentation completes cargo, SI, invoices, and export documents on the Document tab.",
+      placement: "bottom",
+      skipBeacon: true,
+    },
+  ],
+
+  exportBulkingDetail: [
+    {
+      target: '[data-tour="export-bulking-status-stepper"]',
+      title: "Voyage status workflow",
+      content:
+        "The stepper shows the six operations stages: Shipment Planning → Nomination → Arrival → At Berth → Loading → Case Off. Advance only when required fields for the current stage are complete and changes are saved.",
+      placement: "bottom",
+      skipBeacon: true,
+    },
+    {
+      target: '[data-tour="export-bulking-detail-tabs"]',
+      title: "Operations & Document tabs",
+      content:
+        "Operations covers voyage planning, nomination dates, and loading milestones. Document covers cargo destinations, shipping instructions, invoices, packing lists, PEB, SAP data, billing, and bill of lading.",
+      placement: "bottom",
+      skipBeacon: true,
+    },
+    {
+      target: '[data-tour="export-bulking-advance-status"]',
+      title: "Advance status",
+      content:
+        "When blockers are cleared, use Advance to move to the next voyage stage. Save all sections first—unsaved edits prevent advancement. Documentation work runs in parallel and does not change this status.",
+      placement: "bottom",
+      skipBeacon: true,
+    },
+    {
+      target: '[data-tour="export-bulking-doc-progress"]',
+      title: "Documentation progress",
+      content:
+        "On the Document tab, four steps track pre-shipment docs, customs (PEB & SAP), billing & levy, and final shipping documents. Open the sidebar to upload supporting files.",
+      placement: "bottom",
+      skipBeacon: true,
+    },
+  ],
 };
 
 /** When analytics isn’t on the page (e.g. no permission), use a centered fallback instead of the real target. */
@@ -194,4 +288,73 @@ export function resolvePoDetailSteps(): Step[] {
     if (!sel) return true;
     return selectorExists(sel);
   });
+}
+
+export const EXPORT_BULKING_CREATE_SUBMIT_FALLBACK_STEP: Step = {
+  target: "body",
+  placement: "center",
+  title: "Create & Open",
+  content:
+    "Open New shipment to fill the create form, then click Create & Open → in the modal footer to save and open the new shipment detail page.",
+  skipBeacon: true,
+};
+
+export const EXPORT_BULKING_GRID_FALLBACK_STEP: Step = {
+  target: "body",
+  placement: "center",
+  title: "Shipment grid",
+  content:
+    "When shipments exist, the grid lists progress, status, and voyage fields. Click a shipment number to open its detail page and continue operations or documentation work.",
+  skipBeacon: true,
+};
+
+export const EXPORT_BULKING_DETAIL_TAB_FALLBACK_STEP: Step = {
+  target: "body",
+  placement: "center",
+  title: "Open the Document tab",
+  content:
+    "Documentation progress and upload highlights are on the Document tab. Switch to Document, then open Guide from the header to step through those sections.",
+  skipBeacon: true,
+};
+
+export function resolveExportBulkingListSteps(): Step[] {
+  if (typeof document === "undefined") return GUIDE_TOUR_STEPS.exportBulkingList;
+  const steps = [...GUIDE_TOUR_STEPS.exportBulkingList];
+  const createBtn = document.querySelector('[data-tour="export-bulking-create-btn"]');
+  if (!createBtn) {
+    steps[1] = {
+      target: "body",
+      placement: "center",
+      title: "New shipment",
+      content:
+        "Users with create permission see New shipment in the toolbar to register export bulking shipments. Ask your administrator if the button is not visible.",
+      skipBeacon: true,
+    };
+    steps[2] = EXPORT_BULKING_CREATE_SUBMIT_FALLBACK_STEP;
+  }
+  const hasGrid = !!document.querySelector('[data-tour="export-bulking-grid"]');
+  if (!hasGrid) {
+    steps[steps.length - 1] = EXPORT_BULKING_GRID_FALLBACK_STEP;
+  }
+  return steps.filter((s) => {
+    const sel = typeof s.target === "string" ? s.target : "";
+    if (!sel || sel === "body") return true;
+    if (sel === '[data-tour="export-bulking-create-submit"]' && createBtn) return true;
+    return !!document.querySelector(sel);
+  });
+}
+
+export function resolveExportBulkingDetailSteps(): Step[] {
+  if (typeof document === "undefined") return GUIDE_TOUR_STEPS.exportBulkingDetail;
+  const onDocTab = !!document.querySelector('[data-tour="export-bulking-doc-progress"]');
+  const base = GUIDE_TOUR_STEPS.exportBulkingDetail.filter((s) => {
+    const sel = typeof s.target === "string" ? s.target : "";
+    if (!sel) return true;
+    if (s.target === '[data-tour="export-bulking-doc-progress"]') return onDocTab;
+    return !!document.querySelector(sel);
+  });
+  if (!onDocTab && base.length < GUIDE_TOUR_STEPS.exportBulkingDetail.length) {
+    return [...base.slice(0, 3), EXPORT_BULKING_DETAIL_TAB_FALLBACK_STEP];
+  }
+  return base;
 }

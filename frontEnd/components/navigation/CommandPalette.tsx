@@ -23,13 +23,16 @@ export function CommandPalette() {
 
   const baseCommands = useMemo<CommandItem[]>(() => {
     const items: CommandItem[] = [
-      { label: "Go to Dashboard", hint: "/dashboard", onRun: () => router.push("/dashboard") },
-      { label: "Go to Purchase Order list", hint: "/dashboard/po", onRun: () => router.push("/dashboard/po") },
-      { label: "Create Purchase Order", hint: "/dashboard/po/new", onRun: () => router.push("/dashboard/po/new") },
-      { label: "Go to Shipments list", hint: "/dashboard/shipments", onRun: () => router.push("/dashboard/shipments") },
+      { label: "Go to Dashboard", hint: "/import/dashboard", onRun: () => router.push("/import/dashboard") },
+      { label: "Go to Purchase Order list", hint: "/import/po", onRun: () => router.push("/import/po") },
+      { label: "Create Purchase Order", hint: "/import/po/new", onRun: () => router.push("/import/po/new") },
+      { label: "Go to Shipments list", hint: "/import/shipments", onRun: () => router.push("/import/shipments") },
+      { label: "Go to Export dashboard", hint: "/export/dashboard", onRun: () => router.push("/export/dashboard") },
+      { label: "Go to Export bulking", hint: "/export/bulking", onRun: () => router.push("/export/bulking") },
+      { label: "New export shipment", hint: "/export/bulking?create=1", onRun: () => router.push("/export/bulking?create=1") },
     ];
     if (can(user, MANAGE_USERS)) {
-      items.push({ label: "Go to User management", hint: "/dashboard/users", onRun: () => router.push("/dashboard/users") });
+      items.push({ label: "Go to User management", hint: "/admin/users", onRun: () => router.push("/admin/users") });
     }
     return items;
   }, [router, user]);
@@ -40,13 +43,18 @@ export function CommandPalette() {
     return [
       {
         label: `Search PO: ${q}`,
-        hint: "/dashboard/po",
-        onRun: () => router.push(`/dashboard/po?search=${encodeURIComponent(q)}`),
+        hint: "/import/po",
+        onRun: () => router.push(`/import/po?search=${encodeURIComponent(q)}`),
       },
       {
         label: `Search Shipment: ${q}`,
-        hint: "/dashboard/shipments",
-        onRun: () => router.push(`/dashboard/shipments?search=${encodeURIComponent(q)}`),
+        hint: "/import/shipments",
+        onRun: () => router.push(`/import/shipments?search=${encodeURIComponent(q)}`),
+      },
+      {
+        label: `Search export bulking: ${q}`,
+        hint: "/export/bulking",
+        onRun: () => router.push(`/export/bulking?search=${encodeURIComponent(q)}`),
       },
     ];
   }, [query, router]);
