@@ -53,6 +53,8 @@ export interface CreateShipmentDto {
   vessel_name?: string;
   voyage_no?: string;
   agent_name?: string;
+  jps_port_id?: number | null;
+  jps_cargo_type?: string | null;
 }
 
 export interface UpdateShipmentDto {
@@ -66,6 +68,10 @@ export interface UpdateShipmentDto {
   vessel_name?: string;
   voyage_no?: string;
   agent_name?: string;
+  jps_port_id?: number | null;
+  jps_cargo_type?: string | null;
+  /** Master plant unload port id; null clears. Derives destination_port_name + jps_port_id. */
+  destination_unload_port_id?: string | null;
   pib_type?: string;
   no_request_pib?: string;
   ppjk_mkl?: string;
@@ -139,6 +145,10 @@ export interface ListShipmentsQuery {
   po_from_date?: string;
   /** Inclusive; same semantics as `po_from_date` for upper bound. */
   po_to_date?: string;
+  /** Inclusive YYYY-MM-DD on `(eta AT TIME ZONE 'UTC')::date`. */
+  eta_from_date?: string;
+  /** Inclusive; same semantics as `eta_from_date` for upper bound. */
+  eta_to_date?: string;
   /**
    * When true (e.g. `active_pipeline=true`), only shipments that are still open for operations:
    * `closed_at IS NULL` and `current_status <> 'DELIVERED'`.
@@ -269,6 +279,7 @@ export interface ShipmentRow {
   destination_port_code: string | null;
   destination_port_name: string | null;
   destination_port_country: string | null;
+  destination_unload_port_id: string | null;
   etd: Date | null;
   eta: Date | null;
   atd: Date | null;
@@ -322,6 +333,8 @@ export interface ShipmentRow {
   vessel_name: string | null;
   voyage_no: string | null;
   agent_name: string | null;
+  jps_port_id: number | null;
+  jps_cargo_type: string | null;
   jps_si_id: number | null;
   jps_status: string | null;
   jps_external_reference: string | null;
@@ -380,6 +393,7 @@ export interface ShipmentDetail {
   destination_port_code: string | null;
   destination_port_name: string | null;
   destination_port_country: string | null;
+  destination_unload_port_id: string | null;
   etd: string | null;
   eta: string | null;
   atd: string | null;
@@ -440,6 +454,8 @@ export interface ShipmentDetail {
   vessel_name: string | null;
   voyage_no: string | null;
   agent_name: string | null;
+  jps_port_id: number | null;
+  jps_cargo_type: string | null;
   jps_si_id: number | null;
   jps_status: string | null;
   jps_external_reference: string | null;

@@ -3,7 +3,7 @@
 .bar {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--spacing-3, 16px);
   margin-bottom: var(--spacing-4, 24px);
   padding: var(--spacing-4, 24px);
@@ -17,19 +17,27 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--spacing-2, 8px);
+  gap: var(--spacing-3, 16px);
   min-width: 0;
-  flex: 1;
+  flex: 1 1 auto;
 }
 
 .searchSlot {
-  flex: 1;
+  flex: 1 1 200px;
   min-width: 0;
   max-width: 360px;
 }
 
 .filtersSlot {
-  flex-shrink: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.filtersSlotFull {
+  flex: 1 1 100%;
+  width: 100%;
+  max-width: 100%;
 }
 
 .right {
@@ -37,6 +45,7 @@
   align-items: center;
   gap: var(--spacing-2, 8px);
   flex-shrink: 0;
+  margin-left: auto;
 }
 
 @media (max-width: 767px) {

@@ -1,5 +1,6 @@
 /**
  * JPS partner API HTTP client (x-api-key). Server-side only.
+ * Contract: docs/INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md (v3.6+)
  */
 
 import { config } from "../../config/index.js";
@@ -7,7 +8,10 @@ import { logger } from "../../utils/logger.js";
 import {
   JpsApiError,
   type JpsApiResponse,
+  type JpsCommodity,
+  type JpsPort,
   type JpsShippingInstructionData,
+  type JpsShippingInstructionPatchPayload,
   type JpsShippingInstructionPayload,
 } from "./types.js";
 
@@ -15,8 +19,6 @@ export interface JpsApiClientOptions {
   baseUrl: string;
   apiKey: string;
   timeoutMs: number;
-  /** When false, update() records that partner API has no PATCH/PUT yet. */
-  updateApiEnabled: boolean;
 }
 
 export class JpsApiClient {
@@ -27,12 +29,21 @@ export class JpsApiClient {
       baseUrl: config.jps.apiBaseUrl,
       apiKey: config.jps.apiKey,
       timeoutMs: config.jps.requestTimeoutMs,
-      updateApiEnabled: config.jps.updateApiEnabled,
     });
   }
 
   get isConfigured(): boolean {
     return Boolean(this.options.baseUrl && this.options.apiKey);
+  }
+
+  async listPorts(): Promise<JpsPort[]> {
+    const data = await this.request<JpsPort[]>("GET", "/ports");
+    return Array.isArray(data) ? data : [];
+  }
+
+  async listCommodities(): Promise<JpsCommodity[]> {
+    const data = await this.request<JpsCommodity[]>("GET", "/commodities");
+    return Array.isArray(data) ? data : [];
   }
 
   async createShippingInstruction(
@@ -55,23 +66,13 @@ export class JpsApiClient {
     );
   }
 
-  /**
-   * Partner API v1 has no update endpoint. Enable via JPS_UPDATE_API_ENABLED when JPS ships PATCH/PUT.
-   */
+  /** Amend while partner status is Pending (v3.6). */
   async updateShippingInstruction(
     id: number,
-    payload: JpsShippingInstructionPayload
+    payload: JpsShippingInstructionPatchPayload
   ): Promise<JpsShippingInstructionData> {
-    if (!this.options.updateApiEnabled) {
-      throw new JpsApiError({
-        httpStatus: 501,
-        code: "UPDATE_NOT_SUPPORTED",
-        message:
-          "JPS partner API v1 has no update endpoint; set JPS_UPDATE_API_ENABLED when available",
-      });
-    }
     return this.request<JpsShippingInstructionData>(
-      "PUT",
+      "PATCH",
       `/shipping-instructions/${id}`,
       payload
     );
@@ -135,7 +136,11 @@ export class JpsApiClient {
     }
 
     if (!resp.ok || json.success === false) {
-      const errBody = json as { success?: false; error?: { code?: string; message?: string; details?: unknown }; request_id?: string };
+      const errBody = json as {
+        success?: false;
+        error?: { code?: string; message?: string; details?: unknown };
+        request_id?: string;
+      };
       throw new JpsApiError({
         httpStatus: resp.status,
         code: errBody.error?.code ?? `HTTP_${resp.status}`,

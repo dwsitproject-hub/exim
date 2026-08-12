@@ -230,20 +230,14 @@ export const config = {
     })(),
   },
   /**
-   * Jetty Planning System (JPS) Shipping Instruction partner sync.
-   * Interim: port_id and cargo_type from env until Jetty master APIs exist.
-   * Update SI endpoint not available in partner API v1 — dirty updates wait for Phase 3.
+   * Jetty Planning System (JPS) Shipping Instruction partner sync (v3.6+).
+   * Port/commodity come from shipment fields (picked from GET /ports and GET /commodities).
+   * First send is explicit; Pending edits auto-PATCH.
    */
   jps: {
     enabled: (getEnvOptional("JPS_SYNC_ENABLED", "false") ?? "false").toLowerCase() === "true",
     apiBaseUrl: (getEnvOptional("JPS_API_BASE_URL", "") ?? "").replace(/\/+$/, ""),
     apiKey: getEnvOptional("JPS_API_KEY", "") ?? "",
-    portId: (() => {
-      const raw = getEnvOptional("JPS_PORT_ID", "1") ?? "1";
-      const n = parseInt(raw, 10);
-      return Number.isNaN(n) ? 1 : n;
-    })(),
-    defaultCargoType: (getEnvOptional("JPS_DEFAULT_CARGO_TYPE", "CPO") ?? "CPO").trim() || "CPO",
     requestTimeoutMs: (() => {
       const raw = getEnvOptional("JPS_REQUEST_TIMEOUT_MS", "30000") ?? "30000";
       const n = parseInt(raw, 10);
@@ -254,8 +248,6 @@ export const config = {
       const n = parseInt(raw, 10);
       return Number.isNaN(n) ? 5 * 60 * 1000 : Math.max(5 * 60 * 1000, n);
     })(),
-    /** Set true when JPS publishes PATCH/PUT for shipping instructions. */
-    updateApiEnabled: (getEnvOptional("JPS_UPDATE_API_ENABLED", "false") ?? "false").toLowerCase() === "true",
   },
   smtp: {
     host: getEnvOptional("SMTP_HOST", "localhost"),

@@ -42,6 +42,8 @@ async function main(): Promise<void> {
   }
 
   if (config.jps.enabled) {
+    const { warmJpsMasterCache } = await import("./integration/jps/index.js");
+    warmJpsMasterCache();
     startJpsStatusPollerJob(config.jps.pollIntervalMs);
   }
 

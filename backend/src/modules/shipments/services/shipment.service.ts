@@ -321,6 +321,7 @@ function toDetail(
     destination_port_code: row.destination_port_code,
     destination_port_name: row.destination_port_name,
     destination_port_country: row.destination_port_country,
+    destination_unload_port_id: row.destination_unload_port_id ?? null,
     etd: row.etd ? row.etd.toISOString() : null,
     eta: row.eta ? row.eta.toISOString().slice(0, 10) : null,
     atd: row.atd ? row.atd.toISOString() : null,
@@ -375,6 +376,8 @@ function toDetail(
     vessel_name: row.vessel_name ?? null,
     voyage_no: row.voyage_no ?? null,
     agent_name: row.agent_name ?? null,
+    jps_port_id: row.jps_port_id != null ? Number(row.jps_port_id) : null,
+    jps_cargo_type: row.jps_cargo_type ?? null,
     jps_si_id: row.jps_si_id ?? null,
     jps_status: row.jps_status ?? null,
     jps_external_reference: row.jps_external_reference ?? null,
@@ -1262,6 +1265,10 @@ export class ShipmentService {
       ]);
     }
 
+    if (dto.destination_unload_port_id !== undefined) {
+      await this.applyDestinationUnloadPort(dto, existing);
+    }
+
     const beforeUpdatedAt = existing.updated_at.getTime();
     const row = await this.repo.update(id, dto);
     if (!row) return null;
@@ -1281,6 +1288,42 @@ export class ShipmentService {
       dto: dto as unknown as Record<string, unknown>,
     });
     return this.getById(id);
+  }
+
+  /**
+   * Master unload port drives destination name/country and Jetty port_id.
+   * Clears jps_port_id when unload has no Jetty link (keeps history if already submitted).
+   */
+  private async applyDestinationUnloadPort(
+    dto: UpdateShipmentDto,
+    existing: ShipmentRow
+  ): Promise<void> {
+    const { ShipperRepository } = await import("../../shippers/repositories/shipper.repository.js");
+    const shipperRepo = new ShipperRepository();
+
+    if (dto.destination_unload_port_id == null) {
+      dto.destination_port_name = "";
+      dto.destination_port_country = "Indonesia";
+      if (existing.jps_si_id == null) {
+        dto.jps_port_id = null;
+      }
+      return;
+    }
+
+    const unload = await shipperRepo.getUnloadPortListRowById(dto.destination_unload_port_id);
+    if (!unload) {
+      throw new AppError("Unload port not found", 400, [
+        { field: "destination_unload_port_id", message: "Select a registered unload port from master" },
+      ]);
+    }
+
+    dto.destination_port_name = unload.name;
+    dto.destination_port_country = "Indonesia";
+    if (unload.jps_port_id != null && Number.isFinite(Number(unload.jps_port_id))) {
+      dto.jps_port_id = Number(unload.jps_port_id);
+    } else if (existing.jps_si_id == null) {
+      dto.jps_port_id = null;
+    }
   }
 
   /** Fire-and-forget JPS partner sync; never fails the shipment save. */

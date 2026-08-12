@@ -130,7 +130,92 @@ export async function removePlant(req: Request, res: Response, next: NextFunctio
   }
 }
 
+/* ───────── plant unload ports ───────── */
+
+export async function listAllUnloadPorts(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const rows = await service.listAllUnloadPorts();
+    sendSuccess(res, rows);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function listJpsMappedUnloadPorts(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const rows = await service.listJpsMappedUnloadPorts();
+    sendSuccess(res, rows);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function listUnloadPorts(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const rows = await service.listUnloadPorts(req.params.plantId);
+    sendSuccess(res, rows);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function createUnloadPort(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const row = await service.createUnloadPort(req.params.plantId, req.body);
+    sendSuccess(res, row, { statusCode: 201 });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function updateUnloadPort(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const row = await service.updateUnloadPort(req.params.unloadPortId, req.body);
+    if (!row) {
+      sendError(res, "Unload port not found", { statusCode: 404 });
+      return;
+    }
+    sendSuccess(res, row);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function removeUnloadPort(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const row = await service.softDeleteUnloadPort(req.params.unloadPortId);
+    if (!row) {
+      sendError(res, "Unload port not found", { statusCode: 404 });
+      return;
+    }
+    sendSuccess(res, { message: "Deleted" });
+  } catch (err) {
+    next(err);
+  }
+}
+
 /* ───────── loadports ───────── */
+
+export async function listJpsMappedLoadports(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const rows = await service.listJpsMappedLoadports();
+    sendSuccess(res, rows);
+  } catch (err) {
+    next(err);
+  }
+}
 
 export async function listLoadports(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {

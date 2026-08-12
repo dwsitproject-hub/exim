@@ -10,14 +10,22 @@ import {
   deleteShipper,
   listShipperLoadports,
   createShipperLoadport,
+  updateShipperLoadport,
   deleteShipperLoadport,
   listShipperPlants,
   createShipperPlant,
   deleteShipperPlant,
+  listShipperPlantUnloadPorts,
+  createShipperPlantUnloadPort,
+  updateShipperPlantUnloadPort,
+  deleteShipperPlantUnloadPort,
   type Shipper,
   type ShipperLoadport,
   type ShipperPlant,
+  type ShipperPlantUnloadPort,
 } from "@/services/shipper-service";
+import { listJpsPorts } from "@/services/shipments-service";
+import type { JpsPortOption } from "@/types/shipments";
 import { isApiError } from "@/types/api";
 import type { ApiSuccess } from "@/types/api";
 import { useToast } from "@/components/providers/ToastProvider";
@@ -32,6 +40,7 @@ import {
   TableHeaderCell,
 } from "@/components/tables";
 import { Modal } from "@/components/overlays/Modal";
+import { ComboboxSelect } from "@/components/forms";
 import { ShipperDocumentHeaderPanel } from "./ShipperDocumentHeaderPanel";
 import styles from "./ShipperList.module.css";
 
@@ -54,10 +63,19 @@ export function ShipperList() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [loadports, setLoadports] = useState<ShipperLoadport[]>([]);
   const [plants, setPlants] = useState<ShipperPlant[]>([]);
+  const [unloadPortsByPlant, setUnloadPortsByPlant] = useState<
+    Record<string, ShipperPlantUnloadPort[]>
+  >({});
   const [lpLoading, setLpLoading] = useState(false);
   const [plantLoading, setPlantLoading] = useState(false);
+  const [unloadLoading, setUnloadLoading] = useState(false);
   const [newLpName, setNewLpName] = useState("");
   const [newPlantName, setNewPlantName] = useState("");
+  const [newUnloadNameByPlant, setNewUnloadNameByPlant] = useState<Record<string, string>>({});
+  const [jpsPorts, setJpsPorts] = useState<JpsPortOption[]>([]);
+  const [jpsPortsLoading, setJpsPortsLoading] = useState(false);
+  const [linkingLpId, setLinkingLpId] = useState<string | null>(null);
+  const [linkingUnloadPortId, setLinkingUnloadPortId] = useState<string | null>(null);
 
   const allowed = canAccessShipperMasterAdmin(user);
   const canEditImport = canManageImportMasters(user);
@@ -99,17 +117,71 @@ export function ShipperList() {
     [accessToken],
   );
 
+  const fetchJpsPorts = useCallback(async () => {
+    if (!accessToken) return;
+    setJpsPortsLoading(true);
+    try {
+      const res = await listJpsPorts(accessToken);
+      if (!isApiError(res)) {
+        setJpsPorts(res.data?.data ?? []);
+      }
+    } finally {
+      setJpsPortsLoading(false);
+    }
+  }, [accessToken]);
+
+  const jpsPortLabelOptions = useMemo(
+    () => jpsPorts.map((p) => `${p.name} (${p.id})`),
+    [jpsPorts],
+  );
+
+  function jpsPortLabel(portId: number | null | undefined): string {
+    if (portId == null) return "";
+    const hit = jpsPorts.find((p) => p.id === portId);
+    return hit ? `${hit.name} (${hit.id})` : `JPS #${portId}`;
+  }
+
+  const fetchUnloadPortsForPlants = useCallback(
+    async (plantRows: ShipperPlant[]) => {
+      if (!accessToken || plantRows.length === 0) {
+        setUnloadPortsByPlant({});
+        return;
+      }
+      setUnloadLoading(true);
+      try {
+        const entries = await Promise.all(
+          plantRows.map(async (plant) => {
+            const res = await listShipperPlantUnloadPorts(plant.id, accessToken);
+            const rows = !isApiError(res)
+              ? ((res as ApiSuccess<ShipperPlantUnloadPort[]>).data ?? [])
+              : [];
+            return [plant.id, rows] as const;
+          }),
+        );
+        setUnloadPortsByPlant(Object.fromEntries(entries));
+      } finally {
+        setUnloadLoading(false);
+      }
+    },
+    [accessToken],
+  );
+
   const fetchPlants = useCallback(
     async (shipperId: string) => {
       if (!accessToken) return;
       setPlantLoading(true);
       const res = await listShipperPlants(shipperId, accessToken);
       if (!isApiError(res)) {
-        setPlants((res as ApiSuccess<ShipperPlant[]>).data ?? []);
+        const rows = (res as ApiSuccess<ShipperPlant[]>).data ?? [];
+        setPlants(rows);
+        await fetchUnloadPortsForPlants(rows);
+      } else {
+        setPlants([]);
+        setUnloadPortsByPlant({});
       }
       setPlantLoading(false);
     },
-    [accessToken],
+    [accessToken, fetchUnloadPortsForPlants],
   );
 
   useEffect(() => {
@@ -119,6 +191,8 @@ export function ShipperList() {
     } else {
       setLoadports([]);
       setPlants([]);
+      setUnloadPortsByPlant({});
+      setNewUnloadNameByPlant({});
     }
   }, [expandedId, fetchLoadports, fetchPlants]);
 
@@ -203,9 +277,90 @@ export function ShipperList() {
   }
 
   function toggleExpand(id: string) {
-    setExpandedId((prev) => (prev === id ? null : id));
+    setExpandedId((prev) => {
+      const next = prev === id ? null : id;
+      if (next) void fetchJpsPorts();
+      return next;
+    });
     setNewLpName("");
     setNewPlantName("");
+    setNewUnloadNameByPlant({});
+  }
+
+  async function handleLinkJpsPort(lpId: string, jpsPortId: number | null) {
+    if (!accessToken || !expandedId) return;
+    setLinkingLpId(lpId);
+    try {
+      const res = await updateShipperLoadport(lpId, { jps_port_id: jpsPortId }, accessToken);
+      if (isApiError(res)) {
+        pushToast(res.message, "error");
+        return;
+      }
+      pushToast(jpsPortId == null ? "Jetty link cleared" : "Connected to Jetty port", "success");
+      await fetchLoadports(expandedId);
+    } finally {
+      setLinkingLpId(null);
+    }
+  }
+
+  async function handleLinkUnloadJpsPort(unloadPortId: string, plantId: string, jpsPortId: number | null) {
+    if (!accessToken) return;
+    setLinkingUnloadPortId(unloadPortId);
+    try {
+      const res = await updateShipperPlantUnloadPort(
+        unloadPortId,
+        { jps_port_id: jpsPortId },
+        accessToken,
+      );
+      if (isApiError(res)) {
+        pushToast(res.message, "error");
+        return;
+      }
+      pushToast(jpsPortId == null ? "Jetty link cleared" : "Connected to Jetty port", "success");
+      const listRes = await listShipperPlantUnloadPorts(plantId, accessToken);
+      if (!isApiError(listRes)) {
+        setUnloadPortsByPlant((prev) => ({
+          ...prev,
+          [plantId]: (listRes as ApiSuccess<ShipperPlantUnloadPort[]>).data ?? [],
+        }));
+      }
+    } finally {
+      setLinkingUnloadPortId(null);
+    }
+  }
+
+  async function handleAddUnloadPort(plantId: string) {
+    if (!accessToken) return;
+    const name = (newUnloadNameByPlant[plantId] ?? "").trim();
+    if (!name) return;
+    const res = await createShipperPlantUnloadPort(plantId, { name }, accessToken);
+    if (isApiError(res)) {
+      pushToast(res.message, "error");
+      return;
+    }
+    pushToast("Unload port added", "success");
+    setNewUnloadNameByPlant((prev) => ({ ...prev, [plantId]: "" }));
+    const listRes = await listShipperPlantUnloadPorts(plantId, accessToken);
+    if (!isApiError(listRes)) {
+      setUnloadPortsByPlant((prev) => ({
+        ...prev,
+        [plantId]: (listRes as ApiSuccess<ShipperPlantUnloadPort[]>).data ?? [],
+      }));
+    }
+  }
+
+  async function handleDeleteUnloadPort(unloadPortId: string, plantId: string) {
+    if (!accessToken) return;
+    const res = await deleteShipperPlantUnloadPort(unloadPortId, accessToken);
+    if (isApiError(res)) {
+      pushToast(res.message, "error");
+      return;
+    }
+    pushToast("Unload port deleted", "success");
+    setUnloadPortsByPlant((prev) => ({
+      ...prev,
+      [plantId]: (prev[plantId] ?? []).filter((p) => p.id !== unloadPortId),
+    }));
   }
 
   async function handleAddLoadport() {
@@ -251,6 +406,11 @@ export function ShipperList() {
       return;
     }
     pushToast("Plant deleted", "success");
+    setUnloadPortsByPlant((prev) => {
+      const next = { ...prev };
+      delete next[plantId];
+      return next;
+    });
     fetchPlants(expandedId);
   }
 
@@ -367,28 +527,124 @@ export function ShipperList() {
                         <TableCell colSpan={3}>
                           <div className={styles.expandedPanels}>
                             {canEditImport && (
-                            <div className={styles.loadportPanel}>
+                            <div className={`${styles.loadportPanel} ${styles.plantsPanel}`}>
                               <h4 className={styles.loadportTitle}>
-                                Plants (Import) — {expandedShipper?.short_name}
+                                Plants &amp; unload ports (Import) — {expandedShipper?.short_name}
                               </h4>
+                              <p className={styles.lpHint}>
+                                Unload ports are the import destination master (port of discharge).
+                                Connect a port to Jetty so Sea shipments that select it can sync to
+                                berth planning.
+                                {jpsPortsLoading ? " Loading Jetty ports…" : null}
+                                {unloadLoading ? " Loading unload ports…" : null}
+                              </p>
                               {plantLoading ? (
                                 <p className={styles.lpEmpty}>Loading plants…</p>
                               ) : plants.length === 0 ? (
                                 <p className={styles.lpEmpty}>No plants yet.</p>
                               ) : (
                                 <ul className={styles.lpList}>
-                                  {plants.map((plant) => (
-                                    <li key={plant.id} className={styles.lpItem}>
-                                      <span className={styles.lpName}>{plant.name}</span>
-                                      <button
-                                        type="button"
-                                        className={styles.actionBtn}
-                                        onClick={() => handleDeletePlant(plant.id)}
-                                      >
-                                        Delete
-                                      </button>
-                                    </li>
-                                  ))}
+                                  {plants.map((plant) => {
+                                    const unloadPorts = unloadPortsByPlant[plant.id] ?? [];
+                                    return (
+                                      <li key={plant.id} className={styles.plantBlock}>
+                                        <div className={styles.lpMappedRow}>
+                                          <span className={styles.lpName}>{plant.name}</span>
+                                          <button
+                                            type="button"
+                                            className={styles.actionBtn}
+                                            onClick={() => handleDeletePlant(plant.id)}
+                                          >
+                                            Delete plant
+                                          </button>
+                                        </div>
+                                        {unloadPorts.length === 0 ? (
+                                          <p className={styles.unloadEmpty}>No unload ports yet.</p>
+                                        ) : (
+                                          <ul className={styles.unloadList}>
+                                            {unloadPorts.map((up) => (
+                                              <li key={up.id} className={styles.lpItemMapped}>
+                                                <div className={styles.lpMappedRow}>
+                                                  <span className={styles.lpName}>{up.name}</span>
+                                                  <button
+                                                    type="button"
+                                                    className={styles.actionBtn}
+                                                    onClick={() =>
+                                                      void handleDeleteUnloadPort(up.id, plant.id)
+                                                    }
+                                                  >
+                                                    Delete
+                                                  </button>
+                                                </div>
+                                                <div className={styles.lpJpsRow}>
+                                                  <span className={styles.lpJpsLabel}>Jetty port</span>
+                                                  <ComboboxSelect
+                                                    aria-label={`Jetty port for ${plant.name} / ${up.name}`}
+                                                    inputClassName={styles.lpJpsSelect}
+                                                    options={jpsPortLabelOptions}
+                                                    value={jpsPortLabel(up.jps_port_id)}
+                                                    onChange={(label) => {
+                                                      if (!label.trim()) {
+                                                        void handleLinkUnloadJpsPort(
+                                                          up.id,
+                                                          plant.id,
+                                                          null,
+                                                        );
+                                                        return;
+                                                      }
+                                                      const m = /\((\d+)\)\s*$/.exec(label);
+                                                      if (m) {
+                                                        void handleLinkUnloadJpsPort(
+                                                          up.id,
+                                                          plant.id,
+                                                          Number(m[1]),
+                                                        );
+                                                      }
+                                                    }}
+                                                    allowEmpty
+                                                    emptyLabel="— Not connected —"
+                                                    placeholder="Search Jetty ports…"
+                                                    disabled={
+                                                      jpsPortsLoading ||
+                                                      linkingUnloadPortId === up.id
+                                                    }
+                                                  />
+                                                </div>
+                                              </li>
+                                            ))}
+                                          </ul>
+                                        )}
+                                        <div className={styles.addUnloadRow}>
+                                          <input
+                                            type="text"
+                                            className={styles.addLpInput}
+                                            placeholder="New unload port…"
+                                            value={newUnloadNameByPlant[plant.id] ?? ""}
+                                            onChange={(e) =>
+                                              setNewUnloadNameByPlant((prev) => ({
+                                                ...prev,
+                                                [plant.id]: e.target.value,
+                                              }))
+                                            }
+                                            onKeyDown={(e) => {
+                                              if (e.key === "Enter") {
+                                                e.preventDefault();
+                                                void handleAddUnloadPort(plant.id);
+                                              }
+                                            }}
+                                          />
+                                          <button
+                                            type="button"
+                                            className={styles.actionBtn}
+                                            disabled={!(newUnloadNameByPlant[plant.id] ?? "").trim()}
+                                            onClick={() => void handleAddUnloadPort(plant.id)}
+                                          >
+                                            + Add unload
+                                          </button>
+                                        </div>
+                                      </li>
+                                    );
+                                  })}
                                 </ul>
                               )}
                               <div className={styles.addLpRow}>
@@ -411,17 +667,22 @@ export function ShipperList() {
                                   disabled={!newPlantName.trim()}
                                   onClick={handleAddPlant}
                                 >
-                                  + Add
+                                  + Add plant
                                 </button>
                               </div>
                             </div>
                             )}
 
-                            {canEditExport && (
+                            {(canEditExport || canEditImport) && (
                             <div className={styles.loadportPanel}>
                               <h4 className={styles.loadportTitle}>
                                 Load ports (Export) — {expandedShipper?.short_name}
                               </h4>
+                              <p className={styles.lpHint}>
+                                Export load ports. Optional Jetty link is legacy; prefer unload ports
+                                under Plants for import berth planning.
+                                {jpsPortsLoading ? " Loading Jetty ports…" : null}
+                              </p>
                               {lpLoading ? (
                                 <p className={styles.lpEmpty}>Loading load ports…</p>
                               ) : loadports.length === 0 ? (
@@ -429,42 +690,73 @@ export function ShipperList() {
                               ) : (
                                 <ul className={styles.lpList}>
                                   {loadports.map((lp) => (
-                                    <li key={lp.id} className={styles.lpItem}>
-                                      <span className={styles.lpName}>{lp.name}</span>
-                                      <button
-                                        type="button"
-                                        className={styles.actionBtn}
-                                        onClick={() => handleDeleteLoadport(lp.id)}
-                                      >
-                                        Delete
-                                      </button>
+                                    <li key={lp.id} className={styles.lpItemMapped}>
+                                      <div className={styles.lpMappedRow}>
+                                        <span className={styles.lpName}>{lp.name}</span>
+                                        {canEditExport ? (
+                                          <button
+                                            type="button"
+                                            className={styles.actionBtn}
+                                            onClick={() => handleDeleteLoadport(lp.id)}
+                                          >
+                                            Delete
+                                          </button>
+                                        ) : null}
+                                      </div>
+                                      <div className={styles.lpJpsRow}>
+                                        <span className={styles.lpJpsLabel}>Jetty port</span>
+                                        <ComboboxSelect
+                                          aria-label={`Jetty port for ${lp.name}`}
+                                          inputClassName={styles.lpJpsSelect}
+                                          options={jpsPortLabelOptions}
+                                          value={jpsPortLabel(lp.jps_port_id)}
+                                          onChange={(label) => {
+                                            if (!label.trim()) {
+                                              void handleLinkJpsPort(lp.id, null);
+                                              return;
+                                            }
+                                            const m = /\((\d+)\)\s*$/.exec(label);
+                                            if (m) void handleLinkJpsPort(lp.id, Number(m[1]));
+                                          }}
+                                          allowEmpty
+                                          emptyLabel="— Not connected —"
+                                          placeholder="Search Jetty ports…"
+                                          disabled={
+                                            jpsPortsLoading ||
+                                            linkingLpId === lp.id ||
+                                            !(canEditExport || canEditImport)
+                                          }
+                                        />
+                                      </div>
                                     </li>
                                   ))}
                                 </ul>
                               )}
-                              <div className={styles.addLpRow}>
-                                <input
-                                  type="text"
-                                  className={styles.addLpInput}
-                                  placeholder="New load port name…"
-                                  value={newLpName}
-                                  onChange={(e) => setNewLpName(e.target.value)}
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Enter") {
-                                      e.preventDefault();
-                                      handleAddLoadport();
-                                    }
-                                  }}
-                                />
-                                <button
-                                  type="button"
-                                  className={styles.actionBtn}
-                                  disabled={!newLpName.trim()}
-                                  onClick={handleAddLoadport}
-                                >
-                                  + Add
-                                </button>
-                              </div>
+                              {canEditExport ? (
+                                <div className={styles.addLpRow}>
+                                  <input
+                                    type="text"
+                                    className={styles.addLpInput}
+                                    placeholder="New load port name…"
+                                    value={newLpName}
+                                    onChange={(e) => setNewLpName(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") {
+                                        e.preventDefault();
+                                        handleAddLoadport();
+                                      }
+                                    }}
+                                  />
+                                  <button
+                                    type="button"
+                                    className={styles.actionBtn}
+                                    disabled={!newLpName.trim()}
+                                    onClick={handleAddLoadport}
+                                  >
+                                    + Add
+                                  </button>
+                                </div>
+                              ) : null}
                             </div>
                             )}
 

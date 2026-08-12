@@ -12,6 +12,8 @@ import {
   type Commodity,
   type CommodityType,
 } from "@/services/commodity-service";
+import { listJpsCommodities } from "@/services/shipments-service";
+import type { JpsCommodityOption } from "@/types/shipments";
 import { isApiError } from "@/types/api";
 import type { ApiSuccess } from "@/types/api";
 import { useToast } from "@/components/providers/ToastProvider";
@@ -26,6 +28,7 @@ import {
   TableHeaderCell,
 } from "@/components/tables";
 import { Modal } from "@/components/overlays/Modal";
+import { ComboboxSelect } from "@/components/forms";
 import styles from "./CommodityList.module.css";
 
 const MANAGE_COMMODITIES = "MANAGE_COMMODITIES";
@@ -34,12 +37,14 @@ type CommodityForm = {
   short_name: string;
   name: string;
   commodity_type: CommodityType;
+  jps_short_name: string;
 };
 
 const EMPTY_FORM: CommodityForm = {
   short_name: "",
   name: "",
   commodity_type: "Solid",
+  jps_short_name: "",
 };
 
 function formFromCommodity(commodity: Commodity): CommodityForm {
@@ -47,6 +52,7 @@ function formFromCommodity(commodity: Commodity): CommodityForm {
     short_name: commodity.short_name,
     name: commodity.name,
     commodity_type: commodity.commodity_type,
+    jps_short_name: commodity.jps_short_name ?? "",
   };
 }
 
@@ -67,6 +73,9 @@ export function CommodityList() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<CommodityForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
+  const [jpsCommodities, setJpsCommodities] = useState<JpsCommodityOption[]>([]);
+  const [jpsLoading, setJpsLoading] = useState(false);
+  const [linkingId, setLinkingId] = useState<string | null>(null);
 
   const allowed = canManageExportMasterList(user, MANAGE_COMMODITIES);
 
@@ -89,9 +98,35 @@ export function CommodityList() {
       .finally(() => setLoading(false));
   }, [accessToken, allowed]);
 
+  const fetchJpsCommodities = useCallback(async () => {
+    if (!accessToken) return;
+    setJpsLoading(true);
+    try {
+      const res = await listJpsCommodities(accessToken);
+      if (!isApiError(res)) {
+        setJpsCommodities(res.data?.data ?? []);
+      }
+    } finally {
+      setJpsLoading(false);
+    }
+  }, [accessToken]);
+
   useEffect(() => {
     fetchList();
-  }, [fetchList]);
+    void fetchJpsCommodities();
+  }, [fetchList, fetchJpsCommodities]);
+
+  const jpsCommodityLabelOptions = useMemo(
+    () => jpsCommodities.map((c) => `${c.short_name} — ${c.name} (${c.commodity_type})`),
+    [jpsCommodities],
+  );
+
+  function jpsCommodityLabel(code: string | null | undefined): string {
+    const c = (code ?? "").trim();
+    if (!c) return "";
+    const hit = jpsCommodities.find((x) => x.short_name.toUpperCase() === c.toUpperCase());
+    return hit ? `${hit.short_name} — ${hit.name} (${hit.commodity_type})` : c;
+  }
 
   const displayedItems = useMemo(() => {
     const query = filter.trim().toLowerCase();
@@ -100,7 +135,8 @@ export function CommodityList() {
           (commodity) =>
             commodity.short_name.toLowerCase().includes(query) ||
             commodity.name.toLowerCase().includes(query) ||
-            commodity.commodity_type.toLowerCase().includes(query),
+            commodity.commodity_type.toLowerCase().includes(query) ||
+            (commodity.jps_short_name ?? "").toLowerCase().includes(query),
         )
       : items;
 
@@ -134,6 +170,7 @@ export function CommodityList() {
       short_name: form.short_name.trim(),
       name: form.name.trim(),
       commodity_type: form.commodity_type,
+      jps_short_name: form.jps_short_name.trim() || null,
     };
     setSaving(true);
     const res = editingId
@@ -147,6 +184,22 @@ export function CommodityList() {
     pushToast(editingId ? "Commodity updated" : "Commodity created", "success");
     setModalOpen(false);
     fetchList();
+  }
+
+  async function handleLinkJpsCommodity(id: string, jpsShortName: string | null) {
+    if (!accessToken) return;
+    setLinkingId(id);
+    try {
+      const res = await updateCommodity(id, { jps_short_name: jpsShortName }, accessToken);
+      if (isApiError(res)) {
+        pushToast(res.message, "error");
+        return;
+      }
+      pushToast(jpsShortName ? "Connected to Jetty commodity" : "Jetty link cleared", "success");
+      fetchList();
+    } finally {
+      setLinkingId(null);
+    }
   }
 
   async function handleDeleteCommodity(id: string) {
@@ -174,7 +227,13 @@ export function CommodityList() {
   return (
     <section className={styles.page}>
       <div className={styles.pageHeader}>
-        <h1 className={styles.pageTitle}>Commodity</h1>
+        <div>
+          <h1 className={styles.pageTitle}>Commodity</h1>
+          <p className={styles.pageSubtitle}>
+            Connect each EOS commodity to a Jetty (JPS) short name for import berth planning.
+            {jpsLoading ? " Loading Jetty commodities…" : null}
+          </p>
+        </div>
         <button type="button" className={styles.addBtn} onClick={openCreate}>
           Add Commodity
         </button>
@@ -206,10 +265,11 @@ export function CommodityList() {
                 </TableHeaderCell>
                 <TableHeaderCell>Commodity Name</TableHeaderCell>
                 <TableHeaderCell>Type</TableHeaderCell>
+                <TableHeaderCell>Jetty commodity</TableHeaderCell>
                 <TableHeaderCell className={styles.actionsHeader}>Actions</TableHeaderCell>
               </TableRow>
               <TableRow className={styles.filterRow}>
-                <TableHeaderCell colSpan={4} className={styles.filterCell}>
+                <TableHeaderCell colSpan={5} className={styles.filterCell}>
                   <input
                     type="text"
                     className={styles.filterInput}
@@ -224,7 +284,7 @@ export function CommodityList() {
             <TableBody>
               {displayedItems.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={4} className={styles.emptyState}>
+                  <TableCell colSpan={5} className={styles.emptyState}>
                     {filter.trim()
                       ? "No commodities match your filter."
                       : "No commodities yet. Add your first commodity."}
@@ -236,6 +296,26 @@ export function CommodityList() {
                     <TableCell>{commodity.short_name}</TableCell>
                     <TableCell className={styles.nameCell}>{commodity.name}</TableCell>
                     <TableCell className={styles.typeCell}>{commodity.commodity_type}</TableCell>
+                    <TableCell className={styles.jpsCell}>
+                      <ComboboxSelect
+                        aria-label={`Jetty commodity for ${commodity.short_name}`}
+                        inputClassName={styles.jpsSelect}
+                        options={jpsCommodityLabelOptions}
+                        value={jpsCommodityLabel(commodity.jps_short_name)}
+                        onChange={(label) => {
+                          if (!label.trim()) {
+                            void handleLinkJpsCommodity(commodity.id, null);
+                            return;
+                          }
+                          const code = label.split(" — ")[0]?.trim() ?? "";
+                          void handleLinkJpsCommodity(commodity.id, code || null);
+                        }}
+                        allowEmpty
+                        emptyLabel="— Not connected —"
+                        placeholder="Search Jetty commodities…"
+                        disabled={jpsLoading || linkingId === commodity.id}
+                      />
+                    </TableCell>
                     <TableCell className={styles.actionsCell}>
                       <button
                         type="button"
@@ -313,6 +393,23 @@ export function CommodityList() {
               </option>
             ))}
           </select>
+        </div>
+        <div className={styles.modalField}>
+          <label htmlFor="commodity-jps">Jetty commodity (optional)</label>
+          <ComboboxSelect
+            id="commodity-jps"
+            aria-label="Jetty commodity"
+            options={jpsCommodityLabelOptions}
+            value={jpsCommodityLabel(form.jps_short_name)}
+            onChange={(label) => {
+              const code = label.trim() ? label.split(" — ")[0]?.trim() ?? "" : "";
+              setForm((prev) => ({ ...prev, jps_short_name: code }));
+            }}
+            allowEmpty
+            emptyLabel="— Not connected —"
+            placeholder="Search Jetty commodities…"
+            disabled={jpsLoading}
+          />
         </div>
       </Modal>
     </section>

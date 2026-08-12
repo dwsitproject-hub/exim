@@ -1,15 +1,19 @@
 /**
- * Auto-sync EOS Sea shipments to JPS when minimum fields are present.
+ * Sync EOS Sea shipments to JPS.
+ * First submit is explicit (preview + Send). Later Pending edits auto-PATCH.
  */
 
 import { config } from "../../config/index.js";
+import { AppError } from "../../middlewares/errorHandler.js";
 import { ShipmentPoMappingRepository } from "../../modules/shipments/repositories/shipment-po-mapping.repository.js";
 import { ShipmentRepository } from "../../modules/shipments/repositories/shipment.repository.js";
 import type { ShipmentRow } from "../../modules/shipments/dto/index.js";
 import { logger } from "../../utils/logger.js";
 import { JpsApiClient } from "./jps-api-client.js";
 import {
+  buildJpsSyncPreview,
   dtoTouchesJpsMappedFields,
+  mapShipmentToJpsPatchPayload,
   mapShipmentToJpsPayload,
 } from "./jps-shipping-instruction-mapper.js";
 import { JpsApiError, type JpsShippingInstructionData } from "./types.js";
@@ -39,11 +43,14 @@ function allocationFields(data: JpsShippingInstructionData): {
 export function isJpsEligible(shipment: ShipmentRow): boolean {
   if (shipment.deleted_at) return false;
   if ((shipment.shipment_method ?? "").trim().toLowerCase() !== "sea") return false;
+  if (!(shipment.destination_unload_port_id ?? "").trim()) return false;
+  if (shipment.jps_port_id == null || !Number.isFinite(Number(shipment.jps_port_id))) return false;
   if (!(shipment.vessel_name ?? "").trim()) return false;
   if (!(shipment.agent_name ?? "").trim()) return false;
   if (!shipment.eta) return false;
   const tonnage = shipment.net_weight_mt != null ? Number(shipment.net_weight_mt) : NaN;
   if (!Number.isFinite(tonnage) || tonnage <= 0) return false;
+  if (!(shipment.jps_cargo_type ?? "").trim()) return false;
   return true;
 }
 
@@ -51,9 +58,7 @@ export function isJpsConfigReady(): boolean {
   return (
     config.jps.enabled &&
     Boolean(config.jps.apiBaseUrl?.trim()) &&
-    Boolean(config.jps.apiKey?.trim()) &&
-    Number.isFinite(config.jps.portId) &&
-    Boolean(config.jps.defaultCargoType?.trim())
+    Boolean(config.jps.apiKey?.trim())
   );
 }
 
@@ -65,8 +70,8 @@ export class JpsSyncService {
   ) {}
 
   /**
-   * After shipment create/update: POST on first eligibility, else mark dirty / try update.
-   * Never throws to callers — errors are persisted on the shipment row.
+   * After shipment save: never first-POST automatically.
+   * If already submitted and mapped fields changed → dirty + PATCH while Pending.
    */
   async syncAfterShipmentSave(
     shipmentId: string,
@@ -76,21 +81,61 @@ export class JpsSyncService {
 
     const shipment = await this.repo.findById(shipmentId);
     if (!shipment) return;
-
+    if (shipment.jps_si_id == null) return;
     if (!isJpsEligible(shipment)) return;
 
-    const alreadySubmitted = shipment.jps_si_id != null;
     const touchesMapped =
-      options?.dto == null || dtoTouchesJpsMappedFields(options.dto) || !alreadySubmitted;
+      options?.dto == null || dtoTouchesJpsMappedFields(options.dto) || shipment.jps_sync_dirty;
+    if (!touchesMapped && !shipment.jps_sync_dirty) return;
 
-    if (alreadySubmitted) {
-      if (!touchesMapped && !shipment.jps_sync_dirty) return;
-      await this.repo.updateJpsSync(shipmentId, { jps_sync_dirty: true });
-      await this.tryUpdate(shipmentId, options?.requestedBy);
-      return;
+    await this.repo.updateJpsSync(shipmentId, { jps_sync_dirty: true });
+    await this.tryUpdate(shipmentId, options?.requestedBy);
+  }
+
+  async getPreview(shipmentId: string, requestedBy?: string | null) {
+    if (!isJpsConfigReady()) {
+      throw new AppError("JPS sync is not configured", 503);
+    }
+    const shipment = await this.repo.findById(shipmentId);
+    if (!shipment) throw new AppError("Shipment not found", 404);
+    if (!isJpsEligible(shipment)) {
+      throw new AppError(
+        "Shipment is not ready for Jetty sync. Need Sea method, a Jetty-linked destination unload port, vessel, agent, ETA, net weight (MT), and Jetty commodity.",
+        400
+      );
+    }
+    const contractNo = await this.firstLinkedPoNumber(shipmentId);
+    return buildJpsSyncPreview({ shipment, requestedBy, contractNo });
+  }
+
+  /**
+   * Explicit first send (or resync while Pending). Used by "Send to Jetty" after preview.
+   */
+  async syncNow(shipmentId: string, requestedBy?: string | null): Promise<ShipmentRow> {
+    if (!isJpsConfigReady()) {
+      throw new AppError("JPS sync is not configured", 503);
+    }
+    const shipment = await this.repo.findById(shipmentId);
+    if (!shipment) throw new AppError("Shipment not found", 404);
+    if (!isJpsEligible(shipment)) {
+      throw new AppError(
+        "Shipment is not ready for Jetty sync. Need Sea method, a Jetty-linked destination unload port, vessel, agent, ETA, net weight (MT), and Jetty commodity.",
+        400
+      );
     }
 
-    await this.create(shipmentId, options?.requestedBy);
+    if (shipment.jps_si_id == null) {
+      await this.create(shipmentId, requestedBy);
+    } else {
+      await this.tryUpdate(shipmentId, requestedBy, { throwOnError: true });
+    }
+
+    const updated = await this.repo.findById(shipmentId);
+    if (!updated) throw new AppError("Shipment not found", 404);
+    if (updated.jps_last_error && updated.jps_si_id == null) {
+      throw new AppError(updated.jps_last_error, 502);
+    }
+    return updated;
   }
 
   async create(shipmentId: string, requestedBy?: string | null): Promise<void> {
@@ -132,27 +177,51 @@ export class JpsSyncService {
       const message = formatJpsError(err);
       await this.repo.updateJpsSync(shipmentId, { jps_last_error: message });
       logger.warn("JPS SI create failed", { shipmentId, error: message });
+      throw err instanceof AppError ? err : new AppError(message, 502);
     }
   }
 
-  async tryUpdate(shipmentId: string, requestedBy?: string | null): Promise<void> {
+  async tryUpdate(
+    shipmentId: string,
+    requestedBy?: string | null,
+    options?: { throwOnError?: boolean }
+  ): Promise<void> {
     if (!isJpsConfigReady()) return;
     const shipment = await this.repo.findById(shipmentId);
     if (!shipment || shipment.jps_si_id == null || !isJpsEligible(shipment)) return;
 
     if (shipment.jps_status === "Rejected") {
-      // Partner doc: resubmit needs a new external_reference — not auto on dirty update.
       await this.repo.updateJpsSync(shipmentId, {
         jps_sync_dirty: true,
         jps_last_error:
           "JPS status is Rejected; submit a new SI with a new external_reference (explicit resubmit)",
       });
+      if (options?.throwOnError) {
+        throw new AppError(
+          "Jetty rejected this instruction. Resubmit with a new reference after fixing data.",
+          409
+        );
+      }
+      return;
+    }
+
+    if (shipment.jps_status && shipment.jps_status !== "Pending") {
+      await this.repo.updateJpsSync(shipmentId, {
+        jps_sync_dirty: true,
+        jps_last_error: `JPS status is ${shipment.jps_status}; PATCH only allowed while Pending (NOT_EDITABLE)`,
+      });
+      if (options?.throwOnError) {
+        throw new AppError(
+          `Cannot update Jetty instruction while status is ${shipment.jps_status}.`,
+          409
+        );
+      }
       return;
     }
 
     const contractNo = await this.firstLinkedPoNumber(shipmentId);
     try {
-      const payload = mapShipmentToJpsPayload({
+      const payload = mapShipmentToJpsPatchPayload({
         shipment,
         requestedBy,
         contractNo,
@@ -168,18 +237,17 @@ export class JpsSyncService {
         jps_rejection_reason: data.rejection_reason ?? null,
         ...allocationFields(data),
       });
-      logger.info("JPS SI updated", { shipmentId, jpsSiId: shipment.jps_si_id });
+      logger.info("JPS SI patched", { shipmentId, jpsSiId: shipment.jps_si_id });
     } catch (err) {
       const message = formatJpsError(err);
       await this.repo.updateJpsSync(shipmentId, {
         jps_sync_dirty: true,
         jps_last_error: message,
       });
-      if (err instanceof JpsApiError && err.code === "UPDATE_NOT_SUPPORTED") {
-        logger.info("JPS SI marked dirty; update API not available yet", { shipmentId });
-        return;
+      logger.warn("JPS SI patch failed", { shipmentId, error: message });
+      if (options?.throwOnError) {
+        throw err instanceof AppError ? err : new AppError(message, 502);
       }
-      logger.warn("JPS SI update failed", { shipmentId, error: message });
     }
   }
 
@@ -212,15 +280,12 @@ export class JpsSyncService {
     return { polled: rows.length };
   }
 
-  /**
-   * After Rejected: create a new SI with suffixed external_reference (explicit action).
-   */
   async resubmitAfterRejection(shipmentId: string, requestedBy?: string | null): Promise<void> {
     if (!isJpsConfigReady()) return;
     const shipment = await this.repo.findById(shipmentId);
     if (!shipment || !isJpsEligible(shipment)) return;
     if (shipment.jps_status !== "Rejected") {
-      throw new Error("Resubmit is only allowed when JPS status is Rejected");
+      throw new AppError("Resubmit is only allowed when JPS status is Rejected", 409);
     }
 
     const base = shipment.shipment_no;
@@ -254,7 +319,7 @@ export class JpsSyncService {
     } catch (err) {
       const message = formatJpsError(err);
       await this.repo.updateJpsSync(shipmentId, { jps_last_error: message });
-      throw err;
+      throw err instanceof AppError ? err : new AppError(message, 502);
     }
   }
 
@@ -266,7 +331,7 @@ export class JpsSyncService {
         jps_si_id: data.id,
         jps_status: data.status ?? "Pending",
         jps_external_reference: data.external_reference ?? shipmentNo,
-        jps_submitted_at: shipmentNo ? now : now,
+        jps_submitted_at: now,
         jps_last_synced_at: now,
         jps_sync_dirty: false,
         jps_last_error: null,
@@ -281,6 +346,7 @@ export class JpsSyncService {
       const message = formatJpsError(err);
       await this.repo.updateJpsSync(shipmentId, { jps_last_error: message });
       logger.warn("JPS SI duplicate recovery failed", { shipmentId, error: message });
+      throw new AppError(message, 502);
     }
   }
 

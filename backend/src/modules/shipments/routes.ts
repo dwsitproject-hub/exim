@@ -13,6 +13,7 @@ import * as bidController from "./controllers/shipment-bid.controller.js";
 import * as noteController from "./controllers/shipment-note.controller.js";
 import * as shipmentDocumentController from "./controllers/shipment-document.controller.js";
 import * as activityController from "./controllers/shipment-activity.controller.js";
+import * as jpsController from "./controllers/shipment-jps.controller.js";
 
 export const shipmentRoutes = Router();
 
@@ -23,6 +24,18 @@ shipmentRoutes.get(
   authMiddleware,
   requirePermission(PERMISSIONS.VIEW_SHIPMENTS),
   shipmentController.listFilterOptions
+);
+shipmentRoutes.get(
+  "/jps/ports",
+  authMiddleware,
+  requirePermission(PERMISSIONS.VIEW_SHIPMENTS),
+  jpsController.listJpsPorts
+);
+shipmentRoutes.get(
+  "/jps/commodities",
+  authMiddleware,
+  requirePermission(PERMISSIONS.VIEW_SHIPMENTS),
+  jpsController.listJpsCommodities
 );
 shipmentRoutes.get(
   "/import/combined-template-csv",
@@ -45,6 +58,18 @@ shipmentRoutes.get(
 );
 shipmentRoutes.get("/:id", authMiddleware, requirePermission(PERMISSIONS.VIEW_SHIPMENTS), shipmentController.getById);
 shipmentRoutes.put("/:id", authMiddleware, requirePermission(PERMISSIONS.UPDATE_SHIPMENT), shipmentController.update);
+shipmentRoutes.get(
+  "/:id/jps/preview",
+  authMiddleware,
+  requirePermission(PERMISSIONS.VIEW_SHIPMENTS),
+  jpsController.previewJpsSync
+);
+shipmentRoutes.post(
+  "/:id/jps/sync",
+  authMiddleware,
+  requirePermission(PERMISSIONS.UPDATE_SHIPMENT),
+  jpsController.syncJpsNow
+);
 shipmentRoutes.patch("/:id/close", authMiddleware, requirePermission(PERMISSIONS.UPDATE_SHIPMENT), shipmentController.close);
 shipmentRoutes.delete("/:id", authMiddleware, requirePermission(PERMISSIONS.UPDATE_SHIPMENT), shipmentController.softDelete);
 

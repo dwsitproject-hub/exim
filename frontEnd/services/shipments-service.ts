@@ -18,6 +18,10 @@ import type {
   ShipmentImportCsvResult,
   ShipmentImportHistoryItem,
   FreightChargeCurrency,
+  JpsPortOption,
+  JpsCommodityOption,
+  JpsMasterListResult,
+  JpsSyncPreview,
 } from "@/types/shipments";
 import type { ApiResponse } from "@/types/api";
 import { config } from "@/lib/config";
@@ -42,6 +46,8 @@ function buildQueryString(query: ListShipmentsQuery): string {
   if (query.created_to) params.set("created_to", query.created_to);
   if (query.po_from_date) params.set("po_from_date", query.po_from_date);
   if (query.po_to_date) params.set("po_to_date", query.po_to_date);
+  if (query.eta_from_date) params.set("eta_from_date", query.eta_from_date);
+  if (query.eta_to_date) params.set("eta_to_date", query.eta_to_date);
   if (query.active_pipeline) params.set("active_pipeline", "true");
   query.pts?.forEach((p) => params.append("pt", p));
   query.plants?.forEach((p) => params.append("plant", p));
@@ -110,6 +116,10 @@ export interface UpdateShipmentPayload {
   vessel_name?: string;
   voyage_no?: string;
   agent_name?: string;
+  jps_port_id?: number | null;
+  jps_cargo_type?: string | null;
+  /** Master plant unload port; backend derives destination name + Jetty port_id. */
+  destination_unload_port_id?: string | null;
   pib_type?: string;
   no_request_pib?: string;
   ppjk_mkl?: string;
@@ -441,6 +451,36 @@ export async function listShipmentImportHistory(
   const q = new URLSearchParams();
   q.set("limit", String(limit));
   return apiGet<ShipmentImportHistoryItem[]>(`shipments/import/history?${q.toString()}`, accessToken);
+}
+
+export async function listJpsPorts(
+  accessToken: string | null,
+  options?: { refresh?: boolean }
+): Promise<ApiResponse<JpsMasterListResult<JpsPortOption>>> {
+  const q = options?.refresh ? "?refresh=1" : "";
+  return apiGet<JpsMasterListResult<JpsPortOption>>(`shipments/jps/ports${q}`, accessToken);
+}
+
+export async function listJpsCommodities(
+  accessToken: string | null,
+  options?: { refresh?: boolean }
+): Promise<ApiResponse<JpsMasterListResult<JpsCommodityOption>>> {
+  const q = options?.refresh ? "?refresh=1" : "";
+  return apiGet<JpsMasterListResult<JpsCommodityOption>>(`shipments/jps/commodities${q}`, accessToken);
+}
+
+export async function previewJpsSync(
+  shipmentId: string,
+  accessToken: string | null
+): Promise<ApiResponse<JpsSyncPreview>> {
+  return apiGet<JpsSyncPreview>(`shipments/${shipmentId}/jps/preview`, accessToken);
+}
+
+export async function syncShipmentToJps(
+  shipmentId: string,
+  accessToken: string | null
+): Promise<ApiResponse<ShipmentDetail>> {
+  return apiPost<ShipmentDetail>(`shipments/${shipmentId}/jps/sync`, {}, accessToken);
 }
 
 

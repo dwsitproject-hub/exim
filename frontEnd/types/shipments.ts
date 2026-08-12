@@ -108,6 +108,8 @@ export interface ShipmentDetail {
   destination_port_code: string | null;
   destination_port_name: string | null;
   destination_port_country: string | null;
+  /** Master plant unload port (port of discharge). */
+  destination_unload_port_id: string | null;
   etd: string | null;
   eta: string | null;
   /** Actual time of departure */
@@ -177,6 +179,10 @@ export interface ShipmentDetail {
   vessel_name: string | null;
   voyage_no: string | null;
   agent_name: string | null;
+  /** JPS port id from GET /ports (sent as port_id). */
+  jps_port_id: number | null;
+  /** JPS commodity short_name from GET /commodities. */
+  jps_cargo_type: string | null;
   jps_si_id: number | null;
   jps_status: string | null;
   jps_external_reference: string | null;
@@ -187,6 +193,42 @@ export interface ShipmentDetail {
   jps_rejection_reason: string | null;
   jps_jetty_name: string | null;
   jps_planned_berthing_time: string | null;
+}
+
+export interface JpsPortOption {
+  id: number;
+  name: string;
+}
+
+export interface JpsCommodityOption {
+  id: number;
+  short_name: string;
+  name: string;
+  commodity_type: string;
+}
+
+export interface JpsMasterListResult<T> {
+  data: T[];
+  fetched_at: string;
+  cached: boolean;
+}
+
+export interface JpsSyncPreview {
+  external_reference: string;
+  purpose: "Unloading";
+  vessel_name: string;
+  voyage_no: string | null;
+  agent_name: string;
+  eta: string;
+  port_id: number;
+  cargo_type: string;
+  tonnage: number;
+  unit: "MT";
+  contract_no: string | null;
+  notes: string | null;
+  already_submitted: boolean;
+  jps_si_id: number | null;
+  jps_status: string | null;
 }
 
 /** Comment on a shipment (GET/POST /shipments/:id/notes). Newest first from API. */
@@ -263,6 +305,9 @@ export interface ListShipmentsQuery {
   /** Effective PO date: `imported_po_intake.po_date`, else intake created date (UTC). */
   po_from_date?: string;
   po_to_date?: string;
+  /** Inclusive YYYY-MM-DD on shipment `eta` (UTC date). */
+  eta_from_date?: string;
+  eta_to_date?: string;
   /**
    * Matches backend: not closed (`closed_at` null) and status not DELIVERED.
    * Use for KPIs such as dashboard “active” shipment count.

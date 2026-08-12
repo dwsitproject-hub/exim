@@ -49,6 +49,8 @@ function parseListQuery(req: Request): ListShipmentsQuery {
     to_date: typeof q.to_date === "string" ? q.to_date : undefined,
     po_from_date: typeof q.po_from_date === "string" ? q.po_from_date : undefined,
     po_to_date: typeof q.po_to_date === "string" ? q.po_to_date : undefined,
+    eta_from_date: typeof q.eta_from_date === "string" ? q.eta_from_date : undefined,
+    eta_to_date: typeof q.eta_to_date === "string" ? q.eta_to_date : undefined,
     active_pipeline:
       q.active_pipeline === "true" || q.active_pipeline === "1" || q.active_pipeline === true ? true : undefined,
     created_from: typeof q.created_from === "string" ? q.created_from : undefined,

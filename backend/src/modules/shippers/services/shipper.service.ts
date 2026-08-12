@@ -4,12 +4,15 @@ import { ShipperRepository } from "../repositories/shipper.repository.js";
 import type {
   ShipperRow,
   ShipperPlantRow,
+  ShipperPlantUnloadPortRow,
   ShipperLoadportRow,
   ShipperMasterRow,
   CreateShipperDto,
   UpdateShipperDto,
   CreateShipperPlantDto,
   UpdateShipperPlantDto,
+  CreateShipperPlantUnloadPortDto,
+  UpdateShipperPlantUnloadPortDto,
   CreateShipperLoadportDto,
   UpdateShipperLoadportDto,
   ListShippersQuery,
@@ -120,6 +123,77 @@ export class ShipperService {
     return this.repo.softDeletePlant(id);
   }
 
+  /* ───────── plant unload ports ───────── */
+
+  async listUnloadPorts(plantId: string): Promise<ShipperPlantUnloadPortRow[]> {
+    const plant = await this.repo.getPlantById(plantId);
+    if (!plant) {
+      throw new AppError("Plant not found", 404);
+    }
+    return this.repo.listUnloadPortsByPlant(plantId);
+  }
+
+  async createUnloadPort(
+    plantId: string,
+    dto: CreateShipperPlantUnloadPortDto,
+  ): Promise<ShipperPlantUnloadPortRow> {
+    if (!dto.name?.trim()) {
+      throw new AppError("Unload port name is required", 400);
+    }
+    const plant = await this.repo.getPlantById(plantId);
+    if (!plant) {
+      throw new AppError("Plant not found", 404);
+    }
+    if (dto.jps_port_id !== undefined && dto.jps_port_id !== null) {
+      const n = Number(dto.jps_port_id);
+      if (!Number.isInteger(n) || n <= 0) {
+        throw new AppError("jps_port_id must be a positive integer", 400);
+      }
+      dto.jps_port_id = n;
+    }
+    const existing = await this.repo.findUnloadPortByName(plantId, dto.name);
+    if (existing) {
+      return existing;
+    }
+    return this.repo.createUnloadPort(plantId, dto);
+  }
+
+  async updateUnloadPort(
+    id: string,
+    dto: UpdateShipperPlantUnloadPortDto,
+  ): Promise<ShipperPlantUnloadPortRow | null> {
+    if (dto.name === undefined && dto.jps_port_id === undefined) {
+      throw new AppError("Provide name and/or jps_port_id to update", 400);
+    }
+    if (dto.name !== undefined && !dto.name.trim()) {
+      throw new AppError("Unload port name is required", 400);
+    }
+    if (dto.jps_port_id !== undefined && dto.jps_port_id !== null) {
+      const n = Number(dto.jps_port_id);
+      if (!Number.isInteger(n) || n <= 0) {
+        throw new AppError("jps_port_id must be a positive integer", 400);
+      }
+      dto.jps_port_id = n;
+    }
+    return this.repo.updateUnloadPort(id, dto);
+  }
+
+  async softDeleteUnloadPort(id: string): Promise<ShipperPlantUnloadPortRow | null> {
+    return this.repo.softDeleteUnloadPort(id);
+  }
+
+  async listAllUnloadPorts() {
+    return this.repo.listAllUnloadPorts();
+  }
+
+  async getUnloadPortListRowById(id: string) {
+    return this.repo.getUnloadPortListRowById(id);
+  }
+
+  async listJpsMappedUnloadPorts() {
+    return this.repo.listJpsMappedUnloadPorts();
+  }
+
   /* ───────── loadports ───────── */
 
   async listLoadports(shipperId: string): Promise<ShipperLoadportRow[]> {
@@ -142,14 +216,28 @@ export class ShipperService {
   }
 
   async updateLoadport(id: string, dto: UpdateShipperLoadportDto): Promise<ShipperLoadportRow | null> {
-    if (!dto.name?.trim()) {
+    if (dto.name === undefined && dto.jps_port_id === undefined) {
+      throw new AppError("Provide name and/or jps_port_id to update", 400);
+    }
+    if (dto.name !== undefined && !dto.name.trim()) {
       throw new AppError("Load port name is required", 400);
+    }
+    if (dto.jps_port_id !== undefined && dto.jps_port_id !== null) {
+      const n = Number(dto.jps_port_id);
+      if (!Number.isInteger(n) || n <= 0) {
+        throw new AppError("jps_port_id must be a positive integer", 400);
+      }
+      dto.jps_port_id = n;
     }
     return this.repo.updateLoadport(id, dto);
   }
 
   async softDeleteLoadport(id: string): Promise<ShipperLoadportRow | null> {
     return this.repo.softDeleteLoadport(id);
+  }
+
+  async listJpsMappedLoadports() {
+    return this.repo.listJpsMappedLoadports();
   }
 
   /* ───────── document header ───────── */

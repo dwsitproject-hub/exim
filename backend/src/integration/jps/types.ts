@@ -5,6 +5,18 @@
 
 export type JpsPartnerStatus = "Pending" | "Approved" | "Rejected" | "Allocated";
 
+export interface JpsPort {
+  id: number;
+  name: string;
+}
+
+export interface JpsCommodity {
+  id: number;
+  short_name: string;
+  name: string;
+  commodity_type: "Solid" | "Liquid" | string;
+}
+
 export interface JpsCargoLine {
   cargo_type: string;
   description?: string;
@@ -26,6 +38,12 @@ export interface JpsShippingInstructionPayload {
   notes?: string;
   cargo: JpsCargoLine[];
 }
+
+/** PATCH body: same as POST except external_reference is immutable / omitted. */
+export type JpsShippingInstructionPatchPayload = Omit<
+  JpsShippingInstructionPayload,
+  "external_reference"
+>;
 
 export interface JpsShippingInstructionData {
   id: number;

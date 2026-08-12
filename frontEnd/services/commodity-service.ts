@@ -10,14 +10,25 @@ export interface Commodity {
   short_name: string;
   name: string;
   commodity_type: CommodityType;
+  /** Linked JPS short_name from partner GET /commodities; null = not connected. */
+  jps_short_name: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface CommodityJpsMapped {
+  id: string;
+  short_name: string;
+  name: string;
+  commodity_type: CommodityType;
+  jps_short_name: string;
 }
 
 export interface CommodityInput {
   short_name: string;
   name: string;
   commodity_type: CommodityType;
+  jps_short_name?: string | null;
 }
 
 export async function listCommodities(
@@ -44,7 +55,7 @@ export async function createCommodity(
 
 export async function updateCommodity(
   id: string,
-  body: CommodityInput,
+  body: Partial<CommodityInput> & { jps_short_name?: string | null },
   accessToken: string | null,
 ): Promise<ApiResponse<Commodity>> {
   return apiPatch<Commodity>(`commodities/${id}`, body, accessToken);
@@ -55,6 +66,13 @@ export async function deleteCommodity(
   accessToken: string | null,
 ): Promise<ApiResponse<unknown>> {
   return apiDelete(`commodities/${id}`, accessToken);
+}
+
+/** EOS master commodities that admin linked to a JPS short_name. */
+export async function listJpsMappedCommodities(
+  accessToken: string | null,
+): Promise<ApiResponse<CommodityJpsMapped[]>> {
+  return apiGet<CommodityJpsMapped[]>("commodities/jps-mapped", accessToken);
 }
 
 /** Resolve a cargo-line value to the master short name when possible. */

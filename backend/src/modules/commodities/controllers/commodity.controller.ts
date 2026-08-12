@@ -19,6 +19,19 @@ export async function listCommodities(req: Request, res: Response, next: NextFun
   }
 }
 
+export async function listJpsMappedCommodities(
+  _req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const rows = await service.listJpsMappedCommodities();
+    sendSuccess(res, rows);
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function getCommodityById(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const row = await service.getCommodityById(req.params.id);

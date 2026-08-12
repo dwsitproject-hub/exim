@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { ShipmentRow } from "../../modules/shipments/dto/index.js";
-import { mapShipmentToJpsPayload } from "./jps-shipping-instruction-mapper.js";
+import {
+  mapShipmentToJpsPatchPayload,
+  mapShipmentToJpsPayload,
+} from "./jps-shipping-instruction-mapper.js";
 
 function baseShipment(over: Partial<ShipmentRow> = {}): ShipmentRow {
   return {
@@ -21,6 +24,7 @@ function baseShipment(over: Partial<ShipmentRow> = {}): ShipmentRow {
     destination_port_code: null,
     destination_port_name: null,
     destination_port_country: null,
+    destination_unload_port_id: "up-1",
     etd: new Date("2026-07-01T00:00:00.000Z"),
     eta: new Date("2026-07-10T00:00:00.000Z"),
     atd: null,
@@ -73,6 +77,8 @@ function baseShipment(over: Partial<ShipmentRow> = {}): ShipmentRow {
     vessel_name: "MV TEST",
     voyage_no: "V1",
     agent_name: "PT Agent",
+    jps_port_id: 1,
+    jps_cargo_type: "CPO",
     jps_si_id: null,
     jps_status: null,
     jps_external_reference: null,
@@ -88,26 +94,31 @@ function baseShipment(over: Partial<ShipmentRow> = {}): ShipmentRow {
 }
 
 describe("mapShipmentToJpsPayload", () => {
-  it("maps Unloading purpose and MT cargo", () => {
+  it("maps Unloading purpose and shipment Jetty masters", () => {
     const payload = mapShipmentToJpsPayload({
       shipment: baseShipment(),
       requestedBy: "dev@example.com",
       contractNo: "PO-1",
-      portId: 1,
-      cargoType: "CPO",
     });
     assert.equal(payload.purpose, "Unloading");
-    assert.equal(payload.vessel_name, "MV TEST");
-    assert.equal(payload.agent_name, "PT Agent");
-    assert.equal(payload.voyage_no, "V1");
-    assert.equal(payload.external_reference, "SHP-2026-0001");
-    assert.equal(payload.requested_by, "dev@example.com");
-    assert.equal(payload.cargo.length, 1);
+    assert.equal(payload.port_id, 1);
     assert.equal(payload.cargo[0]!.cargo_type, "CPO");
     assert.equal(payload.cargo[0]!.unit, "MT");
-    assert.equal(payload.cargo[0]!.tonnage, 1000);
-    assert.equal(payload.cargo[0]!.contract_no, "PO-1");
-    // EOS eta-after-etd: do not send etd to JPS (JPS wants etd after eta)
     assert.equal(payload.etd, undefined);
+  });
+
+  it("PATCH payload omits external_reference", () => {
+    const patch = mapShipmentToJpsPatchPayload({ shipment: baseShipment() });
+    assert.equal("external_reference" in patch, false);
+    assert.equal(patch.port_id, 1);
+  });
+
+  it("requires jps_port_id and jps_cargo_type", () => {
+    assert.throws(() =>
+      mapShipmentToJpsPayload({ shipment: baseShipment({ jps_port_id: null }) })
+    );
+    assert.throws(() =>
+      mapShipmentToJpsPayload({ shipment: baseShipment({ jps_cargo_type: null }) })
+    );
   });
 });

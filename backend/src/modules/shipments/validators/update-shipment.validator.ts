@@ -78,6 +78,19 @@ export function validateUpdateShipmentBody(
   if (typeof body?.vessel_name === "string") data.vessel_name = body.vessel_name.trim() || undefined;
   if (typeof body?.voyage_no === "string") data.voyage_no = body.voyage_no.trim() || undefined;
   if (typeof body?.agent_name === "string") data.agent_name = body.agent_name.trim() || undefined;
+  if (body?.jps_port_id === null) {
+    data.jps_port_id = null;
+  } else if (body?.jps_port_id !== undefined && body?.jps_port_id !== "") {
+    const n = Number(body.jps_port_id);
+    if (!Number.isInteger(n) || n <= 0) {
+      errors.push({ field: "jps_port_id", message: "Must be a positive integer (JPS port id)" });
+    } else data.jps_port_id = n;
+  }
+  if (body?.jps_cargo_type === null) {
+    data.jps_cargo_type = null;
+  } else if (typeof body?.jps_cargo_type === "string") {
+    data.jps_cargo_type = body.jps_cargo_type.trim() || null;
+  }
   if (typeof body?.pib_type === "string") data.pib_type = body.pib_type.trim() || undefined;
   if (typeof body?.no_request_pib === "string") data.no_request_pib = body.no_request_pib.trim() || undefined;
   if (typeof body?.ppjk_mkl === "string") data.ppjk_mkl = body.ppjk_mkl.trim() || undefined;
@@ -151,6 +164,18 @@ export function validateUpdateShipmentBody(
   if (typeof body?.shipment_method === "string") data.shipment_method = body.shipment_method.trim() || undefined;
   if (typeof body?.destination_port_name === "string") data.destination_port_name = body.destination_port_name.trim() || undefined;
   if (typeof body?.destination_port_country === "string") data.destination_port_country = body.destination_port_country.trim() || undefined;
+  if (body?.destination_unload_port_id === null || body?.destination_unload_port_id === "") {
+    data.destination_unload_port_id = null;
+  } else if (typeof body?.destination_unload_port_id === "string") {
+    const id = body.destination_unload_port_id.trim();
+    const uuidRe =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!uuidRe.test(id)) {
+      errors.push({ field: "destination_unload_port_id", message: "Must be a valid unload port id" });
+    } else {
+      data.destination_unload_port_id = id;
+    }
+  }
   if (typeof body?.vendor_name === "string") data.vendor_name = body.vendor_name.trim() || undefined;
   if (typeof body?.warehouse_name === "string") data.warehouse_name = body.warehouse_name.trim() || undefined;
   if (typeof body?.incoterm === "string") data.incoterm = body.incoterm.trim() || undefined;

@@ -31,12 +31,54 @@ export interface ShipperPlant {
   updated_at: string;
 }
 
+export interface ShipperPlantUnloadPort {
+  id: string;
+  plant_id: string;
+  name: string;
+  /** Linked JPS port id from partner GET /ports; null = not connected. */
+  jps_port_id: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** All plant unload ports (import destination master). */
+export interface ShipperPlantUnloadPortListItem {
+  id: string;
+  plant_id: string;
+  plant_name: string;
+  shipper_id: string;
+  shipper_short_name: string;
+  name: string;
+  jps_port_id: number | null;
+}
+
+/** Plant unload ports linked to Jetty for import berth planning. */
+export interface ShipperPlantUnloadPortJpsMapped {
+  id: string;
+  plant_id: string;
+  plant_name: string;
+  shipper_id: string;
+  shipper_short_name: string;
+  name: string;
+  jps_port_id: number;
+}
+
 export interface ShipperLoadport {
   id: string;
   shipper_id: string;
   name: string;
+  /** Linked JPS port id from partner GET /ports; null = not connected. */
+  jps_port_id: number | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface ShipperLoadportJpsMapped {
+  id: string;
+  shipper_id: string;
+  shipper_short_name: string;
+  name: string;
+  jps_port_id: number;
 }
 
 export interface ShipperInput {
@@ -116,6 +158,60 @@ export async function deleteShipperPlant(
   return apiDelete(`shippers/plants/${plantId}`, accessToken);
 }
 
+/* ───────── plant unload ports (import) ───────── */
+
+export async function listShipperPlantUnloadPorts(
+  plantId: string,
+  accessToken: string | null,
+): Promise<ApiResponse<ShipperPlantUnloadPort[]>> {
+  return apiGet<ShipperPlantUnloadPort[]>(`shippers/plants/${plantId}/unload-ports`, accessToken);
+}
+
+export async function createShipperPlantUnloadPort(
+  plantId: string,
+  body: { name: string; jps_port_id?: number | null },
+  accessToken: string | null,
+): Promise<ApiResponse<ShipperPlantUnloadPort>> {
+  return apiPost<ShipperPlantUnloadPort>(
+    `shippers/plants/${plantId}/unload-ports`,
+    body,
+    accessToken,
+  );
+}
+
+export async function updateShipperPlantUnloadPort(
+  unloadPortId: string,
+  body: { name?: string; jps_port_id?: number | null },
+  accessToken: string | null,
+): Promise<ApiResponse<ShipperPlantUnloadPort>> {
+  return apiPatch<ShipperPlantUnloadPort>(
+    `shippers/unload-ports/${unloadPortId}`,
+    body,
+    accessToken,
+  );
+}
+
+export async function deleteShipperPlantUnloadPort(
+  unloadPortId: string,
+  accessToken: string | null,
+): Promise<ApiResponse<unknown>> {
+  return apiDelete(`shippers/unload-ports/${unloadPortId}`, accessToken);
+}
+
+/** All active plant unload ports (destination master for import). */
+export async function listAllUnloadPorts(
+  accessToken: string | null,
+): Promise<ApiResponse<ShipperPlantUnloadPortListItem[]>> {
+  return apiGet<ShipperPlantUnloadPortListItem[]>("shippers/unload-ports", accessToken);
+}
+
+/** EOS plant unload ports that admin linked to a JPS port. */
+export async function listJpsMappedUnloadPorts(
+  accessToken: string | null,
+): Promise<ApiResponse<ShipperPlantUnloadPortJpsMapped[]>> {
+  return apiGet<ShipperPlantUnloadPortJpsMapped[]>("shippers/unload-ports/jps-mapped", accessToken);
+}
+
 /* ───────── loadports ───────── */
 
 export async function listShipperLoadports(
@@ -133,11 +229,26 @@ export async function createShipperLoadport(
   return apiPost<ShipperLoadport>(`shippers/${shipperId}/loadports`, body, accessToken);
 }
 
+export async function updateShipperLoadport(
+  lpId: string,
+  body: { name?: string; jps_port_id?: number | null },
+  accessToken: string | null,
+): Promise<ApiResponse<ShipperLoadport>> {
+  return apiPatch<ShipperLoadport>(`shippers/loadports/${lpId}`, body, accessToken);
+}
+
 export async function deleteShipperLoadport(
   lpId: string,
   accessToken: string | null,
 ): Promise<ApiResponse<unknown>> {
   return apiDelete(`shippers/loadports/${lpId}`, accessToken);
+}
+
+/** EOS master shipper load ports that admin linked to a JPS port. */
+export async function listJpsMappedLoadports(
+  accessToken: string | null,
+): Promise<ApiResponse<ShipperLoadportJpsMapped[]>> {
+  return apiGet<ShipperLoadportJpsMapped[]>("shippers/loadports/jps-mapped", accessToken);
 }
 
 /** Match stored PT/shipper value to a master row (short name, entity name, or legacy name). */
