@@ -13,6 +13,7 @@ import type {
   ClassificationQtyRow,
   FinancialSummaryResult,
   LogisticsDetailSourceRow,
+  MixedFclComboShipmentRow,
   PostArrivalLeadRow,
   PostArrivalLeadShipmentRow,
   PostArrivalLeadShipmentsQuery,
@@ -371,6 +372,13 @@ export class DashboardService {
     query: LogisticsGroupShipmentsQuery
   ): Promise<ShipmentAnalyticsGroupShipmentRow[]> {
     return this.analyticsRepo.getLogisticsGroupShipments(query);
+  }
+
+  async getMixedFclComboShipments(
+    query: ShipmentAnalyticsQuery,
+    comboKey: string
+  ): Promise<MixedFclComboShipmentRow[]> {
+    return this.analyticsRepo.getMixedFclComboShipments(query, comboKey);
   }
 
   async getFinancialSummary(query: ShipmentAnalyticsQuery, idrPerUsd: number): Promise<FinancialSummaryResult> {

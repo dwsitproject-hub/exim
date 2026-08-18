@@ -17,6 +17,7 @@ import type {
 import type {
   ClassificationQtyRow,
   FinancialSummaryResult,
+  MixedFclComboShipmentRow,
   PostArrivalLeadRow,
   PostArrivalLeadShipmentRow,
   PostArrivalLeadShipmentsQuery,
@@ -250,6 +251,20 @@ export async function getLogisticsGroupShipments(
   if (query.fcl_sub_type) params.set("fcl_sub_type", query.fcl_sub_type);
   return apiGet<ShipmentAnalyticsGroupShipmentRow[]>(
     `dashboard/logistics-rows/shipments?${params.toString()}`,
+    accessToken
+  );
+}
+
+export async function getMixedFclComboShipments(
+  query: ShipmentAnalyticsQuery,
+  comboKey: string,
+  accessToken: string | null
+): Promise<ApiResponse<MixedFclComboShipmentRow[]>> {
+  const params = new URLSearchParams();
+  appendShipmentAnalyticsParams(params, query);
+  params.set("combo_key", comboKey);
+  return apiGet<MixedFclComboShipmentRow[]>(
+    `dashboard/fcl-mixed-combo-shipments?${params.toString()}`,
     accessToken
   );
 }

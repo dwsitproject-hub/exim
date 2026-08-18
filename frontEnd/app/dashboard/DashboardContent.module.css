@@ -854,7 +854,7 @@
 
 .seaLoadMetricRow {
   display: grid;
-  grid-template-columns: 36px 1fr auto;
+  grid-template-columns: auto 1fr auto 14px;
   align-items: center;
   gap: 8px;
   padding: 4px 6px;
@@ -866,6 +866,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  min-width: 36px;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -876,13 +877,6 @@
 
 .seaLoadMetricLabel {
   font-size: 12px;
-  color: var(--color-primitive-text-steel, #6b6b6b);
-}
-
-.seaLoadMetricShipmentCount {
-  margin-left: 4px;
-  font-size: 11px;
-  font-weight: var(--typography-fontWeight-normal, 400);
   color: var(--color-primitive-text-steel, #6b6b6b);
 }
 
@@ -899,6 +893,117 @@
   font-size: 11px;
   font-weight: var(--typography-fontWeight-normal, 400);
   color: var(--color-primitive-text-steel, #6b6b6b);
+}
+
+/* ── FCL L2 categorization section ── */
+.fclCategorizationDivider {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 2px;
+  padding: 0 2px;
+}
+
+.fclCategorizationL2Badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  border-radius: 3px;
+  padding: 1px 5px;
+  background: #f1f5f9;
+  color: #64748b;
+  border: 1px solid #e2e8f0;
+}
+
+.fclCategorizationTitle {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+}
+
+.fclSubTypeLabel {
+  font-size: 10px;
+  font-style: italic;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  margin: 4px 0 1px 6px;
+  padding: 0;
+}
+
+.fclRowShipmentCount {
+  margin-left: 4px;
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+}
+
+/* ── Multi-type FCL expandable rows ── */
+.fclComboRowExpandable {
+  /* Reset button defaults without overriding the base .seaLoadMetricRow spacing */
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  width: 100%;
+}
+.fclComboRowExpandable:hover {
+  background: var(--color-primitive-background-light, #f5f5f5);
+}
+
+.fclRowChevron {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  flex-shrink: 0;
+}
+
+.fclComboExpandedShipments {
+  margin: 2px 0 4px 44px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fclComboShipmentRow {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: var(--color-primitive-background-lighter, #fafafa);
+  border-left: 2px solid #bfdbfe;
+}
+
+.fclComboShipmentNo {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+  white-space: nowrap;
+}
+
+.fclComboShipmentDetail {
+  font-size: 10px;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+}
+
+.fclComboShipmentTotal {
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+  white-space: nowrap;
+}
+
+.fclComboExpandedLoading,
+.fclComboExpandedError {
+  font-size: 11px;
+  color: var(--color-primitive-text-steel, #6b6b6b);
+  padding: 4px 6px;
 }
 
 

@@ -1,5 +1,8 @@
 /**
  * Local filesystem storage adapter. Placeholder for NFS/shared/object storage.
+ *
+ * Keys prefixed with `_drafts/` resolve under STORAGE_DRAFT_LOCAL_PATH (local-only).
+ * All other keys use STORAGE_LOCAL_PATH / Synology filing root.
  */
 
 import { createReadStream, createWriteStream, mkdirSync, existsSync, unlinkSync } from "fs";
@@ -16,13 +19,25 @@ import type {
 
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
 
+/** Storage keys for draft files that must not use the Synology filing root. */
+export const DRAFT_STORAGE_KEY_PREFIX = "_drafts/";
+
 function getBasePath(): string {
-  const path = config.storage.localPath ?? "./uploads";
-  return path;
+  return config.storage.localPath ?? "./uploads";
+}
+
+function getDraftBasePath(): string {
+  return config.storage.draftLocalPath ?? "./uploads-draft";
+}
+
+function isDraftStorageKey(storageKey: string): boolean {
+  return storageKey.replace(/\\/g, "/").startsWith(DRAFT_STORAGE_KEY_PREFIX);
 }
 
 function storageKeyToPath(storageKey: string): string {
-  return join(getBasePath(), storageKey.replace(/\.\./g, ""));
+  const safe = storageKey.replace(/\.\./g, "");
+  const base = isDraftStorageKey(safe) ? getDraftBasePath() : getBasePath();
+  return join(base, safe);
 }
 
 const UUID =
@@ -64,22 +79,29 @@ export function parseStoredLeafBaseName(leaf: string): string {
   return leaf;
 }
 
+function resolveStorageKey(options: StorageUploadOptions): string {
+  const leaf = buildStorageLeafFileName(options.fileName, options.versionId);
+  return options.directoryPrefix
+    ? `${options.directoryPrefix.replace(/\.\./g, "")}/${leaf}`
+    : `${options.documentId}/${leaf}`;
+}
+
+async function ensureWrite(fullPath: string, write: () => Promise<void>): Promise<void> {
+  const dir = join(fullPath, "..");
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+  await write();
+}
+
 export class LocalStorageAdapter implements IStorageService {
   async upload(content: Buffer, options: StorageUploadOptions): Promise<StorageUploadResult> {
     if (content.length > MAX_FILE_SIZE_BYTES) {
       throw new Error(`File size exceeds ${MAX_FILE_SIZE_BYTES / 1024 / 1024} MB limit`);
     }
-    const base = getBasePath();
-    const leaf = buildStorageLeafFileName(options.fileName, options.versionId);
-    const storageKey = options.directoryPrefix
-      ? `${options.directoryPrefix.replace(/\.\./g, "")}/${leaf}`
-      : `${options.documentId}/${leaf}`;
-    const fullPath = join(base, storageKey);
-    const dir = join(fullPath, "..");
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-    }
-    await writeFile(fullPath, content);
+    const storageKey = resolveStorageKey(options);
+    const fullPath = storageKeyToPath(storageKey);
+    await ensureWrite(fullPath, () => writeFile(fullPath, content));
     return { storageKey };
   }
 
@@ -89,12 +111,8 @@ export class LocalStorageAdapter implements IStorageService {
       await unlink(sourcePath).catch(() => {});
       throw new Error(`File size exceeds ${MAX_FILE_SIZE_BYTES / 1024 / 1024} MB limit`);
     }
-    const base = getBasePath();
-    const leaf = buildStorageLeafFileName(options.fileName, options.versionId);
-    const storageKey = options.directoryPrefix
-      ? `${options.directoryPrefix.replace(/\.\./g, "")}/${leaf}`
-      : `${options.documentId}/${leaf}`;
-    const fullPath = join(base, storageKey);
+    const storageKey = resolveStorageKey(options);
+    const fullPath = storageKeyToPath(storageKey);
     const dir = join(fullPath, "..");
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
@@ -132,5 +150,10 @@ export class LocalStorageAdapter implements IStorageService {
 
   async exists(storageKey: string): Promise<boolean> {
     return existsSync(storageKeyToPath(storageKey));
+  }
+
+  /** Absolute path for a stored key (for OCR that needs a filesystem path). */
+  resolveAbsolutePath(storageKey: string): string {
+    return storageKeyToPath(storageKey);
   }
 }

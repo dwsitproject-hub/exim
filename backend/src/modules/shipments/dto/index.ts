@@ -43,6 +43,7 @@ export interface CreateShipmentDto {
   ship_by?: string;
   bl_awb?: string;
   insurance_no?: string;
+  insurance_amount?: number;
   coo?: string;
   incoterm_amount?: number;
   incoterm_currency?: FreightChargeCurrency;
@@ -68,6 +69,7 @@ export interface UpdateShipmentDto {
   ship_by?: string | null;
   bl_awb?: string;
   insurance_no?: string;
+  insurance_amount?: number;
   coo?: string;
   incoterm_amount?: number;
   incoterm_currency?: FreightChargeCurrency;
@@ -281,6 +283,7 @@ export interface ShipmentRow {
   ship_by: string | null;
   bl_awb: string | null;
   insurance_no: string | null;
+  insurance_amount: number | null;
   coo: string | null;
   incoterm_amount: number | null;
   incoterm_currency: FreightChargeCurrency;
@@ -380,6 +383,7 @@ export interface ShipmentDetail {
   ship_by: string | null;
   bl_awb: string | null;
   insurance_no: string | null;
+  insurance_amount: number | null;
   coo: string | null;
   incoterm_amount: number | null;
   incoterm_currency: FreightChargeCurrency;

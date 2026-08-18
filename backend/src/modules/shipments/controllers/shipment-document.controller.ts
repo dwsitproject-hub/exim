@@ -96,3 +96,14 @@ export async function deleteDocument(req: Request, res: Response, next: NextFunc
     next(e);
   }
 }
+
+export async function recheckPibDocument(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const shipmentId = req.params.id as string;
+  const documentId = req.params.documentId as string;
+  try {
+    const item = await service.recheckPibDraft(shipmentId, documentId);
+    sendSuccess(res, item, { message: "PIB draft rechecked against shipment data" });
+  } catch (e) {
+    next(e);
+  }
+}

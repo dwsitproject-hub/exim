@@ -4,6 +4,7 @@
  */
 
 import { apiPost, apiGet } from "./api-client";
+import { config } from "@/lib/config";
 import type { LoginResponseData, RefreshResponseData, AuthUser } from "@/types/auth";
 import type { ApiResponse } from "@/types/api";
 
@@ -44,4 +45,16 @@ export async function logout(): Promise<ApiResponse<unknown>> {
 
 export async function getMe(accessToken?: string | null): Promise<ApiResponse<AuthUser>> {
   return apiGet<AuthUser>(`${AUTH_PREFIX}/me`, accessToken ?? null);
+}
+
+/** Whether DWS Hub OIDC SSO is configured on the backend. */
+export async function getOidcStatus(): Promise<ApiResponse<{ enabled: boolean }>> {
+  return apiGet<{ enabled: boolean }>(`${AUTH_PREFIX}/oidc/status`);
+}
+
+/** Full browser navigation URL for SP-initiated Hub login (sets cookies via redirect). */
+export function oidcLoginUrl(): string {
+  const base = config.apiBaseUrl.replace(/\/$/, "");
+  const path = `${base}/auth/oidc/login`;
+  return path.startsWith("http") || path.startsWith("/") ? path : `/${path}`;
 }

@@ -87,6 +87,12 @@ export function validateUpdateShipmentBody(
   else if (typeof body?.ship_by === "string") data.ship_by = body.ship_by.trim() || null;
   if (typeof body?.bl_awb === "string") data.bl_awb = body.bl_awb.trim() || undefined;
   if (typeof body?.insurance_no === "string") data.insurance_no = body.insurance_no.trim() || undefined;
+  if (body?.insurance_amount != null) {
+    const n = Number(body.insurance_amount);
+    if (!Number.isFinite(n) || n < 0) {
+      errors.push({ field: "insurance_amount", message: "Must be a non-negative number" });
+    } else data.insurance_amount = n;
+  }
   if (typeof body?.coo === "string") data.coo = body.coo.trim() || undefined;
   if (body?.incoterm_amount != null) {
     const n = Number(body.incoterm_amount);
