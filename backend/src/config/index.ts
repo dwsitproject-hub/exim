@@ -164,14 +164,12 @@ export const config = {
     allowedEmailDomain: getEnvOptional("ALLOWED_EMAIL_DOMAIN", "energi-up.com") ?? "energi-up.com",
     /**
      * Base URL of frontend for verification, reset, and SSO post-login redirects.
-     * Must be a single URL (no commas) — see SSO-TARGET-APP-INTEGRATION.md.
+     * If multiple comma-separated origins are provided (legacy CORS config), the first is used.
      */
     frontendBaseUrl: (() => {
       const raw = (getEnvOptional("FRONTEND_BASE_URL", "http://localhost:3000") ?? "http://localhost:3000").trim();
-      if (raw.includes(",")) {
-        throw new Error("FRONTEND_BASE_URL must be a single URL (no commas)");
-      }
-      return raw.replace(/\/$/, "");
+      const first = raw.split(",")[0].trim();
+      return first.replace(/\/$/, "");
     })(),
   },
   /**
