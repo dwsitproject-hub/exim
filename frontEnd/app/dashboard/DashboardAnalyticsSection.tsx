@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type { LucideIcon } from "lucide-react";
-import { BarChart2, ChevronDown, ChevronRight, Container, Filter, Package, Plane, Ship, X } from "lucide-react";
+import { BarChart2, ChevronDown, ChevronRight, Container, Filter, Loader2, Package, Plane, Ship, X } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { can } from "@/lib/permissions";
 import { PT_OPTION_LABELS, getAllPlantsSorted } from "@/lib/po-create-constants";
@@ -46,6 +46,8 @@ import { AnalyticsDrillLineTable } from "@/components/dashboard/AnalyticsDrillLi
 import { usePostArrivalPlantExpand } from "@/components/dashboard/usePostArrivalPlantExpand";
 import expandStyles from "@/components/dashboard/GroupedShipmentExpandRows.module.css";
 import { ScalingFinancialValue } from "@/components/dashboard/ScalingFinancialValue";
+import { fclComboLabel, fclContainerUnit, formatFclShipmentUnit } from "@/lib/fcl-logistics-split";
+import { useMixedFclComboExpand } from "@/lib/useMixedFclComboExpand";
 import {
   idrToDashboardUsd,
   useDashboardCurrency,
@@ -92,14 +94,6 @@ const SEA_LOAD_TYPES: { key: string; label: string; icon: LucideIcon; tab: Trans
   { key: "FCL", label: "FCL", icon: Container, tab: "FCL" },
   { key: "LCL", label: "LCL", icon: Package, tab: "LCL" },
 ];
-
-function fclContainerCountUnit(slug: string): string {
-  return slug === "ISO" ? "ISO Tank" : "Container";
-}
-
-function formatFclShipmentCount(count: number): string {
-  return `${count.toLocaleString()} ${count === 1 ? "shipment" : "shipments"}`;
-}
 
 const BULK_CARGO_LABEL = "Methanol";
 
@@ -317,6 +311,15 @@ export function DashboardAnalyticsSection() {
   }, [drill, applied]);
 
   const analyticsQuery = useMemo(() => buildAnalyticsQueryPayload(applied), [applied]);
+
+  const {
+    expanded: expandedMixedCombos,
+    toggleExpand: toggleMixedCombo,
+    shipmentsByCombo: mixedComboShipments,
+    loadingCombos: loadingMixedCombos,
+    errorsByCombo: mixedComboErrors,
+  } = useMixedFclComboExpand(analyticsQuery, accessToken);
+
   const {
     expandEnabled: postArrivalExpandEnabled,
     expanded: expandedPostArrivalPlants,
@@ -764,23 +767,108 @@ export function DashboardAnalyticsSection() {
                           {summary.sea_logistics.bulk_shipment_count.toLocaleString()}
                           <span className={styles.seaLoadMetricUnit}>Vessel</span>
                         </span>
+                        <span aria-hidden />
                       </div>
                     )}
-                    {summary.sea_logistics.fcl_containers.map((fc) => (
-                      <div key={fc.slug} className={styles.seaLoadMetricRow}>
-                        <span className={styles.seaLoadMetricBadge} style={{ background: "#e0f2fe", color: "#0369a1" }}>FCL</span>
-                        <span className={styles.seaLoadMetricLabel}>
-                          {fc.label}
-                          <span className={styles.seaLoadMetricShipmentCount}>
-                            ({formatFclShipmentCount(fc.shipment_count)})
-                          </span>
-                        </span>
-                        <span className={styles.seaLoadMetricValue}>
-                          {fc.count.toLocaleString()}
-                          <span className={styles.seaLoadMetricUnit}>{fclContainerCountUnit(fc.slug)}</span>
-                        </span>
-                      </div>
-                    ))}
+                    {summary.sea_logistics.fcl_containers.length > 0 && (
+                      <>
+                        <p className={styles.fclSubTypeLabel}>- Single-Type FCL</p>
+                        {summary.sea_logistics.fcl_containers.map((fc) => (
+                          <div key={fc.slug} className={styles.seaLoadMetricRow}>
+                            <span className={styles.seaLoadMetricBadge} style={{ background: "#e0f2fe", color: "#0369a1" }}>FCL</span>
+                            <span className={styles.seaLoadMetricLabel}>
+                              {fc.label}
+                              <span className={styles.fclRowShipmentCount}>
+                                ({fc.shipment_count.toLocaleString()} {formatFclShipmentUnit(fc.shipment_count)})
+                              </span>
+                            </span>
+                            <span className={styles.seaLoadMetricValue}>
+                              {fc.count.toLocaleString()}
+                              <span className={styles.seaLoadMetricUnit}>{fclContainerUnit([fc.slug])}</span>
+                            </span>
+                            <span aria-hidden />
+                          </div>
+                        ))}
+                      </>
+                    )}
+                    {(summary.sea_logistics.fcl_mixed?.combinations.length ?? 0) > 0 && (
+                      <>
+                        <p className={styles.fclSubTypeLabel}>- Multi-Type FCL</p>
+                        {summary.sea_logistics.fcl_mixed!.combinations.map((combo) => {
+                          const comboKey = combo.slugs.join("+");
+                          const isExpanded = expandedMixedCombos.has(comboKey);
+                          const isLoading = loadingMixedCombos.has(comboKey);
+                          const shipments = mixedComboShipments.get(comboKey) ?? [];
+                          const error = mixedComboErrors.get(comboKey);
+                          const expandable = combo.shipment_count > 1;
+                          const unit = fclContainerUnit(combo.slugs);
+
+                          return (
+                            <div key={comboKey}>
+                              {expandable ? (
+                                <button
+                                  type="button"
+                                  className={`${styles.seaLoadMetricRow} ${styles.fclComboRowExpandable}`}
+                                  onClick={(e) => { e.stopPropagation(); toggleMixedCombo(comboKey); }}
+                                  aria-expanded={isExpanded}
+                                >
+                                  <span className={styles.seaLoadMetricBadge} style={{ background: "#e0f2fe", color: "#0369a1" }}>FCL</span>
+                                  <span className={styles.seaLoadMetricLabel}>
+                                    {fclComboLabel(combo)}
+                                    <span className={styles.fclRowShipmentCount}>
+                                      ({combo.shipment_count.toLocaleString()} {formatFclShipmentUnit(combo.shipment_count)})
+                                    </span>
+                                  </span>
+                                  <span className={styles.seaLoadMetricValue}>
+                                    {combo.count.toLocaleString()}
+                                    <span className={styles.seaLoadMetricUnit}>{unit}</span>
+                                  </span>
+                                  <span className={styles.fclRowChevron} aria-hidden>
+                                    {isLoading
+                                      ? <Loader2 size={11} style={{ animation: "spin 1s linear infinite" }} />
+                                      : isExpanded
+                                        ? <ChevronDown size={11} />
+                                        : <ChevronRight size={11} />
+                                    }
+                                  </span>
+                                </button>
+                              ) : (
+                                <div className={styles.seaLoadMetricRow}>
+                                  <span className={styles.seaLoadMetricBadge} style={{ background: "#e0f2fe", color: "#0369a1" }}>FCL</span>
+                                  <span className={styles.seaLoadMetricLabel}>
+                                    {fclComboLabel(combo)}
+                                    <span className={styles.fclRowShipmentCount}>
+                                      ({combo.shipment_count.toLocaleString()} {formatFclShipmentUnit(combo.shipment_count)})
+                                    </span>
+                                  </span>
+                                  <span className={styles.seaLoadMetricValue}>
+                                    {combo.count.toLocaleString()}
+                                    <span className={styles.seaLoadMetricUnit}>{unit}</span>
+                                  </span>
+                                  <span aria-hidden />
+                                </div>
+                              )}
+                              {isExpanded && (
+                                <div className={styles.fclComboExpandedShipments}>
+                                  {error && <p className={styles.fclComboExpandedError}>{error}</p>}
+                                  {!error && shipments.map((s) => (
+                                    <div key={s.shipment_id} className={styles.fclComboShipmentRow}>
+                                      <span className={styles.fclComboShipmentNo}>{s.shipment_number}</span>
+                                      <span className={styles.fclComboShipmentDetail}>
+                                        {s.containers.map((c) => `${c.label}: ${c.count}`).join("  ·  ")}
+                                      </span>
+                                      <span className={styles.fclComboShipmentTotal}>
+                                        {s.total_count} {fclContainerUnit(s.containers.map((c) => c.slug))}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </>
+                    )}
                     {summary.sea_logistics.lcl_package_count_total > 0 && (
                       <div className={styles.seaLoadMetricRow}>
                         <span className={styles.seaLoadMetricBadge} style={{ background: "#eef2ff", color: "#4338ca" }}>LCL</span>
@@ -789,6 +877,7 @@ export function DashboardAnalyticsSection() {
                           {summary.sea_logistics.lcl_package_count_total.toLocaleString()}
                           <span className={styles.seaLoadMetricUnit}>PKG</span>
                         </span>
+                        <span aria-hidden />
                       </div>
                     )}
                     {summary.sea_logistics.lcl_cbm_total > 0 && (
@@ -799,6 +888,7 @@ export function DashboardAnalyticsSection() {
                           {summary.sea_logistics.lcl_cbm_total.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                           <span className={styles.seaLoadMetricUnit}>m³</span>
                         </span>
+                        <span aria-hidden />
                       </div>
                     )}
                   </div>

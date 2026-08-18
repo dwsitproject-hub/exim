@@ -2,9 +2,10 @@
  * Central registry of FCL container types.
  *
  * Add a new entry here when a new FCL container type column is added to the
- * `shipments` table. The dashboard summary totals, logistics detail rows, and
- * frontend chips all derive their behaviour from this single list — no other
- * code changes are required in the analytics pipeline.
+ * `shipments` table. The dashboard summary totals (including exclusive vs mixed
+ * FCL classification), logistics detail rows, and frontend chips all derive
+ * their behaviour from this single list — no other code changes are required
+ * in the analytics pipeline.
  */
 export interface FclContainerType {
   /** Short identifier used as SQL alias and as the `fclSubType` value on the wire. */

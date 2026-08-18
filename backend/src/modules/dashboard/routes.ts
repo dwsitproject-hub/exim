@@ -73,6 +73,12 @@ dashboardRoutes.get(
   dashboardController.getLogisticsGroupShipments
 );
 dashboardRoutes.get(
+  "/fcl-mixed-combo-shipments",
+  authMiddleware,
+  requirePermission(PERMISSIONS.VIEW_SHIPMENTS),
+  dashboardController.getMixedFclComboShipments
+);
+dashboardRoutes.get(
   "/logistics-rows",
   authMiddleware,
   requirePermission(PERMISSIONS.VIEW_SHIPMENTS),

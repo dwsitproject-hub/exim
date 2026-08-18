@@ -558,6 +558,53 @@ export async function getShipmentAnalyticsLineGroupShipments(
   }
 }
 
+/** Per-shipment container breakdown for a specific mixed FCL combination (2+ container types). */
+export async function getMixedFclComboShipments(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  const q = req.query as Record<string, unknown>;
+  const date_from = typeof q.date_from === "string" ? q.date_from.trim() : "";
+  const date_to = typeof q.date_to === "string" ? q.date_to.trim() : "";
+
+  if (!DATE_RE.test(date_from) || !DATE_RE.test(date_to)) {
+    sendError(res, "Validation error", {
+      statusCode: 400,
+      errors: [
+        { field: "date_from", message: "date_from is required (YYYY-MM-DD)" },
+        { field: "date_to", message: "date_to is required (YYYY-MM-DD)" },
+      ],
+    });
+    return;
+  }
+
+  const combo_key = parseOptionalStringQuery(q.combo_key, 200);
+  if (!combo_key) {
+    sendError(res, "Validation error", {
+      statusCode: 400,
+      errors: [{ field: "combo_key", message: "combo_key is required (e.g. 20FT+40FT)" }],
+    });
+    return;
+  }
+
+  const pts = mergeFilterTokens(q, "pt", "pts_in");
+  const plants = mergeFilterTokens(q, "plant", "plants_in");
+  const vendor_names = mergeFilterTokens(q, "vendor_name", "vendor_names_in");
+  const product_classifications = mergeFilterTokens(q, "product_classification", "product_classifications_in");
+  const shipment_method = parseOptionalStringQuery(q.shipment_method, 40);
+
+  try {
+    const payload = await service.getMixedFclComboShipments(
+      { date_from, date_to, pts, plants, vendor_names, product_classifications, shipment_method },
+      combo_key
+    );
+    sendSuccess(res, payload);
+  } catch (error) {
+    next(error);
+  }
+}
+
 /** Whole delivered shipments for a logistics detail group. */
 export async function getLogisticsGroupShipments(
   req: Request,

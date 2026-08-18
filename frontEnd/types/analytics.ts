@@ -20,10 +20,32 @@ export interface FclContainerEntry {
   slug: string;
   /** Human-readable label (e.g. "20′", "40′ HC"). */
   label: string;
-  /** Total container count across all delivered FCL shipments in the date range. */
+  /** Container count on exclusive (single-type) FCL shipments. */
   count: number;
-  /** Number of FCL shipments that include at least one of this container type. */
+  /** Exclusive FCL shipments that contain only this container type. */
   shipment_count: number;
+}
+
+export interface FclMixedCombination {
+  slugs: string[];
+  labels: string[];
+  shipment_count: number;
+  count: number;
+}
+
+/** Per-shipment container breakdown for a specific mixed FCL combo row. */
+export interface MixedFclComboShipmentRow {
+  shipment_id: string;
+  shipment_number: string;
+  containers: { slug: string; label: string; count: number }[];
+  total_count: number;
+}
+
+/** FCL shipments with 2+ container types, counted once (unduplicated L2). */
+export interface FclMixedBreakdown {
+  shipment_count: number;
+  count: number;
+  combinations: FclMixedCombination[];
 }
 
 export interface SeaLogisticsBreakdown {
@@ -32,10 +54,12 @@ export interface SeaLogisticsBreakdown {
   /** Total CBM (m³) across LCL sea shipments in scope. */
   lcl_cbm_total: number;
   /**
-   * One entry per FCL container type that has count > 0.
-   * Derived from the backend FCL_CONTAINER_REGISTRY — no frontend hardcoding required.
+   * Exclusive FCL types only (shipment has a single container type).
+   * Mixed-type shipments are on `fcl_mixed`.
    */
   fcl_containers: FclContainerEntry[];
+  /** Present when any FCL shipment has 2+ container types. */
+  fcl_mixed?: FclMixedBreakdown;
   /** Total delivered bulk sea shipments in the filtered set. */
   bulk_shipment_count: number;
 }

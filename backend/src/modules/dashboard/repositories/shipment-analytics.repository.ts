@@ -2,6 +2,13 @@ import type { Pool } from "pg";
 import { getPool } from "../../../db/index.js";
 import { classificationFilterSqlVariants } from "../../../shared/product-classification.js";
 import { FCL_CONTAINER_REGISTRY } from "../../../shared/fcl-container-registry.js";
+import {
+  fclComboKeySql,
+  fclExclusiveSql,
+  fclMixedSql,
+  fclTotalEquipmentSql,
+  parseFclComboKey,
+} from "../../../shared/fcl-mixed-classification.js";
 
 export interface ShipmentAnalyticsQuery {
   date_from: string;
@@ -41,10 +48,19 @@ export interface SeaLogisticsBreakdown {
   /** Σ `cbm` on delivered Sea + LCL rows (cubic metres). */
   lcl_cbm_total: number;
   /**
-   * One entry per FCL container type that has count > 0 in the result set.
-   * Derived from FCL_CONTAINER_REGISTRY — add a new row there to support new types.
+   * One entry per exclusive FCL container type (shipment has only that type).
+   * Mixed-type shipments are omitted here and reported on `fcl_mixed`.
    */
   fcl_containers: { slug: string; label: string; count: number; shipment_count: number }[];
+  /**
+   * FCL shipments with 2+ container types, counted once so L2 shipment totals
+   * partition the FCL sea tile.
+   */
+  fcl_mixed: {
+    shipment_count: number;
+    count: number;
+    combinations: { slugs: string[]; labels: string[]; shipment_count: number; count: number }[];
+  };
   /** Total delivered bulk (BULK) sea shipments in the filtered set. */
   bulk_shipment_count: number;
 }
@@ -178,6 +194,15 @@ export interface FinancialSummaryResult {
   nilai_pabean_idr: number;
   /** nilai_pabean_idr + ppn_idr + pph_idr + freight_idr */
   total_idr: number;
+}
+
+/** Per-shipment container breakdown for a single mixed FCL combination. */
+export interface MixedFclComboShipmentRow {
+  shipment_id: string;
+  shipment_number: string;
+  /** Counts for each container type that is present on this shipment (only non-zero). */
+  containers: { slug: string; label: string; count: number }[];
+  total_count: number;
 }
 
 /** One row returned by getLogisticsRows — one entry per shipment, expanded for FCL container types. */
@@ -391,7 +416,10 @@ export class ShipmentAnalyticsRepository {
       )
     `;
 
-    const [totalRes, unclassRes, plantRes, classRes, logRes, seaByRes, lclSumRes, lclCbmSumRes, fclSumRes, bulkCountRes, vendorsRes] =
+    const seaFclWhere = `UPPER(TRIM(COALESCE(shipment_method, ''))) = 'SEA'
+          AND UPPER(TRIM(COALESCE(ship_by, ''))) = 'FCL'`;
+
+    const [totalRes, unclassRes, plantRes, classRes, logRes, seaByRes, lclSumRes, lclCbmSumRes, fclSumRes, fclMixedComboRes, bulkCountRes, vendorsRes] =
       await Promise.all([
         this.pool.query<{ c: string }>(`${baseCte} SELECT COUNT(*)::text AS c FROM base`, params),
         this.pool.query<{ c: string }>(
@@ -454,11 +482,30 @@ export class ShipmentAnalyticsRepository {
         this.pool.query<Record<string, string>>(
           `${baseCte}
         SELECT
-          ${FCL_CONTAINER_REGISTRY.map((t) => `COALESCE(SUM(${t.column}), 0)::text AS "${t.slug}"`).join(",\n          ")},
-          ${FCL_CONTAINER_REGISTRY.map((t) => `COUNT(*) FILTER (WHERE COALESCE(${t.column}, 0) > 0)::text AS "${t.slug}_shipments"`).join(",\n          ")}
+          ${FCL_CONTAINER_REGISTRY.map(
+            (t) =>
+              `COALESCE(SUM(${t.column}) FILTER (WHERE ${fclExclusiveSql(t)}), 0)::text AS "${t.slug}"`
+          ).join(",\n          ")},
+          ${FCL_CONTAINER_REGISTRY.map(
+            (t) => `COUNT(*) FILTER (WHERE ${fclExclusiveSql(t)})::text AS "${t.slug}_shipments"`
+          ).join(",\n          ")},
+          COUNT(*) FILTER (WHERE ${fclMixedSql()})::text AS mixed_shipments,
+          COALESCE(SUM((${fclTotalEquipmentSql()})) FILTER (WHERE ${fclMixedSql()}), 0)::text AS mixed_count
         FROM base
-        WHERE UPPER(TRIM(COALESCE(shipment_method, ''))) = 'SEA'
-          AND UPPER(TRIM(COALESCE(ship_by, ''))) = 'FCL'`,
+        WHERE ${seaFclWhere}`,
+          params
+        ),
+        this.pool.query<{ combo_key: string; shipment_count: string; count: string }>(
+          `${baseCte}
+        SELECT
+          ${fclComboKeySql()} AS combo_key,
+          COUNT(*)::text AS shipment_count,
+          COALESCE(SUM((${fclTotalEquipmentSql()})), 0)::text AS count
+        FROM base
+        WHERE ${seaFclWhere}
+          AND ${fclMixedSql()}
+        GROUP BY 1
+        ORDER BY COUNT(*) DESC, combo_key ASC`,
           params
         ),
         this.pool.query<{ c: string }>(
@@ -491,7 +538,22 @@ export class ShipmentAnalyticsRepository {
         count: parseInt(fclRow[t.slug] ?? "0", 10),
         shipment_count: parseInt(fclRow[`${t.slug}_shipments`] ?? "0", 10),
       }))
-      .filter((t) => t.count > 0);
+      .filter((t) => t.count > 0 || t.shipment_count > 0);
+    const fclMixed = {
+      shipment_count: parseInt(fclRow.mixed_shipments ?? "0", 10),
+      count: parseInt(fclRow.mixed_count ?? "0", 10),
+      combinations: fclMixedComboRes.rows
+        .filter((r) => r.combo_key)
+        .map((r) => {
+          const parsed = parseFclComboKey(r.combo_key);
+          return {
+            slugs: parsed.slugs,
+            labels: parsed.labels,
+            shipment_count: parseInt(r.shipment_count, 10),
+            count: parseInt(r.count, 10),
+          };
+        }),
+    };
 
     const bulkShipmentCount = parseInt(bulkCountRes.rows[0]?.c ?? "0", 10);
 
@@ -512,6 +574,7 @@ export class ShipmentAnalyticsRepository {
         lcl_package_count_total: parseInt(lclSumRes.rows[0]?.s ?? "0", 10),
         lcl_cbm_total: parseFloat(lclCbmSumRes.rows[0]?.s ?? "0"),
         fcl_containers: fclContainers,
+        fcl_mixed: fclMixed,
         bulk_shipment_count: bulkShipmentCount,
       },
       vendor_options: vendorsRes.rows.map((r) => r.v).filter(Boolean),
@@ -1188,5 +1251,58 @@ export class ShipmentAnalyticsRepository {
       group_qty_delivered: parseFloat(row.group_qty_delivered),
       group_amount_idr: parseFloat(row.group_amount_idr),
     }));
+  }
+
+  /**
+   * Per-shipment container breakdown for shipments that belong to a specific
+   * mixed FCL combination (2+ container types).
+   * `comboKey` is the `+`-joined slug list in registry order, e.g. `"20FT+40FT"`.
+   */
+  async getMixedFclComboShipments(
+    q: ShipmentAnalyticsQuery,
+    comboKey: string
+  ): Promise<MixedFclComboShipmentRow[]> {
+    const { whereParts, params } = buildBaseWhereParams(q);
+    const whereSql = whereParts.join(" AND ");
+
+    const fclSelectCols = FCL_CONTAINER_REGISTRY
+      .map((t) => `COALESCE(s.${t.column}, 0) AS "${t.slug}"`)
+      .join(",\n        ");
+
+    let idx = params.length + 1;
+    params.push(comboKey);
+    const comboKeyParam = `$${idx++}`;
+
+    const sql = `
+      WITH ${FIRST_PO_CTE}
+      SELECT
+        s.id::text AS shipment_id,
+        s.shipment_no AS shipment_number,
+        ${fclSelectCols}
+      FROM shipments s
+      LEFT JOIN first_po fp ON fp.shipment_id = s.id
+      WHERE ${whereSql}
+        AND UPPER(TRIM(COALESCE(s.shipment_method, ''))) = 'SEA'
+        AND UPPER(TRIM(COALESCE(s.ship_by, ''))) = 'FCL'
+        AND ${fclComboKeySql("s.")} = ${comboKeyParam}
+      ORDER BY s.shipment_no ASC
+      LIMIT 500
+    `;
+
+    type RawRow = { shipment_id: string; shipment_number: string } & Record<string, string>;
+    const result = await this.pool.query<RawRow>(sql, params);
+    const bySlug = new Map(FCL_CONTAINER_REGISTRY.map((t) => [t.slug, t]));
+
+    return result.rows.map((row) => {
+      const containers = FCL_CONTAINER_REGISTRY
+        .map((t) => ({ slug: t.slug, label: t.label, count: parseInt(row[t.slug] ?? "0", 10) }))
+        .filter((c) => c.count > 0);
+      return {
+        shipment_id: row.shipment_id,
+        shipment_number: row.shipment_number,
+        containers,
+        total_count: containers.reduce((s, c) => s + c.count, 0),
+      };
+    });
   }
 }
