@@ -75,7 +75,7 @@ export async function oidcCallback(req: Request, res: Response, _next: NextFunct
 
     clearOidcPendingCookies(res);
     setAuthCookies(res, data);
-    res.redirect(303, config.auth.frontendBaseUrl);
+    res.redirect(303, `${config.auth.frontendBaseUrl}/login`);
   } catch (e) {
     clearOidcPendingCookies(res);
     const message =
