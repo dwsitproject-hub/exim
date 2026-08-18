@@ -164,6 +164,7 @@ function combinedRowToCreateDto(sf: UpdateShipmentDto): CreateShipmentDto {
     nopen_date: sf.nopen_date,
     bl_awb: sf.bl_awb,
     insurance_no: sf.insurance_no,
+    insurance_amount: sf.insurance_amount,
     coo: sf.coo,
     incoterm_amount: sf.incoterm_amount,
     incoterm_currency: sf.incoterm_currency,
@@ -341,6 +342,7 @@ function toDetail(
     ship_by: row.ship_by ?? null,
     bl_awb: row.bl_awb ?? null,
     insurance_no: row.insurance_no ?? null,
+    insurance_amount: row.insurance_amount != null ? Number(row.insurance_amount) : null,
     coo: row.coo ?? null,
     incoterm_amount: row.incoterm_amount ?? null,
     incoterm_currency: row.incoterm_currency ?? DEFAULT_FREIGHT_CHARGE_CURRENCY,
@@ -739,6 +741,7 @@ export class ShipmentService {
       }
 
       const cbm = optNonNeg("cbm", "cbm");
+      const insurance_amount = optNonNeg("insurance_amount", "insurance_amount");
       const incoterm_amount = optNonNeg("incoterm_amount", "incoterm_amount (Service & Charge)");
       const incoterm_currency_cell = csvCell(cells, idx("incoterm_currency")).trim();
       let incoterm_currencyFromCsv: UpdateShipmentDto["incoterm_currency"] | undefined;
@@ -784,6 +787,7 @@ export class ShipmentService {
         nopen_date,
         bl_awb: csvCell(cells, idx("bl_awb")).trim() || undefined,
         insurance_no: csvCell(cells, idx("insurance_no")).trim() || undefined,
+        insurance_amount,
         coo: csvCell(cells, idx("coo")).trim() || undefined,
         cbm,
         incoterm_amount,
@@ -1212,7 +1216,11 @@ export class ShipmentService {
     return toDetail(row, linkedPos, totalItemsAmount, duty);
   }
 
-  async update(id: string, dto: UpdateShipmentDto, changedBy?: string): Promise<ShipmentDetail | null> {
+  async update(
+    id: string,
+    dto: UpdateShipmentDto,
+    changedBy?: string
+  ): Promise<ShipmentDetail | null> {
     const existing = await this.repo.findById(id);
     if (!existing) return null;
     if (existing.closed_at) {

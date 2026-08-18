@@ -1,11 +1,14 @@
 /**
  * User repository: database access only. No business logic.
- * Table: users (id, email, password_hash, name, role, is_active, email_verified_at, permission_overrides, …).
+ * Table: users (id, email, password_hash, name, role, is_active, email_verified_at, oidc_sub, permission_overrides, …).
  */
 
 import type { Pool } from "pg";
 import { getPool } from "../../../db/index.js";
 import type { UserRow } from "../dto/index.js";
+
+const USER_SELECT = `id, email, password_hash, name, role, is_active, email_verified_at,
+              oidc_sub, COALESCE(permission_overrides, '{}') AS permission_overrides, created_at, updated_at`;
 
 export interface CreateUserInput {
   email: string;
@@ -39,14 +42,14 @@ export class UserRepository {
   private mapRow(r: UserRow): UserRow {
     return {
       ...r,
+      oidc_sub: r.oidc_sub ?? null,
       permission_overrides: Array.isArray(r.permission_overrides) ? r.permission_overrides : [],
     };
   }
 
   async findByEmail(email: string): Promise<UserRow | null> {
     const result = await this.pool.query<UserRow>(
-      `SELECT id, email, password_hash, name, role, is_active, email_verified_at,
-              COALESCE(permission_overrides, '{}') AS permission_overrides, created_at, updated_at
+      `SELECT ${USER_SELECT}
        FROM users WHERE LOWER(email) = LOWER($1) AND is_active = true LIMIT 1`,
       [email]
     );
@@ -56,8 +59,7 @@ export class UserRepository {
 
   async findById(id: string): Promise<UserRow | null> {
     const result = await this.pool.query<UserRow>(
-      `SELECT id, email, password_hash, name, role, is_active, email_verified_at,
-              COALESCE(permission_overrides, '{}') AS permission_overrides, created_at, updated_at
+      `SELECT ${USER_SELECT}
        FROM users WHERE id = $1 AND is_active = true LIMIT 1`,
       [id]
     );
@@ -68,8 +70,7 @@ export class UserRepository {
   /** Any status — for admin duplicate check. */
   async findByEmailAny(email: string): Promise<UserRow | null> {
     const result = await this.pool.query<UserRow>(
-      `SELECT id, email, password_hash, name, role, is_active, email_verified_at,
-              COALESCE(permission_overrides, '{}') AS permission_overrides, created_at, updated_at
+      `SELECT ${USER_SELECT}
        FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1`,
       [email]
     );
@@ -80,13 +81,31 @@ export class UserRepository {
   /** Includes inactive — for admin detail/update. */
   async findByIdAny(id: string): Promise<UserRow | null> {
     const result = await this.pool.query<UserRow>(
-      `SELECT id, email, password_hash, name, role, is_active, email_verified_at,
-              COALESCE(permission_overrides, '{}') AS permission_overrides, created_at, updated_at
+      `SELECT ${USER_SELECT}
        FROM users WHERE id = $1 LIMIT 1`,
       [id]
     );
     const row = result.rows[0];
     return row ? this.mapRow(row) : null;
+  }
+
+  /** Lookup by Hub OIDC subject (any status). */
+  async findByOidcSubAny(oidcSub: string): Promise<UserRow | null> {
+    const result = await this.pool.query<UserRow>(
+      `SELECT ${USER_SELECT}
+       FROM users WHERE oidc_sub = $1 LIMIT 1`,
+      [oidcSub]
+    );
+    const row = result.rows[0];
+    return row ? this.mapRow(row) : null;
+  }
+
+  /** Persist Hub subject after first successful SSO link by email. */
+  async linkOidcSub(userId: string, oidcSub: string): Promise<void> {
+    await this.pool.query(
+      `UPDATE users SET oidc_sub = $1, updated_at = NOW() WHERE id = $2`,
+      [oidcSub, userId]
+    );
   }
 
   async create(input: CreateUserInput): Promise<UserRow> {
@@ -95,8 +114,7 @@ export class UserRepository {
     const result = await this.pool.query<UserRow>(
       `INSERT INTO users (id, email, password_hash, name, role, is_active, email_verified_at, permission_overrides, created_at, updated_at)
        VALUES (gen_random_uuid(), $1, $2, $3, $4, true, $5, $6::text[], NOW(), NOW())
-       RETURNING id, email, password_hash, name, role, is_active, email_verified_at,
-                 COALESCE(permission_overrides, '{}') AS permission_overrides, created_at, updated_at`,
+       RETURNING ${USER_SELECT}`,
       [input.email, input.passwordHash, input.name, input.role, emailVerifiedAt, overrides]
     );
     if (!result.rows[0]) {
@@ -123,8 +141,7 @@ export class UserRepository {
     const search = params.search?.trim();
     const hasSearch = Boolean(search);
     const result = await this.pool.query<UserRow>(
-      `SELECT id, email, password_hash, name, role, is_active, email_verified_at,
-              COALESCE(permission_overrides, '{}') AS permission_overrides, created_at, updated_at
+      `SELECT ${USER_SELECT}
        FROM users
        WHERE NOT ($1::boolean) OR LOWER(name) LIKE '%' || LOWER($2) || '%' OR LOWER(email) LIKE '%' || LOWER($2) || '%'
        ORDER BY created_at DESC
@@ -181,8 +198,7 @@ export class UserRepository {
     const result = await this.pool.query<UserRow>(
       `UPDATE users SET ${sets.join(", ")}
        WHERE id = $${i}
-       RETURNING id, email, password_hash, name, role, is_active, email_verified_at,
-                 COALESCE(permission_overrides, '{}') AS permission_overrides, created_at, updated_at`,
+       RETURNING ${USER_SELECT}`,
       values
     );
     const row = result.rows[0];
@@ -210,8 +226,7 @@ export class UserRepository {
 
   async listActiveUsers(): Promise<UserRow[]> {
     const result = await this.pool.query<UserRow>(
-      `SELECT id, email, password_hash, name, role, is_active, email_verified_at,
-              COALESCE(permission_overrides, '{}') AS permission_overrides, created_at, updated_at
+      `SELECT ${USER_SELECT}
        FROM users
        WHERE is_active = true`,
     );

@@ -1,5 +1,5 @@
 /**
- * Multipart upload: fields document_type, status (optional); file field "file".
+ * Multipart upload: fields document_type, status (required for PIB_BC); file field "file".
  */
 
 import type { Request } from "express";
@@ -13,6 +13,9 @@ import {
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/** Document types that use DRAFT / FINAL status slots. */
+const STATUS_REQUIRED_TYPES = new Set(["PIB_BC"]);
 
 export type ValidatedShipmentDocumentUpload = {
   document_type: string;
@@ -50,7 +53,15 @@ export function validateShipmentDocumentUpload(
 
   if (errors.length > 0) return { ok: false, errors };
 
-  if (status) {
+  if (STATUS_REQUIRED_TYPES.has(typeStr)) {
+    if (!status) {
+      errors.push({
+        field: "status",
+        message: "status is required for PIB_BC (DRAFT or FINAL)",
+      });
+      return { ok: false, errors };
+    }
+  } else if (status) {
     errors.push({ field: "status", message: "status must not be set for this document type" });
     return { ok: false, errors };
   }

@@ -43,7 +43,7 @@ export const SHIPMENT_DOCUMENT_SLOTS: ShipmentDocSlot[] = [
   { document_type: "BL", label: "BL" },
   { document_type: "COO", label: "COO (Certificate of Origin)" },
   { document_type: "INSURANCE", label: "Insurance" },
-  { document_type: "PIB_BC", label: "PIB / BC" },
+  { document_type: "PIB_BC", label: "PIB / BC", statuses: ["DRAFT", "FINAL"] as const },
   { document_type: "SPPB", label: "SPPB" },
   { document_type: "BILLING", label: "Billing", showWhen: "pib_bc20" },
   { document_type: "BPN", label: "BPN", showWhen: "pib_bc20" },

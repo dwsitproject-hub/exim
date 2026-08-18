@@ -115,6 +115,7 @@ export interface UpdateShipmentPayload {
   ship_by?: string | null;
   bl_awb?: string;
   insurance_no?: string;
+  insurance_amount?: number;
   coo?: string;
   incoterm_amount?: number;
   incoterm_currency?: FreightChargeCurrency;

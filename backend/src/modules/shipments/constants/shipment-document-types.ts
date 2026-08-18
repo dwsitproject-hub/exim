@@ -1,6 +1,7 @@
 /**
  * Allowed shipment document categories for upload API and UI.
- * Uploads do not use draft/final status (column may be null or legacy); intake_id only for PO.
+ * PIB_BC uses DRAFT (local OCR verify) / FINAL (Synology filing); other types leave status null.
+ * intake_id only for PO.
  */
 
 export const SHIPMENT_DOCUMENT_TYPES = [

@@ -76,6 +76,12 @@ shipmentRoutes.delete(
   requirePermission(PERMISSIONS.UPDATE_SHIPMENT),
   shipmentDocumentController.deleteDocument
 );
+shipmentRoutes.post(
+  "/:id/documents/:documentId/recheck-pib",
+  authMiddleware,
+  requirePermission(PERMISSIONS.UPLOAD_DOCUMENT),
+  shipmentDocumentController.recheckPibDocument
+);
 
 shipmentRoutes.post("/:id/couple-po", authMiddleware, requirePermission(PERMISSIONS.COUPLE_DECOUPLE_PO), shipmentController.couplePo);
 shipmentRoutes.post("/:id/decouple-po", authMiddleware, requirePermission(PERMISSIONS.COUPLE_DECOUPLE_PO), shipmentController.decouplePo);

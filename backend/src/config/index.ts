@@ -101,6 +101,11 @@ export const config = {
   storage: {
     type: getEnvOptional("STORAGE_TYPE", "local"),
     localPath: resolveStorageLocalPath(),
+    /**
+     * Local-only root for draft documents (e.g. PIB DRAFT) that must not land on Synology.
+     * Defaults to ./uploads-draft relative to the backend process cwd.
+     */
+    draftLocalPath: getEnvOptional("STORAGE_DRAFT_LOCAL_PATH", "./uploads-draft") ?? "./uploads-draft",
   },
   log: {
     level: getEnvOptional("LOG_LEVEL", "info"),
@@ -157,9 +162,34 @@ export const config = {
   auth: {
     allowAnyEmail: (getEnvOptional("ALLOW_ANY_EMAIL", "false") ?? "false").toLowerCase() === "true",
     allowedEmailDomain: getEnvOptional("ALLOWED_EMAIL_DOMAIN", "energi-up.com") ?? "energi-up.com",
-    /** Base URL of frontend for verification and reset links (e.g. http://localhost:3000). */
-    frontendBaseUrl: getEnvOptional("FRONTEND_BASE_URL", "http://localhost:3000") ?? "http://localhost:3000",
+    /**
+     * Base URL of frontend for verification, reset, and SSO post-login redirects.
+     * Must be a single URL (no commas) — see SSO-TARGET-APP-INTEGRATION.md.
+     */
+    frontendBaseUrl: (() => {
+      const raw = (getEnvOptional("FRONTEND_BASE_URL", "http://localhost:3000") ?? "http://localhost:3000").trim();
+      if (raw.includes(",")) {
+        throw new Error("FRONTEND_BASE_URL must be a single URL (no commas)");
+      }
+      return raw.replace(/\/$/, "");
+    })(),
   },
+  /**
+   * DWS Hub OIDC (public client + PKCE — no client_secret).
+   * All three of discoveryUrl, clientId, redirectUri must be set to enable SSO routes.
+   */
+  oidc: (() => {
+    const discoveryUrl = getEnvOptional("OIDC_DISCOVERY_URL")?.trim() || "";
+    const clientId = getEnvOptional("OIDC_CLIENT_ID")?.trim() || "";
+    const redirectUriRaw = getEnvOptional("OIDC_REDIRECT_URI")?.trim() || "";
+    if (redirectUriRaw.includes(",")) {
+      throw new Error("OIDC_REDIRECT_URI must be a single URL (no commas)");
+    }
+    const redirectUri = redirectUriRaw.replace(/\/$/, "");
+    const scopes = (getEnvOptional("OIDC_SCOPES", "openid email profile") ?? "openid email profile").trim();
+    const enabled = Boolean(discoveryUrl && clientId && redirectUri);
+    return { enabled, discoveryUrl, clientId, redirectUri, scopes };
+  })(),
   /** Display name and assets for transactional emails (password reset, etc.). */
   email: {
     appName: getEnvOptional("EMAIL_APP_NAME", "EOS") ?? "EOS",

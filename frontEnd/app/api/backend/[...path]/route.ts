@@ -44,7 +44,7 @@ function forwardRequestHeaders(req: NextRequest): Headers {
 
 function forwardResponseHeaders(upstream: Response): Headers {
   const out = new Headers();
-  const pass = ["content-type", "content-disposition", "cache-control"];
+  const pass = ["content-type", "content-disposition", "cache-control", "location"];
   for (const name of pass) {
     const v = upstream.headers.get(name);
     if (v) out.set(name, v);
@@ -75,6 +75,8 @@ async function proxy(req: NextRequest, pathSegments: string[]): Promise<NextResp
     method,
     headers,
     cache: "no-store",
+    // Pass through 302/303 (OIDC login/callback) — do not follow upstream redirects.
+    redirect: "manual",
   };
 
   if (method !== "GET" && method !== "HEAD") {

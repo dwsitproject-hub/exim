@@ -35,7 +35,7 @@ export class ShipmentRepository {
     incoterm, shipment_method, origin_port_code, origin_port_name, origin_port_country,
     destination_port_code, destination_port_name, destination_port_country, etd, eta, atd, ata, depo, depo_location, current_status,
     closed_at, close_reason, remarks, created_at, updated_at,
-    pib_type, no_request_pib, ppjk_mkl, nopen, nopen_date, ship_by, bl_awb, insurance_no, coo, incoterm_amount, incoterm_currency, cbm, net_weight_mt, gross_weight_mt, bm, ppn_amount, pph_amount, kawasan_berikat, surveyor,
+    pib_type, no_request_pib, ppjk_mkl, nopen, nopen_date, ship_by, bl_awb, insurance_no, insurance_amount, coo, incoterm_amount, incoterm_currency, cbm, net_weight_mt, gross_weight_mt, bm, ppn_amount, pph_amount, kawasan_berikat, surveyor,
     product_classification,
     unit_20ft, unit_40ft, unit_package, unit_20_iso_tank, unit_40_hc, unit_20_fr, unit_40_fr,
     container_count_20ft, container_count_40ft, package_count, container_count_20_iso_tank,
@@ -496,11 +496,12 @@ export class ShipmentRepository {
         s.origin_port_code, s.origin_port_name, s.origin_port_country,
         s.destination_port_code, s.destination_port_name, s.destination_port_country,
         s.etd, s.eta, s.atd, s.ata, s.depo, s.depo_location, s.current_status, s.closed_at, s.close_reason, s.remarks, s.created_at, s.updated_at,
-        s.pib_type, s.no_request_pib, s.ppjk_mkl, s.nopen, s.nopen_date, s.ship_by, s.bl_awb, s.insurance_no, s.coo,
+        s.pib_type, s.no_request_pib, s.ppjk_mkl, s.nopen, s.nopen_date, s.ship_by, s.bl_awb, s.insurance_no, s.insurance_amount, s.coo,
         s.incoterm_amount, s.incoterm_currency, s.cbm, s.net_weight_mt, s.gross_weight_mt, s.bm, s.ppn_amount, s.pph_amount, s.kawasan_berikat, s.surveyor, s.product_classification,
         s.unit_20ft, s.unit_40ft, s.unit_package, s.unit_20_iso_tank, s.unit_40_hc, s.unit_20_fr, s.unit_40_fr,
         s.container_count_20ft, s.container_count_40ft,
-        s.package_count, s.container_count_20_iso_tank, s.container_count_40_hc, s.container_count_20_fr, s.container_count_40_fr
+        s.package_count, s.container_count_20_iso_tank, s.container_count_40_hc, s.container_count_20_fr, s.container_count_40_fr,
+        s.deleted_at, s.deleted_by
        FROM shipments s WHERE ${where} ${this.buildShipmentListOrderBy(query)} LIMIT $${idx} OFFSET $${idx + 1}`,
       params
     );
@@ -706,6 +707,10 @@ export class ShipmentRepository {
     if (dto.insurance_no !== undefined) {
       updates.push(`insurance_no = $${idx++}`);
       params.push(dto.insurance_no);
+    }
+    if (dto.insurance_amount !== undefined) {
+      updates.push(`insurance_amount = $${idx++}`);
+      params.push(dto.insurance_amount);
     }
     if (dto.coo !== undefined) {
       updates.push(`coo = $${idx++}`);
