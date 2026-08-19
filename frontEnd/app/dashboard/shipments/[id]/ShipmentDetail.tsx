@@ -2526,6 +2526,13 @@ export function ShipmentDetail({ id }: { id: string }) {
             pph_percentage: dRow ? parseLinePct(dRow.pph, savedLine?.pph_percentage ?? null) : (savedLine?.pph_percentage ?? null),
           });
         }
+        if (lines.every((l) => l.received_qty === 0)) {
+          const msg = "At least one line must have a delivered quantity greater than 0.";
+          setActionError(msg);
+          pushToast(msg, "error");
+          return false;
+        }
+
         const linesRes = await updateShipmentPoLines(id, intakeId, lines, accessToken);
         if (isApiError(linesRes)) {
           setActionError(linesRes.message);
