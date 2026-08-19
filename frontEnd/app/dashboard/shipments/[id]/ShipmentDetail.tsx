@@ -2670,6 +2670,41 @@ export function ShipmentDetail({ id }: { id: string }) {
       containerCount40Fr = v;
     }
 
+    // FCL: every selected unit type must have a count of at least 1.
+    if (sea && sb === "FCL") {
+      const fclChecks: Array<{ flag: boolean; count: number | null; label: string }> = [
+        { flag: editUnit20ft, count: containerCount20ft, label: "20′ containers" },
+        { flag: editUnit40ft, count: containerCount40ft, label: "40′ containers" },
+        { flag: editUnit20IsoTank, count: containerCount20Iso, label: "20′ ISO tanks" },
+        { flag: editUnit40Hc, count: containerCount40Hc, label: "40 HC containers" },
+        { flag: editUnit20Fr, count: containerCount20Fr, label: "20 FR containers" },
+        { flag: editUnit40Fr, count: containerCount40Fr, label: "40 FR containers" },
+      ];
+      for (const { flag, count, label } of fclChecks) {
+        if (flag && (count === null || count < 1)) {
+          const msg = `Number of ${label} is required when that unit type is selected.`;
+          setActionError(msg);
+          pushToast(msg, "error");
+          setSavingDetails(false);
+          return;
+        }
+      }
+      const anyUnit =
+        editUnit20ft ||
+        editUnit40ft ||
+        editUnit20IsoTank ||
+        editUnit40Hc ||
+        editUnit20Fr ||
+        editUnit40Fr;
+      if (!anyUnit) {
+        const msg = "At least one container type must be selected for FCL shipments.";
+        setActionError(msg);
+        pushToast(msg, "error");
+        setSavingDetails(false);
+        return;
+      }
+    }
+
     if (sea && !sb) {
       const msg = "Ship by is required when Ship via is Sea.";
       setActionError(msg);

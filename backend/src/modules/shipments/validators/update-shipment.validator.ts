@@ -216,6 +216,22 @@ export function validateUpdateShipmentBody(
   const c40Fr = parseCount(body?.container_count_40_fr, "container_count_40_fr");
   if (c40Fr !== undefined) data.container_count_40_fr = c40Fr;
 
+  // Cross-field: when a unit flag is explicitly set to true, its count must be >= 1.
+  // This catches clients that tick a unit but send null/0 for the count.
+  const fclUnitCountPairs: Array<[boolean | undefined, number | null | undefined, string, string]> = [
+    [data.unit_20ft, c20, "unit_20ft", "container_count_20ft"],
+    [data.unit_40ft, c40, "unit_40ft", "container_count_40ft"],
+    [data.unit_20_iso_tank, cIso, "unit_20_iso_tank", "container_count_20_iso_tank"],
+    [data.unit_40_hc, c40Hc, "unit_40_hc", "container_count_40_hc"],
+    [data.unit_20_fr, c20Fr, "unit_20_fr", "container_count_20_fr"],
+    [data.unit_40_fr, c40Fr, "unit_40_fr", "container_count_40_fr"],
+  ];
+  for (const [unit, count, , countField] of fclUnitCountPairs) {
+    if (unit === true && count !== undefined && (count === null || count < 1)) {
+      errors.push({ field: countField, message: "Required and must be ≥ 1 when this unit type is selected" });
+    }
+  }
+
   if (errors.length > 0) return { ok: false, errors };
 
   return { ok: true, data };
