@@ -69,5 +69,11 @@ export function validateUpdatePoLinesBody(
   }
 
   if (errors.length > 0) return { ok: false, errors };
+
+  if (lines.every((l) => l.received_qty === 0)) {
+    errors.push({ field: "lines", message: "At least one line must have a delivered quantity greater than 0" });
+    return { ok: false, errors };
+  }
+
   return { ok: true, data: { lines } };
 }

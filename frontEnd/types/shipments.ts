@@ -249,6 +249,9 @@ export interface ListShipmentsQuery {
   /** Effective PO date: `imported_po_intake.po_date`, else intake created date (UTC). */
   po_from_date?: string;
   po_to_date?: string;
+  /** Inclusive YYYY-MM-DD on shipment `eta` (UTC date). */
+  eta_from_date?: string;
+  eta_to_date?: string;
   /**
    * Matches backend: not closed (`closed_at` null) and status not DELIVERED.
    * Use for KPIs such as dashboard “active” shipment count.

@@ -133,6 +133,10 @@ export interface ListShipmentsQuery {
   po_from_date?: string;
   /** Inclusive; same semantics as `po_from_date` for upper bound. */
   po_to_date?: string;
+  /** Inclusive YYYY-MM-DD on shipment `eta` (UTC date). */
+  eta_from_date?: string;
+  /** Inclusive YYYY-MM-DD on shipment `eta` (UTC date). */
+  eta_to_date?: string;
   /**
    * When true (e.g. `active_pipeline=true`), only shipments that are still open for operations:
    * `closed_at IS NULL` and `current_status <> 'DELIVERED'`.
