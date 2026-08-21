@@ -382,6 +382,25 @@ export function ShipmentList() {
     router.replace(`/dashboard/shipments${p.toString() ? `?${p.toString()}` : ""}`, { scroll: false });
   }, [router, searchParams]);
 
+  const hasActiveFilters =
+    Boolean(searchParam.trim() || searchInput.trim()) ||
+    Boolean(poFromUrl || poToUrl || etaFromUrl || etaToUrl) ||
+    Boolean(poFromInput || poToInput || etaFromInput || etaToInput) ||
+    Boolean(managerialFilter || performanceStatusRaw || performanceEtaLate || activePipelineFromUrl) ||
+    Object.values(columnFilters).some((v) => Array.isArray(v) && v.length > 0);
+
+  const clearAllFilters = useCallback(() => {
+    setColumnFilters({});
+    setSearchInput("");
+    setSearchParam("");
+    setPoFromInput("");
+    setPoToInput("");
+    setEtaFromInput("");
+    setEtaToInput("");
+    setPage(1);
+    router.replace("/dashboard/shipments", { scroll: false });
+  }, [router, setColumnFilters]);
+
   const syncPoDatesToUrl = useCallback(
     (from: string, to: string) => {
       const p = new URLSearchParams(searchParams.toString());
@@ -808,51 +827,44 @@ export function ShipmentList() {
         <LoadingSkeleton lines={6} />
       ) : (
         <Card>
+          <div className={styles.tableToolbar} data-tour="shipment-column-filters">
+            <button
+              type="button"
+              className={styles.filterClear}
+              onClick={clearAllFilters}
+              disabled={!hasActiveFilters}
+            >
+              Clear all filters
+            </button>
+            {items.length > 0 && (
+              <span data-tour="shipment-column-picker">
+                <TableColumnPicker
+                  columns={SHIPMENT_TABLE_COLUMNS}
+                  visibleById={visibleById}
+                  onToggle={toggleColumn}
+                  onReset={resetColumns}
+                />
+              </span>
+            )}
+          </div>
           {items.length === 0 ? (
             <EmptyState
               title="No shipments found"
               description={
-                searchParam.trim() ||
-                poFromUrl ||
-                poToUrl ||
-                etaFromUrl ||
-                etaToUrl ||
-                performanceStatusRaw ||
-                performanceEtaLate ||
-                Object.keys(columnFilters).some((k) => columnFilters[k]?.length)
-                  ? "Try adjusting search, PO date, ETA date, or column filters."
+                hasActiveFilters
+                  ? "No rows match the current search or filters. Clear all filters to show the full list again."
                   : "Create a shipment from a PO (Take ownership → Create shipment)."
+              }
+              action={
+                hasActiveFilters ? (
+                  <button type="button" className={styles.filterApply} onClick={clearAllFilters}>
+                    Clear all filters
+                  </button>
+                ) : undefined
               }
             />
           ) : (
             <>
-              <div className={styles.tableToolbar} data-tour="shipment-column-filters">
-                <button
-                  type="button"
-                  className={styles.filterClear}
-                  onClick={() => {
-                    setColumnFilters({});
-                    setPage(1);
-                    if (performanceStatusRaw || performanceEtaLate) {
-                      const p = new URLSearchParams(searchParams.toString());
-                      p.delete(PERFORMANCE_STATUS_QUERY_PARAM);
-                      p.delete(PERFORMANCE_ETA_LATE_QUERY_PARAM);
-                      router.replace(`/dashboard/shipments${p.toString() ? `?${p.toString()}` : ""}`, { scroll: false });
-                    }
-                  }}
-                  disabled={Object.values(columnFilters).every((v) => !Array.isArray(v) || v.length === 0)}
-                >
-                  Clear column filters
-                </button>
-                <span data-tour="shipment-column-picker">
-                  <TableColumnPicker
-                    columns={SHIPMENT_TABLE_COLUMNS}
-                    visibleById={visibleById}
-                    onToggle={toggleColumn}
-                    onReset={resetColumns}
-                  />
-                </span>
-              </div>
               <Table wrapperClassName={styles.tableFixedHeight} className={styles.shipmentTable}>
                 <TableHead>
                   <TableRow>
