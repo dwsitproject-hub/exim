@@ -374,8 +374,14 @@
 .filterBar {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-end;
   gap: var(--spacing-2, 8px) var(--spacing-3, 12px);
+}
+
+.filterGroup {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
 .filterLabel {

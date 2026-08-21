@@ -259,6 +259,14 @@ export class ShipmentRepository {
       poDateParts.push(`)`);
       conditions.push(poDateParts.join(" "));
     }
+    if (query.eta_from_date) {
+      conditions.push(`(s.eta AT TIME ZONE 'UTC')::date >= $${idx++}::date`);
+      params.push(query.eta_from_date);
+    }
+    if (query.eta_to_date) {
+      conditions.push(`(s.eta AT TIME ZONE 'UTC')::date <= $${idx++}::date`);
+      params.push(query.eta_to_date);
+    }
     const ptList = [
       ...new Set(
         [...(query.pts ?? []), ...(query.pt?.trim() ? [query.pt.trim()] : [])].filter(Boolean)

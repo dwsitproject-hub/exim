@@ -42,6 +42,8 @@ function buildQueryString(query: ListShipmentsQuery): string {
   if (query.created_to) params.set("created_to", query.created_to);
   if (query.po_from_date) params.set("po_from_date", query.po_from_date);
   if (query.po_to_date) params.set("po_to_date", query.po_to_date);
+  if (query.eta_from_date) params.set("eta_from_date", query.eta_from_date);
+  if (query.eta_to_date) params.set("eta_to_date", query.eta_to_date);
   if (query.active_pipeline) params.set("active_pipeline", "true");
   query.pts?.forEach((p) => params.append("pt", p));
   query.plants?.forEach((p) => params.append("plant", p));

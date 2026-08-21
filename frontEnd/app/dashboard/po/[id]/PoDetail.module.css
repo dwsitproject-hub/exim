@@ -357,6 +357,39 @@
   color: var(--color-semantic-primary-default, #c43a31);
 }
 
+.itemsTotals {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--spacing-4, 24px) var(--spacing-6, 40px);
+  margin-top: var(--spacing-3, 16px);
+  padding: var(--spacing-3, 12px) var(--spacing-4, 16px);
+  border: 1px solid var(--color-primitive-border-light, #e0e0e0);
+  border-radius: var(--borderRadius-sm, 6px);
+  background-color: var(--color-primitive-background-lighter, #fafafa);
+}
+
+.itemsTotalItem {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  min-width: 8rem;
+}
+
+.itemsTotalLabel {
+  font-size: var(--typography-fontSize-xs, 12px);
+  font-weight: var(--typography-fontWeight-medium, 500);
+  color: var(--color-primitive-text-steel, #6b6b6b);
+}
+
+.itemsTotalValue {
+  font-size: var(--typography-fontSize-base, 16px);
+  font-weight: var(--typography-fontWeight-semibold, 600);
+  color: var(--color-primitive-text-charcoal, #2b2b2b);
+  font-variant-numeric: tabular-nums;
+}
+
 .itemsTableSurface .rowOverReceived:hover {
   background-color: rgba(196, 58, 49, 0.1) !important;
 }

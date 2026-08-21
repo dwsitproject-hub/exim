@@ -11,6 +11,7 @@ import { listShipments, getShipmentListFilterOptions } from "@/services/shipment
 import { Card } from "@/components/cards";
 import { LoadingSkeleton } from "@/components/feedback";
 import { PageHeader, ActionBar, EmptyState } from "@/components/navigation";
+import { DateRangeField } from "@/components/forms";
 import { useShipmentListRowContextMenu } from "@/components/shipments";
 import {
   Table,
@@ -149,6 +150,8 @@ export function ShipmentList() {
   const searchFromUrl = searchParams.get("search") ?? "";
   const poFromUrl = (searchParams.get("po_from_date") ?? "").trim();
   const poToUrl = (searchParams.get("po_to_date") ?? "").trim();
+  const etaFromUrl = (searchParams.get("eta_from_date") ?? "").trim();
+  const etaToUrl = (searchParams.get("eta_to_date") ?? "").trim();
   const managerialFilter = searchParams.get("filter");
   const managerialDays = searchParams.get("days");
   const performanceStatusRaw = (searchParams.get(PERFORMANCE_STATUS_QUERY_PARAM) ?? "").trim() || undefined;
@@ -172,6 +175,8 @@ export function ShipmentList() {
   const [searchParam, setSearchParam] = useState("");
   const [poFromInput, setPoFromInput] = useState(poFromUrl);
   const [poToInput, setPoToInput] = useState(poToUrl);
+  const [etaFromInput, setEtaFromInput] = useState(etaFromUrl);
+  const [etaToInput, setEtaToInput] = useState(etaToUrl);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
   const [columnFilters, setColumnFilters, columnFiltersHydrated] = useSessionPersistedState<
     Record<string, string[]>
@@ -240,6 +245,8 @@ export function ShipmentList() {
       search: searchParam.trim() || undefined,
       po_from_date: poFromUrl || undefined,
       po_to_date: poToUrl || undefined,
+      eta_from_date: etaFromUrl || undefined,
+      eta_to_date: etaToUrl || undefined,
       ...(activePipelineFromUrl ? { active_pipeline: true } : {}),
       ...(managerialFilter === MANAGERIAL_LIST_FILTERS.dormantRemaining
         ? { dormant_remaining_qty: true, dormant_days: dormantDays }
@@ -276,6 +283,8 @@ export function ShipmentList() {
     searchParam,
     poFromUrl,
     poToUrl,
+    etaFromUrl,
+    etaToUrl,
     managerialFilter,
     managerialDays,
     performanceStatusRaw,
@@ -311,6 +320,12 @@ export function ShipmentList() {
     setPoToInput(poToUrl);
     setPage(1);
   }, [poFromUrl, poToUrl]);
+
+  useEffect(() => {
+    setEtaFromInput(etaFromUrl);
+    setEtaToInput(etaToUrl);
+    setPage(1);
+  }, [etaFromUrl, etaToUrl]);
 
   useEffect(() => {
     setPage(1);
@@ -381,6 +396,20 @@ export function ShipmentList() {
     [router, searchParams]
   );
 
+  const syncEtaDatesToUrl = useCallback(
+    (from: string, to: string) => {
+      const p = new URLSearchParams(searchParams.toString());
+      const f = from.trim();
+      const t = to.trim();
+      if (f) p.set("eta_from_date", f);
+      else p.delete("eta_from_date");
+      if (t) p.set("eta_to_date", t);
+      else p.delete("eta_to_date");
+      router.replace(`/dashboard/shipments${p.toString() ? `?${p.toString()}` : ""}`, { scroll: false });
+    },
+    [router, searchParams]
+  );
+
   const totalPages = meta ? Math.ceil(meta.total / meta.limit) : 0;
 
   function shipmentDetailHref(shipmentId: string) {
@@ -408,14 +437,20 @@ export function ShipmentList() {
     }
   }
 
-  function applyPoDateFilter() {
-    syncPoDatesToUrl(poFromInput, poToInput);
+  function handlePoDateRangeChange(from: string, to: string) {
+    setPoFromInput(from);
+    setPoToInput(to);
+    if ((from && to) || (!from && !to)) {
+      syncPoDatesToUrl(from, to);
+    }
   }
 
-  function clearPoDateFilter() {
-    setPoFromInput("");
-    setPoToInput("");
-    syncPoDatesToUrl("", "");
+  function handleEtaDateRangeChange(from: string, to: string) {
+    setEtaFromInput(from);
+    setEtaToInput(to);
+    if ((from && to) || (!from && !to)) {
+      syncEtaDatesToUrl(from, to);
+    }
   }
 
   function toggleExpand(id: string) {
@@ -668,35 +703,28 @@ export function ShipmentList() {
           </form>
         }
         filters={
-          <div className={styles.filterBar} data-tour="shipment-po-date-filter">
-            <span className={styles.filterLabel}>PO date</span>
-            <label className={styles.dateField}>
-              <span className={styles.dateFieldLabel}>From</span>
-              <input
-                type="date"
-                className={styles.dateInput}
-                value={poFromInput}
-                onChange={(e) => setPoFromInput(e.target.value)}
-                aria-label="PO date from"
+          <div className={styles.filterBar} data-tour="shipment-date-filters">
+            <div className={styles.filterGroup} data-tour="shipment-po-date-filter">
+              <DateRangeField
+                id="shipment-po-date-range"
+                label="PO date"
+                size="compact"
+                from={poFromInput}
+                to={poToInput}
+                onChange={handlePoDateRangeChange}
+                placeholder="Select PO date range…"
               />
-            </label>
-            <label className={styles.dateField}>
-              <span className={styles.dateFieldLabel}>To</span>
-              <input
-                type="date"
-                className={styles.dateInput}
-                value={poToInput}
-                onChange={(e) => setPoToInput(e.target.value)}
-                aria-label="PO date to"
+            </div>
+            <div className={styles.filterGroup} data-tour="shipment-eta-date-filter">
+              <DateRangeField
+                id="shipment-eta-date-range"
+                label="ETA"
+                size="compact"
+                from={etaFromInput}
+                to={etaToInput}
+                onChange={handleEtaDateRangeChange}
+                placeholder="Select ETA range…"
               />
-            </label>
-            <div className={styles.poDateActions}>
-              <button type="button" className={styles.filterApply} onClick={applyPoDateFilter}>
-                Apply
-              </button>
-              <button type="button" className={styles.filterClear} onClick={clearPoDateFilter}>
-                Clear
-              </button>
             </div>
           </div>
         }
@@ -787,10 +815,12 @@ export function ShipmentList() {
                 searchParam.trim() ||
                 poFromUrl ||
                 poToUrl ||
+                etaFromUrl ||
+                etaToUrl ||
                 performanceStatusRaw ||
                 performanceEtaLate ||
                 Object.keys(columnFilters).some((k) => columnFilters[k]?.length)
-                  ? "Try adjusting search, PO date, or column filters."
+                  ? "Try adjusting search, PO date, ETA date, or column filters."
                   : "Create a shipment from a PO (Take ownership → Create shipment)."
               }
             />

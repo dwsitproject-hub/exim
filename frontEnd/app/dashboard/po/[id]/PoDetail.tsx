@@ -354,6 +354,14 @@ export function PoDetail({ id }: { id: string }) {
 
   /** Same field as Create PO / API `currency` (e.g. USD, IDR) — not the per-line rate. */
   const poCurrency = detail.currency?.trim() || null;
+  const totalQty = detail.items.reduce((sum, item) => {
+    const qty = Number(item.qty);
+    return Number.isFinite(qty) ? sum + qty : sum;
+  }, 0);
+  const totalAmount = detail.items.reduce((sum, item) => {
+    const line = lineTotalAmount(item.qty, item.value);
+    return line != null ? sum + line : sum;
+  }, 0);
 
   return (
     <section className={styles.section}>
@@ -563,6 +571,18 @@ export function PoDetail({ id }: { id: string }) {
               })}
             </TableBody>
           </Table>
+          <div className={styles.itemsTotals} role="status">
+            <div className={styles.itemsTotalItem}>
+              <span className={styles.itemsTotalLabel}>Total qty</span>
+              <span className={styles.itemsTotalValue}>{formatPoLineQtyDisplay(totalQty)}</span>
+            </div>
+            <div className={styles.itemsTotalItem}>
+              <span className={styles.itemsTotalLabel}>
+                Total amount{poCurrency ? ` (${poCurrency})` : ""}
+              </span>
+              <span className={styles.itemsTotalValue}>{formatDecimal(totalAmount)}</span>
+            </div>
+          </div>
         </Card>
       )}
 
