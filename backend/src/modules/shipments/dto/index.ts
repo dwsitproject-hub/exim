@@ -247,6 +247,10 @@ export interface ShipmentListLinkedPo {
   /** PO intake currency — same grouping key as couple validation. */
   currency: string | null;
   intake_status: string | null;
+  supplier_name?: string | null;
+  incoterm_location?: string | null;
+  invoice_no?: string | null;
+  currency_rate?: number | null;
   items: ShipmentListPoLineItem[];
 }
 

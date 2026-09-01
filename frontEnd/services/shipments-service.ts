@@ -87,6 +87,21 @@ export async function listShipments(
   return apiGet<ShipmentListItem[]>(path, accessToken);
 }
 
+export async function downloadShipmentListCsv(
+  query: ListShipmentsQuery,
+  accessToken: string | null
+): Promise<Blob> {
+  const qs = buildQueryString({ ...query, page: undefined, limit: undefined });
+  const url = `${config.apiBaseUrl}/shipments/export.csv${qs}`;
+  const headers: Record<string, string> = {};
+  if (accessToken && accessToken !== COOKIE_AUTH_SENTINEL) {
+    headers.Authorization = `Bearer ${accessToken}`;
+  }
+  const res = await fetch(url, { method: "GET", headers, credentials: "include" });
+  if (!res.ok) throw new Error("Failed to export shipments");
+  return res.blob();
+}
+
 export async function getShipmentListFilterOptions(
   accessToken: string | null
 ): Promise<ApiResponse<ShipmentListFilterOptions>> {

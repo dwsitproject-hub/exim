@@ -25,6 +25,12 @@ shipmentRoutes.get(
   shipmentController.listFilterOptions
 );
 shipmentRoutes.get(
+  "/export.csv",
+  authMiddleware,
+  requirePermission(PERMISSIONS.VIEW_SHIPMENTS),
+  shipmentController.exportCsv
+);
+shipmentRoutes.get(
   "/import/combined-template-csv",
   authMiddleware,
   requirePermission(PERMISSIONS.IMPORT_PO_CSV),

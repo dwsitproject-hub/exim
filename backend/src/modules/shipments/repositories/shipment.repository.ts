@@ -159,10 +159,15 @@ export class ShipmentRepository {
     return `ORDER BY ${expr} ${dir} NULLS LAST, s.id ${dir}`;
   }
 
-  async findAll(query: ListShipmentsQuery): Promise<{ rows: ShipmentRow[]; total: number }> {
+  async findAll(
+    query: ListShipmentsQuery,
+    options?: { unpaged?: boolean }
+  ): Promise<{ rows: ShipmentRow[]; total: number }> {
+    const EXPORT_MAX = 10_000;
+    const unpaged = options?.unpaged === true;
     const page = Math.max(1, query.page ?? 1);
-    const limit = Math.min(100, Math.max(1, query.limit ?? 10));
-    const offset = (page - 1) * limit;
+    const limit = unpaged ? EXPORT_MAX : Math.min(100, Math.max(1, query.limit ?? 10));
+    const offset = unpaged ? 0 : (page - 1) * limit;
     const conditions: string[] = ["s.deleted_at IS NULL"];
     const params: unknown[] = [];
     let idx = 1;

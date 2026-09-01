@@ -3,16 +3,17 @@
 import { Fragment, useCallback, useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { RotateCw, X } from "lucide-react";
+import { RotateCw, X, Download } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useSessionPersistedState } from "@/hooks/use-session-persisted-state";
 import { useTableColumnVisibility, type TableColumnDef } from "@/hooks/use-table-column-visibility";
-import { listShipments, getShipmentListFilterOptions } from "@/services/shipments-service";
+import { listShipments, getShipmentListFilterOptions, downloadShipmentListCsv } from "@/services/shipments-service";
 import { Card } from "@/components/cards";
 import { LoadingSkeleton } from "@/components/feedback";
 import { PageHeader, ActionBar, EmptyState } from "@/components/navigation";
 import { DateRangeField } from "@/components/forms";
 import { useShipmentListRowContextMenu } from "@/components/shipments";
+import { useToast } from "@/components/providers/ToastProvider";
 import {
   Table,
   TableHead,
@@ -162,6 +163,7 @@ export function ShipmentList() {
     searchParams.get(PERFORMANCE_ETA_LATE_QUERY_PARAM) === "true" ||
     searchParams.get(PERFORMANCE_ETA_LATE_QUERY_PARAM) === "1";
   const { accessToken } = useAuth();
+  const { pushToast } = useToast();
   const { visibleById, toggleColumn, resetColumns, columns: shipmentColumnDefs } = useTableColumnVisibility(
     SHIPMENT_LIST_TABLE_COLUMNS_KEY,
     SHIPMENT_TABLE_COLUMNS
@@ -185,6 +187,7 @@ export function ShipmentList() {
   const [filterOptions, setFilterOptions] = useState<ShipmentListFilterOptions | null>(null);
   const [sortBy, setSortBy] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const [exporting, setExporting] = useState(false);
 
   const syncSearchToUrl = useCallback(
     (search: string) => {
@@ -229,19 +232,10 @@ export function ShipmentList() {
     };
   }, [filterOptions]);
 
-  const columnFiltersKey = JSON.stringify(columnFilters);
-
-  const fetchList = useCallback(() => {
-    if (!accessToken) {
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
+  const buildFilterQuery = useCallback((): ListShipmentsQuery => {
     const fromCols = buildListQueryFromColumnFilters(columnFilters, statusLabelToRaw);
     const dormantDays = Math.max(1, parseInt(managerialDays || "30", 10) || 30);
     const listQuery: ListShipmentsQuery = {
-      page,
-      limit: DEFAULT_LIMIT,
       search: searchParam.trim() || undefined,
       po_from_date: poFromUrl || undefined,
       po_to_date: poToUrl || undefined,
@@ -263,7 +257,31 @@ export function ShipmentList() {
       listQuery.sort_by = sortBy;
       listQuery.sort_dir = sortDir;
     }
-    listShipments(listQuery, accessToken)
+    return listQuery;
+  }, [
+    searchParam,
+    poFromUrl,
+    poToUrl,
+    etaFromUrl,
+    etaToUrl,
+    managerialFilter,
+    managerialDays,
+    performanceStatusRaw,
+    activePipelineFromUrl,
+    performanceEtaLate,
+    columnFilters,
+    statusLabelToRaw,
+    sortBy,
+    sortDir,
+  ]);
+
+  const fetchList = useCallback(() => {
+    if (!accessToken) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    listShipments({ ...buildFilterQuery(), page, limit: DEFAULT_LIMIT }, accessToken)
       .then((res) => {
         if (isApiError(res)) {
           setError(res.message);
@@ -277,24 +295,26 @@ export function ShipmentList() {
       })
       .catch(() => setError("Failed to load shipments"))
       .finally(() => setLoading(false));
-  }, [
-    accessToken,
-    page,
-    searchParam,
-    poFromUrl,
-    poToUrl,
-    etaFromUrl,
-    etaToUrl,
-    managerialFilter,
-    managerialDays,
-    performanceStatusRaw,
-    activePipelineFromUrl,
-    performanceEtaLate,
-    columnFiltersKey,
-    statusLabelToRaw,
-    sortBy,
-    sortDir,
-  ]);
+  }, [accessToken, page, buildFilterQuery]);
+
+  async function handleExportCsv() {
+    if (!accessToken || exporting) return;
+    setExporting(true);
+    try {
+      const blob = await downloadShipmentListCsv(buildFilterQuery(), accessToken);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `import-shipments_${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      pushToast("Shipments exported.", "success");
+    } catch {
+      pushToast("Failed to export shipments.", "error");
+    } finally {
+      setExporting(false);
+    }
+  }
 
   useEffect(() => {
     if (!columnFiltersHydrated) return;
@@ -830,22 +850,38 @@ export function ShipmentList() {
           <div className={styles.tableToolbar} data-tour="shipment-column-filters">
             <button
               type="button"
-              className={styles.filterClear}
-              onClick={clearAllFilters}
-              disabled={!hasActiveFilters}
+              className={styles.exportBtn}
+              onClick={() => void handleExportCsv()}
+              disabled={exporting || !meta?.total}
+              title={
+                meta?.total
+                  ? `Export ${meta.total} shipment${meta.total === 1 ? "" : "s"} matching current filters`
+                  : undefined
+              }
             >
-              Clear all filters
+              <Download size={16} aria-hidden />
+              {exporting ? "Exporting…" : "Export CSV"}
             </button>
-            {items.length > 0 && (
-              <span data-tour="shipment-column-picker">
-                <TableColumnPicker
-                  columns={SHIPMENT_TABLE_COLUMNS}
-                  visibleById={visibleById}
-                  onToggle={toggleColumn}
-                  onReset={resetColumns}
-                />
-              </span>
-            )}
+            <div className={styles.tableToolbarActions}>
+              <button
+                type="button"
+                className={styles.filterClear}
+                onClick={clearAllFilters}
+                disabled={!hasActiveFilters}
+              >
+                Clear all filters
+              </button>
+              {items.length > 0 && (
+                <span data-tour="shipment-column-picker">
+                  <TableColumnPicker
+                    columns={SHIPMENT_TABLE_COLUMNS}
+                    visibleById={visibleById}
+                    onToggle={toggleColumn}
+                    onReset={resetColumns}
+                  />
+                </span>
+              )}
+            </div>
           </div>
           {items.length === 0 ? (
             <EmptyState
