@@ -13,6 +13,13 @@ const PIB_TYPE_CANONICAL: Record<string, string> = {
   "Consignment Note": "Consignment Note",
 };
 
+/** Canonical PIB label for display / CSV (empty when unset). */
+export function displayPibTypeLabel(stored: string | null | undefined): string {
+  const v = stored != null ? String(stored).trim() : "";
+  if (!v) return "";
+  return PIB_TYPE_CANONICAL[v] ?? v;
+}
+
 /** PIB BC 2.3: BM / PPN / PPH not required for customs clearance validation. */
 export function isPibTypeBc23(stored: string | null | undefined): boolean {
   const v = stored != null ? String(stored).trim() : "";

@@ -20,6 +20,7 @@ import { ShipmentPoMappingRepository } from "../repositories/shipment-po-mapping
 import { ShipmentPoLineReceivedRepository } from "../repositories/shipment-po-line-received.repository.js";
 import type { ListShipmentsQuery } from "../dto/index.js";
 import { readMulterFileAsUtf8 } from "../../../utils/read-multer-upload.js";
+import { shipmentListExportFilename } from "../utils/shipment-list-csv.js";
 
 function actorFromRequest(req: Request): string {
   const name = req.user?.name?.trim();
@@ -116,6 +117,18 @@ export async function listFilterOptions(_req: Request, res: Response, next: Next
   try {
     const data = await service.listFilterOptions();
     sendSuccess(res, data);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function exportCsv(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const query = parseListQuery(req);
+    const csv = await service.exportListCsv(query);
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${shipmentListExportFilename()}"`);
+    res.status(200).send(csv);
   } catch (e) {
     next(e);
   }

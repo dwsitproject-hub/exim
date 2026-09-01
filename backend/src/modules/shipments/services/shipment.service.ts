@@ -74,6 +74,7 @@ import {
   DEFAULT_FREIGHT_CHARGE_CURRENCY,
   normalizeFreightChargeCurrency,
 } from "../../../shared/freight-currency.js";
+import { buildShipmentListCsv } from "../utils/shipment-list-csv.js";
 
 const poIntakeRepo = new PoIntakeRepository();
 
@@ -1184,6 +1185,18 @@ export class ShipmentService {
     const byShipment = await this.mappingRepo.findActiveLinkedPosWithItemsByShipmentIds(ids);
     const items = rows.map((row) => toListItem(row, byShipment.get(row.id) ?? []));
     return { items, total };
+  }
+
+  async exportListCsv(query: ListShipmentsQuery): Promise<string> {
+    const { rows } = await this.repo.findAll(query, { unpaged: true });
+    const ids = rows.map((r) => r.id);
+    const byShipment = await this.mappingRepo.findActiveLinkedPosWithItemsByShipmentIds(ids);
+    return buildShipmentListCsv(
+      rows.map((shipment) => ({
+        shipment,
+        linked_pos: byShipment.get(shipment.id) ?? [],
+      }))
+    );
   }
 
   async listFilterOptions(): Promise<ShipmentListFilterOptions> {
