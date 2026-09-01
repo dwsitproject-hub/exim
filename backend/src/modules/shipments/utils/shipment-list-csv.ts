@@ -7,9 +7,17 @@ export type ShipmentExportSource = {
   linked_pos: ShipmentListLinkedPo[];
 };
 
+function flattenCell(value: string | number | boolean | null | undefined): string {
+  if (value == null) return "";
+  return String(value)
+    .replace(/\r\n|\r|\n/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function csvField(value: string | number | boolean | null | undefined): string {
-  const s = value == null ? "" : String(value);
-  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  const s = flattenCell(value);
+  if (/[",]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
   return s;
 }
 
@@ -158,7 +166,6 @@ const COLUMNS: Col[] = [
   { header: "Delivery address", value: ({ shipment }) => shipment.warehouse_name },
   { header: "Origin port name", value: ({ shipment }) => shipment.origin_port_name },
   { header: "Origin port country", value: ({ shipment }) => shipment.origin_port_country },
-  { header: "Origin port code", value: ({ shipment }) => shipment.origin_port_code },
   {
     header: "Product classification type",
     value: ({ shipment }) => normalizeProductClassificationForApi(shipment.product_classification),
