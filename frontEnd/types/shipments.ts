@@ -30,6 +30,7 @@ export interface ShipmentListPoLineItem {
   /** Quantity delivered on this shipment; null if not recorded. */
   delivery_qty: number | string | null;
   unit: string | null;
+  unit_price?: number | null;
   bm_percentage?: number | null;
   ppn_percentage?: number | null;
   pph_percentage?: number | null;

@@ -232,6 +232,8 @@ export interface ShipmentListPoLineItem {
   /** Quantity delivered on this shipment for this line; null if not recorded. */
   delivery_qty: number | null;
   unit: string | null;
+  /** PO line unit price (PO currency). */
+  unit_price?: number | null;
   bm_percentage?: number | null;
   ppn_percentage?: number | null;
   pph_percentage?: number | null;
