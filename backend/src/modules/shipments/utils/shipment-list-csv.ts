@@ -1,6 +1,7 @@
 import { displayPibTypeLabel, isPibTypeBc23 } from "../../../shared/pib-type.js";
 import { normalizeProductClassificationForApi } from "../../../shared/product-classification.js";
 import type { ShipmentListLinkedPo, ShipmentListPoLineItem, ShipmentRow } from "../dto/index.js";
+import { computeShipmentTotalInvoiceAmountIdr } from "./shipment-total-invoice-amount.js";
 
 export type ShipmentExportSource = {
   shipment: ShipmentRow;
@@ -210,6 +211,10 @@ const COLUMNS: Col[] = [
   { header: "ATA", value: ({ shipment }) => ymd(shipment.ata) },
   { header: "Freight charges", value: ({ shipment }) => num(shipment.incoterm_amount) },
   { header: "Freight currency", value: ({ shipment }) => shipment.incoterm_currency },
+  {
+    header: "Total Invoice amount",
+    value: ({ linked_pos }) => num(computeShipmentTotalInvoiceAmountIdr(linked_pos)),
+  },
   { header: "Net weight (MT)", value: ({ shipment }) => num(shipment.net_weight_mt) },
   { header: "Gross weight (MT)", value: ({ shipment }) => num(shipment.gross_weight_mt) },
   { header: "BM (total)", value: ({ shipment }) => num(dutyAmounts(shipment).bm) },

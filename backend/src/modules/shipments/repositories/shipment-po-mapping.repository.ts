@@ -144,6 +144,7 @@ export class ShipmentPoMappingRepository {
               'qty_po', it.qty,
               'delivery_qty', r.received_qty,
               'unit', it.unit,
+              'unit_price', it.unit_price,
               'bm_percentage', r.bm_percentage,
               'ppn_percentage', r.ppn_percentage,
               'pph_percentage', r.pph_percentage
