@@ -1,10 +1,11 @@
-# Production-only PostgreSQL backup scheduler.
-# Merge with your main stack so `postgres` exists on the same project network:
+# Production-only PostgreSQL backup scheduler (ApsaraDB RDS PostgreSQL 18).
 #
-#   docker compose -f docker-compose.yml -f docker-compose.backup.yml --profile production-backup up -d
+#   docker compose -f docker-compose.production.backend.yml \
+#     -f docker-compose.backup.yml --profile production-backup up -d --build
 #
 # Requirements in backend/.env (or environment):
-#   - DATABASE_URL pointing at the postgres service (e.g. postgres://user:pass@postgres:5432/eos_db)
+#   - DATABASE_URL pointing at the ApsaraDB VPC internal endpoint
+#     (e.g. postgres://user:pass@rm-xxxx.pgsql.<region>.rds.aliyuncs.com:5432/eos_db?sslmode=require)
 #   - EOS_BACKUP_ENABLED=true
 #   - EOS_ENV=production
 #
@@ -30,6 +31,3 @@ services:
       RETENTION_DAYS: "14"
     volumes:
       - /opt/exim/scripts/backup:/backups/eos
-    depends_on:
-      postgres:
-        condition: service_healthy

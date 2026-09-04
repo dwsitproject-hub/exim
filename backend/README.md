@@ -67,7 +67,8 @@ npm run start
 |----------|----------|-------------|
 | `NODE_ENV` | No | `development` \| `production` (default: development) |
 | `PORT` | No | Server port (default: 3003) |
-| `DATABASE_URL` | Yes | PostgreSQL connection string |
+| `DATABASE_URL` | Yes | PostgreSQL connection string (local Docker or ApsaraDB VPC URL with `sslmode=require`) |
+| `DATABASE_SSL` | No | `true` to force TLS to Postgres (ApsaraDB). URL `sslmode=require` also enables TLS. |
 | `JWT_ACCESS_SECRET` | When auth used | Secret for access tokens |
 | `JWT_REFRESH_SECRET` | No | Optional; not used by current code (refresh tokens are stored in DB) |
 | `JWT_ACCESS_EXPIRES_IN` | No | e.g. 4h (access JWT) |

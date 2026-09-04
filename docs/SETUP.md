@@ -11,7 +11,7 @@ This document covers dependencies, migrations, seeding, and run instructions for
 | Requirement | Version / note |
 |-------------|-----------------|
 | Node.js | ≥ 20 (backend and frontend) |
-| PostgreSQL | 16 (or compatible; used in Docker as `postgres:16-alpine`) |
+| PostgreSQL | Local Docker: 16 (`postgres:16-alpine`). Staging/production: ApsaraDB RDS PostgreSQL 18 (see `docs/APSARADB-MIGRATION.md`) |
 | Docker & Docker Compose | For running all services together |
 
 ### Backend (`backend/`)
@@ -232,3 +232,5 @@ Use a process manager (e.g. systemd, PM2) or orchestration (e.g. Kubernetes) in 
 ## Synology / shared storage
 
 For Synology storage env vars and Docker bind alignment (when the NAS is already mounted on the server), see **[SYNOLOGY-INTEGRATION.md](./SYNOLOGY-INTEGRATION.md)**.
+
+Staging/production database (ApsaraDB RDS PostgreSQL 18, staging first): **[APSARADB-MIGRATION.md](./APSARADB-MIGRATION.md)**. Until cutover, merge `docker-compose.*.backend.local-postgres.yml` so the local PG 16 volume stays in use.

@@ -127,8 +127,8 @@ Mount, firewall, and DSM issues are infra — escalate only after your slug/path
 |------|---------|
 | `backend/.env.example` | Storage variables (Option B / A / local) |
 | Root `.env.example` | `STORAGE_HOST_MOUNT` for Compose |
-| `docker-compose.staging.backend.yml` | Staging NAS bind example |
-| `docker-compose.production.backend.yml` | Production NAS bind example |
+| `docker-compose.staging.backend.yml` | Staging NAS bind example (Postgres is ApsaraDB; local PG overlay optional) |
+| `docker-compose.production.backend.yml` | Production NAS bind example (Postgres is ApsaraDB after cutover) |
 | `backend/src/config/index.ts` | Path resolution |
 | `docs/TSD.md` | Broader document storage strategy |
 | `docs/SETUP.md` | General EOS setup (Node, DB, migrations) |

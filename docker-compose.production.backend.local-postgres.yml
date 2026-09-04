@@ -1,0 +1,36 @@
+# Rollback / pre-cutover overlay: local PostgreSQL 16 for production.
+# Merge with docker-compose.production.backend.yml. Do not docker compose down -v.
+#
+#   docker compose -f docker-compose.production.backend.yml \
+#     -f docker-compose.production.backend.local-postgres.yml up -d
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: eos-postgres-prod
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-Exim}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-exim_db}
+    ports:
+      - "${POSTGRES_PORT:-5422}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-eos} -d ${POSTGRES_DB:-eos_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-eos}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-eos_db}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

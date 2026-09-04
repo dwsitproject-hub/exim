@@ -35,7 +35,7 @@ These were implemented to align with production-style hardening:
 - [ ] **`CORS_ORIGINS`**: Set to every **browser origin** where the EOS UI is served (scheme + host + port, no paths), comma-separated — e.g. `https://eos.example.com,https://www.example.com`. Required when backend `NODE_ENV !== development`.
 - [ ] **`JWT_ACCESS_SECRET`**: Long, random, unique per environment; never reuse dev secrets; rotate if leaked. (`JWT_REFRESH_SECRET` is optional — unused by current code.)
 - [ ] **`COOKIE_SECURE`**: Set `true` on the backend when the site is served over **HTTPS** so auth cookies use the `Secure` flag (leave `false` for plain `http://localhost` dev).
-- [ ] **`DATABASE_URL`**: Strong DB credentials; DB not exposed to the public internet; TLS to Postgres if traffic crosses networks.
+- [ ] **`DATABASE_URL`**: ApsaraDB RDS **VPC internal** endpoint (not public); strong credentials; `sslmode=require` or `DATABASE_SSL=true`. Staging uses `eos_staging`; production uses a separate database and account. See `docs/APSARADB-MIGRATION.md`.
 - [ ] **`FRONTEND_BASE_URL`**: Correct public URL for email verification and password-reset links.
 - [ ] **`ALLOW_ANY_EMAIL`**: `false` in production unless you explicitly allow open registration.
 - [ ] **SMTP**: Valid host, TLS as required (`SMTP_SECURE` / port), authenticated relay; test forgot-password and verification emails end-to-end.
@@ -61,7 +61,7 @@ These were implemented to align with production-style hardening:
 
 ## 6. Operations
 
-- [ ] **PostgreSQL backups (production):** Enable `EOS_BACKUP_ENABLED=true` and `EOS_ENV=production` only on prod; use `docker-compose.backup.yml` (profile `production-backup`) or host cron — daily **15:00 UTC** (10 PM UTC+7), **14-day** retention. See `scripts/backup/README.md`.
+- [ ] **PostgreSQL backups (production):** Enable `EOS_BACKUP_ENABLED=true` and `EOS_ENV=production` only on prod; use `docker-compose.backup.yml` (profile `production-backup`) against ApsaraDB (PG 18 client image) or host cron — daily **15:00 UTC** (10 PM UTC+7), **14-day** retention. Also confirm RDS automated backups. See `scripts/backup/README.md`.
 - [ ] **Health checks**: Use `/api/v1/health` (or your LB path) for liveness/readiness.
 - [ ] **Logging**: Centralize logs; ensure no secrets in log lines; log level appropriate (`LOG_LEVEL`).
 - [ ] **Backups**: Postgres backups + restore tested; RPO/RTO agreed.
@@ -93,5 +93,6 @@ These were implemented to align with production-style hardening:
 
 - Backend env template: `backend/.env.example`
 - Compose env template: `.env.example`
-- Staging backend: `docker-compose.staging.backend.yml`
+- Staging backend: `docker-compose.staging.backend.yml` (ApsaraDB; local PG 16 overlay: `docker-compose.staging.backend.local-postgres.yml`)
 - Staging frontend: `docker-compose.staging.frontend.yml`
+- ApsaraDB cutover: `docs/APSARADB-MIGRATION.md`
