@@ -89,6 +89,15 @@ const FIRST_PO_CTE = `first_po AS (
   ORDER BY m.shipment_id, i.po_number ASC NULLS LAST, i.created_at ASC
 )`;
 
+/**
+ * Saving delivered qty writes a receipt row for every PO line, including qty 0 for
+ * lines delivered on a sibling shipment. Drill queries must ignore those placeholders
+ * or the same shipment appears under another item group at 0 / $0.
+ */
+const RECEIVED_LINE_JOIN = `INNER JOIN shipment_po_line_received r
+          ON r.shipment_id = m.shipment_id AND r.intake_id = m.intake_id AND r.deleted_at IS NULL
+          AND COALESCE(r.received_qty, 0) > 0`;
+
 function buildBaseWhereParams(q: ShipmentAnalyticsQuery): { whereParts: string[]; params: unknown[] } {
   const whereParts: string[] = [
     `(s.closed_at AT TIME ZONE 'UTC')::date >= $1::date`,
@@ -584,6 +593,7 @@ export class ShipmentAnalyticsRepository {
   /**
    * Σ received qty and line value (IDR) per normalized item description + PO plant + PT
    * for shipments in the analytics scope (same filters / first-PO plant logic as summary).
+   * Placeholder receipts (`received_qty` ≤ 0) are excluded.
    */
   async getLineAggregation(q: ShipmentAnalyticsLinesQuery): Promise<ShipmentAnalyticsLinesResult> {
     const base = buildBaseWhereParams(q);
@@ -623,8 +633,7 @@ export class ShipmentAnalyticsRepository {
         LEFT JOIN first_po fp ON fp.shipment_id = sis.id
         INNER JOIN shipment_po_mapping m
           ON m.shipment_id = sis.id AND m.decoupled_at IS NULL
-        INNER JOIN shipment_po_line_received r
-          ON r.shipment_id = m.shipment_id AND r.intake_id = m.intake_id AND r.deleted_at IS NULL
+        ${RECEIVED_LINE_JOIN}
         INNER JOIN Import_purchase_order_items it
           ON it.id = r.item_id AND it.import_purchase_order_id = r.intake_id
         INNER JOIN Import_purchase_order i ON i.id = r.intake_id
@@ -1079,7 +1088,7 @@ export class ShipmentAnalyticsRepository {
 
   /**
    * Whole delivered shipments for a plant/classification aggregated line group.
-   * One row per shipment with matching received lines; link opens full shipment detail.
+   * One row per shipment with matching received lines (`received_qty` > 0); link opens full shipment detail.
    */
   async getLineGroupShipments(
     q: ShipmentAnalyticsLineGroupShipmentsQuery
@@ -1127,8 +1136,7 @@ export class ShipmentAnalyticsRepository {
         LEFT JOIN first_po fp ON fp.shipment_id = sis.id
         INNER JOIN shipment_po_mapping m
           ON m.shipment_id = sis.id AND m.decoupled_at IS NULL
-        INNER JOIN shipment_po_line_received r
-          ON r.shipment_id = m.shipment_id AND r.intake_id = m.intake_id AND r.deleted_at IS NULL
+        ${RECEIVED_LINE_JOIN}
         INNER JOIN Import_purchase_order_items it
           ON it.id = r.item_id AND it.import_purchase_order_id = r.intake_id
         INNER JOIN Import_purchase_order i ON i.id = r.intake_id
