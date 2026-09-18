@@ -13,6 +13,7 @@ services:
     environment:
       NODE_ENV: production
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api/backend}
-      BACKEND_INTERNAL_URL: ${BACKEND_INTERNAL_URL}
+      # Do not set BACKEND_INTERNAL_URL here. Compose would interpolate an empty
+      # host var and wipe the value from ./frontEnd/.env.
     ports:
       - "3020:3000"

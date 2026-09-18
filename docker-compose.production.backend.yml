@@ -1,24 +1,13 @@
-services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: eos-postgres-prod
-    restart: unless-stopped
-    env_file:
-      - ./backend/.env
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-Exim}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB:-exim_db}
-    ports:
-      - "${POSTGRES_PORT:-5422}:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-eos} -d ${POSTGRES_DB:-eos_db}"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
+# Production backend → ApsaraDB RDS (no local Postgres).
+# Set DATABASE_URL in ./backend/.env to the VPC internal endpoint and the production database.
+# Deploy this file on the production host only after staging sign-off.
+# See docs/APSARADB-MIGRATION.md
+#
+# Until that cutover (or to roll back to local PG 16), merge the overlay:
+#   docker compose -f docker-compose.production.backend.yml \
+#     -f docker-compose.production.backend.local-postgres.yml up -d
 
+services:
   backend:
     build:
       context: ./backend
@@ -31,20 +20,13 @@ services:
       NODE_ENV: production
       TRUST_PROXY: ${TRUST_PROXY:-1}
       PORT: 3003
-      DATABASE_URL: postgres://${POSTGRES_USER:-eos}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-eos_db}
       JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN:-4h}
       JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-4h}
       CORS_ORIGINS: ${CORS_ORIGINS}
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
       # PO PDF Claude: set in backend/.env (env_file above).
-    depends_on:
-      postgres:
-        condition: service_healthy
     ports:
       - "${BACKEND_PORT:-3003}:3003"
     volumes:
       # Host Synology path mounted into backend container.
       - ${STORAGE_HOST_MOUNT:-/mnt/synology/EXIM/Import}:/mnt/synology/EXIM/Import
-
-volumes:
-  postgres_data:

@@ -1,24 +1,12 @@
-services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: eos-postgres-staging
-    restart: unless-stopped
-    env_file:
-      - ./backend/.env
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-    ports:
-      - "5422:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
+# Staging backend → ApsaraDB RDS (no local Postgres).
+# Set DATABASE_URL in ./backend/.env to the VPC internal endpoint and eos_staging.
+# See docs/APSARADB-MIGRATION.md
+#
+# Until RDS cutover (or to roll back to local PG 16), merge the overlay:
+#   docker compose -f docker-compose.staging.backend.yml \
+#     -f docker-compose.staging.backend.local-postgres.yml up -d
 
+services:
   backend:
     build:
       context: ./backend
@@ -32,19 +20,12 @@ services:
       NODE_ENV: development
       TRUST_PROXY: ${TRUST_PROXY:-1}
       PORT: 3003
-      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       # Required when NODE_ENV is not development — override for your public staging URL
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3020,http://127.0.0.1:3020}
       # PO PDF Claude: set PO_PDF_CLAUDE_ENABLED + ANTHROPIC_API_KEY in backend/.env (env_file above).
-    depends_on:
-      postgres:
-        condition: service_healthy
     ports:
       - "3003:3003"
     # Bind host NAS mount into the container. Set STORAGE_HOST_MOUNT in .env if the host path differs.
     # backend/.env: STORAGE_LOCAL_PATH or dev composition → e.g. /mnt/synology/eos/dev/EOS (see backend/.env.example).
     volumes:
       - ${STORAGE_HOST_MOUNT:-/mnt/synology/eos}:/mnt/synology/dev
-
-volumes:
-  postgres_data:

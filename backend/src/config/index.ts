@@ -86,6 +86,20 @@ export const config = {
   })(),
   database: {
     url: getEnv("DATABASE_URL"),
+    /**
+     * TLS to Postgres. Set DATABASE_SSL=true for ApsaraDB, or put sslmode=require on DATABASE_URL.
+     * DATABASE_SSL=false disables TLS even if the URL has sslmode.
+     */
+    ssl: ((): boolean | undefined => {
+      const raw = getEnvOptional("DATABASE_SSL")?.trim().toLowerCase();
+      if (raw === "true" || raw === "1" || raw === "yes") return true;
+      if (raw === "false" || raw === "0" || raw === "no") return false;
+      return undefined;
+    })(),
+    /** Default false: ApsaraDB often uses a CA not in the container trust store. Set true with sslmode=verify-full. */
+    sslRejectUnauthorized:
+      (getEnvOptional("DATABASE_SSL_REJECT_UNAUTHORIZED", "false") ?? "false").toLowerCase() !==
+      "false",
   },
   jwt: {
     accessSecret: getEnvOptional("JWT_ACCESS_SECRET"),

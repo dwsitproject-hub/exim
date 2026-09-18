@@ -29,13 +29,15 @@ EOS is a centralized **Exim Operation System** that enables EXIM teams and stake
 └─────────────┘     └─────────────┘     └──────┬──────┘
                                                │
                       ┌─────────────┐          │
-                      │  PostgreSQL │◀─────────┘
+                      │ PostgreSQL  │◀─────────┘
+                      │ local 16 /  │
+                      │ ApsaraDB 18 │
                       └─────────────┘
 ```
 
 - **Frontend**: Next.js app; UI, auth, API client; design tokens for styling.
 - **Backend**: Modular Node.js API; REST over `/api/v1`; auth (JWT + refresh); RBAC; document storage abstraction.
-- **Database**: PostgreSQL; migration-based schema; metadata and audit history; file binaries stored outside DB (abstract storage).
+- **Database**: PostgreSQL; local Docker is 16; staging/production use ApsaraDB RDS PostgreSQL 18 (see [docs/APSARADB-MIGRATION.md](docs/APSARADB-MIGRATION.md)). Migration-based schema; metadata and audit history; file binaries stored outside DB (abstract storage).
 
 ## Folder structure
 
@@ -139,11 +141,12 @@ See `backend/.env.example` and `frontend/.env.example` for the full list.
   docker compose up -d --build
   ```
 
-Postgres data is persisted in the `postgres_data` volume; backend uploads in `backend_uploads`. Do not rely on container filesystem for production document storage; use mounted volumes or external storage as per TSD.
+Local Docker Compose persists Postgres in the `postgres_data` volume; backend uploads in `backend_uploads`. Staging and production backends connect to **ApsaraDB RDS** (no local `postgres` service). Do not rely on container filesystem for production document storage; use mounted volumes or external storage as per TSD.
 
 ## Migration instructions
 
-- Migrations live under `backend/src/db/migrations/` and run **automatically** when the backend container starts (Postgres, then backend with migrate-then-start).
+- Migrations live under `backend/src/db/migrations/` and run **automatically** when the backend container starts (migrate-then-start).
+- Staging/production database cutover (Docker PG 16 → ApsaraDB PG 18): **[docs/APSARADB-MIGRATION.md](docs/APSARADB-MIGRATION.md)**.
 - To run migrations manually (e.g. when not using Docker): from `backend/`, run `npm run migrate` (requires `DATABASE_URL` in `.env`).
 - To seed an admin user in Docker: set `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD` in root `.env`, then `docker compose exec backend npm run seed`.
 
@@ -153,7 +156,7 @@ Before exposing EOS to real users or production data, work through **[docs/GO-LI
 
 ## Database backups (production)
 
-Scheduled PostgreSQL dumps (daily **15:00 UTC** = **10 PM UTC+7**), **14-day** retention, **production-only** (`EOS_BACKUP_ENABLED` + `EOS_ENV`). See **`scripts/backup/README.md`** and **`docker-compose.backup.yml`**.
+Scheduled PostgreSQL dumps against ApsaraDB (daily **15:00 UTC** = **10 PM UTC+7**), **14-day** retention, **production-only** (`EOS_BACKUP_ENABLED` + `EOS_ENV`). Client image is PostgreSQL 18. See **`scripts/backup/README.md`** and **`docker-compose.backup.yml`**.
 
 ## Documentation references
 
@@ -161,5 +164,6 @@ Scheduled PostgreSQL dumps (daily **15:00 UTC** = **10 PM UTC+7**), **14-day** r
   - `docs/cursor_rules.md` — Engineering rules and conventions (mandatory for code generation).
   - `docs/SETUP.md` — Dependencies, migrations, seed, and run instructions (including PO intake + Shipment flow).
   - PRD, TSD, ERD, and API Specification (see `docs/` for Markdown exports from the source documents).
+  - `docs/APSARADB-MIGRATION.md` — staging-first move from Docker PostgreSQL 16 to ApsaraDB RDS 18.
 - **backend/README.md** — Backend architecture, modules, env, migrations, and run commands.
 - **frontend/README.md** — Frontend structure, design tokens, env, and run commands.

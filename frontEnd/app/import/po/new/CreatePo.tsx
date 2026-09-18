@@ -9,7 +9,8 @@ import { Card } from "@/components/cards";
 import { PageHeader } from "@/components/navigation";
 import { Button, ComboboxSelect } from "@/components/forms";
 import { useToast } from "@/components/providers/ToastProvider";
-import { formatPriceInputWithCommas, roundTo2Decimals, roundTo3Decimals } from "@/lib/format-number";
+import { formatDecimal, formatPriceInputWithCommas, roundTo2Decimals, roundTo3Decimals } from "@/lib/format-number";
+import { formatPoLineQtyDisplay } from "@/lib/po-line-qty";
 import { INCOTERM_OPTIONS } from "@/lib/incoterms";
 import { PT_OPTION_LABELS, PO_ITEM_UNIT_OPTIONS, getPlantConfigForPt } from "@/lib/po-create-constants";
 import { isApiError } from "@/types/api";
@@ -300,6 +301,14 @@ export function CreatePo() {
 
   const poCurrency = form.currency || "USD";
   const showRemoveColumn = itemCount > 1;
+  const totalQty = (form.items ?? []).reduce((sum, item) => {
+    const qty = parseOptionalDecimal(item.qtyText);
+    return qty != null ? sum + qty : sum;
+  }, 0);
+  const totalAmount = (form.items ?? []).reduce((sum, item) => {
+    const line = getItemLineTotal(item);
+    return line != null ? sum + line : sum;
+  }, 0);
 
   return (
     <section className={styles.section}>
@@ -604,6 +613,18 @@ export function CreatePo() {
               </table>
             )}
           </div>
+          {itemCount > 0 && (
+            <div className={styles.itemsTotals} role="status">
+              <div className={styles.itemsTotalItem}>
+                <span className={styles.itemsTotalLabel}>Total qty</span>
+                <span className={styles.itemsTotalValue}>{formatPoLineQtyDisplay(totalQty)}</span>
+              </div>
+              <div className={styles.itemsTotalItem}>
+                <span className={styles.itemsTotalLabel}>Total amount ({poCurrency})</span>
+                <span className={styles.itemsTotalValue}>{formatDecimal(totalAmount)}</span>
+              </div>
+            </div>
+          )}
           <button type="button" className={styles.addRowBtn} onClick={addItem}>
             + Add item
           </button>

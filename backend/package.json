@@ -12,7 +12,7 @@
     "migrate:create": "echo 'Migration create script to be implemented' && exit 0",
     "seed": "tsx src/db/seed.ts",
     "seed:prod": "node dist/db/seed.js",
-    "test": "node --import tsx --test src/shared/po-pdf-merge.test.ts src/shared/po-pdf-completeness.test.ts src/shared/claude-po-extract.test.ts src/shared/fcl-mixed-classification.test.ts src/shared/pib-pdf-parser.test.ts src/modules/shipments/__tests__/shipment-eta-reminder-messages.test.ts && node --import ./src/modules/auth/__tests__/oidc-env-preload.ts --import tsx --test src/modules/auth/__tests__/oidc.test.ts"
+    "test": "node --import tsx --test src/db/__tests__/pool-ssl.test.ts src/shared/po-pdf-merge.test.ts src/shared/po-pdf-completeness.test.ts src/shared/claude-po-extract.test.ts src/shared/fcl-mixed-classification.test.ts src/shared/pib-pdf-parser.test.ts src/modules/shipments/__tests__/shipment-eta-reminder-messages.test.ts && node --import ./src/modules/auth/__tests__/oidc-env-preload.ts --import tsx --test src/modules/auth/__tests__/oidc.test.ts"
   },
   "engines": {
     "node": ">=20"

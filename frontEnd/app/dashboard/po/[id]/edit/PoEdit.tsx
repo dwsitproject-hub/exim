@@ -325,6 +325,14 @@ export function PoEdit({ id }: { id: string }) {
   const formDisabled = editLocked || submitting || !allowed;
 
   const poCurrency = form?.currency || "USD";
+  const totalQty = (form?.items ?? []).reduce((sum, item) => {
+    const qty = parseOptionalDecimal(item.qtyText);
+    return qty != null ? sum + qty : sum;
+  }, 0);
+  const totalAmount = (form?.items ?? []).reduce((sum, item) => {
+    const line = getItemLineTotal(item);
+    return line != null ? sum + line : sum;
+  }, 0);
 
   if (loading) {
     return (
@@ -693,6 +701,16 @@ export function PoEdit({ id }: { id: string }) {
                 })}
               </tbody>
             </table>
+          </div>
+          <div className={styles.itemsTotals} role="status">
+            <div className={styles.itemsTotalItem}>
+              <span className={styles.itemsTotalLabel}>Total qty</span>
+              <span className={styles.itemsTotalValue}>{formatPoLineQtyDisplay(totalQty)}</span>
+            </div>
+            <div className={styles.itemsTotalItem}>
+              <span className={styles.itemsTotalLabel}>Total amount ({poCurrency})</span>
+              <span className={styles.itemsTotalValue}>{formatDecimal(totalAmount)}</span>
+            </div>
           </div>
           <button type="button" className={styles.addRowBtn} onClick={addItem} disabled={formDisabled}>
             + Add item

@@ -1,5 +1,5 @@
 # Scheduler image: Alpine + postgres client tools + busybox crond
-FROM postgres:16-alpine
+FROM postgres:18-alpine
 
 RUN apk add --no-cache bash gzip
 
