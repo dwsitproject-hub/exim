@@ -16,6 +16,7 @@ import { ShipmentRepository } from "../../shipments/repositories/shipment.reposi
 import { ShipmentPoMappingRepository } from "../../shipments/repositories/shipment-po-mapping.repository.js";
 import { UserRepository } from "../../auth/repositories/user.repository.js";
 import type { ListPoIntakeQuery } from "../dto/index.js";
+import { listPoItemUnitCodesSorted } from "../../../shared/po-item-unit-registry.js";
 import { mergeFilterTokens } from "../../../shared/http-query-multi.js";
 import { readMulterFileAsUtf8 } from "../../../utils/read-multer-upload.js";
 
@@ -105,7 +106,7 @@ export async function lookupByPoNumber(req: Request, res: Response, next: NextFu
 export async function list(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const query = parseListQuery(req);
-    const { items, total } = await service.list(query);
+    const { items, total } = await service.list(query, req.user?.id ?? null);
     const page = query.page ?? 1;
     const limit = query.limit ?? 10;
     sendSuccess(res, items, { meta: { page, limit, total } });
@@ -124,10 +125,19 @@ export async function listFilterOptions(_req: Request, res: Response, next: Next
   }
 }
 
+/** GET /po/unit-options — merged seed + DB unit codes (includes Syncera-registered). */
+export async function listUnitOptions(_req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    sendSuccess(res, { units: listPoItemUnitCodesSorted() });
+  } catch (e) {
+    next(e);
+  }
+}
+
 export async function getById(req: Request, res: Response, next: NextFunction): Promise<void> {
   const id = req.params.id as string;
   try {
-    const data = await service.getById(id);
+    const data = await service.getById(id, req.user?.id ?? null);
     if (!data) {
       sendError(res, "PO intake not found", { statusCode: 404 });
       return;

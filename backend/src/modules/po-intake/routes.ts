@@ -13,6 +13,7 @@ import * as controller from "./controllers/po-intake.controller.js";
 import * as activityController from "./controllers/po-intake-activity.controller.js";
 import * as pdfParseController from "./controllers/po-pdf-parse.controller.js";
 import * as pdfAiAdminController from "./controllers/po-pdf-ai-admin.controller.js";
+import * as synceraIntegrationController from "./controllers/syncera-integration.controller.js";
 
 export const poIntakeRoutes = Router();
 
@@ -28,6 +29,12 @@ poIntakeRoutes.get(
   authMiddleware,
   requirePermission(PERMISSIONS.VIEW_PO_INTAKE),
   controller.listFilterOptions
+);
+poIntakeRoutes.get(
+  "/unit-options",
+  authMiddleware,
+  requirePermission(PERMISSIONS.VIEW_PO_INTAKE),
+  controller.listUnitOptions
 );
 poIntakeRoutes.get(
   "/lookup-by-po-number",
@@ -46,6 +53,18 @@ poIntakeRoutes.get(
   authMiddleware,
   requirePermission(PERMISSIONS.IMPORT_PO_CSV),
   controller.listImportHistory
+);
+poIntakeRoutes.get(
+  "/syncera-integration/runs",
+  authMiddleware,
+  requirePermission(PERMISSIONS.VIEW_PO_INTAKE),
+  synceraIntegrationController.listSynceraPollRuns
+);
+poIntakeRoutes.get(
+  "/syncera-integration/events",
+  authMiddleware,
+  requirePermission(PERMISSIONS.VIEW_PO_INTAKE),
+  synceraIntegrationController.listSynceraIntegrationEvents
 );
 poIntakeRoutes.post(
   "/import/csv",

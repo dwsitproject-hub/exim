@@ -13,9 +13,11 @@ import {
   ScanLine,
   ChevronLeft,
   ChevronRight,
+  Radio,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { can } from "@/lib/permissions";
+import type { AuthUser } from "@/types/auth";
 import styles from "./Sidebar.module.css";
 
 export interface NavItem {
@@ -24,15 +26,27 @@ export interface NavItem {
   icon: LucideIcon;
 }
 
-const BASE_NAV: NavItem[] = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+interface NavGroup {
+  id: string;
+  label: string;
+  items: NavItem[];
+}
+
+const OVERVIEW_NAV: NavItem[] = [{ href: "/dashboard", label: "Dashboard", icon: LayoutDashboard }];
+
+const OPERATIONS_NAV: NavItem[] = [
   { href: "/dashboard/po", label: "Purchase Order", icon: ClipboardList },
   { href: "/dashboard/shipments", label: "Shipments", icon: Truck },
 ];
 
 const MANAGE_USERS = "MANAGE_USERS";
 const IMPORT_PO_CSV = "IMPORT_PO_CSV";
+const VIEW_PO_INTAKE = "VIEW_PO_INTAKE";
 const VIEW_PO_PDF_AI_USAGE = "VIEW_PO_PDF_AI_USAGE";
+
+function isNavItemActive(pathname: string, href: string): boolean {
+  return pathname === href || (href !== "/dashboard" && pathname.startsWith(href + "/"));
+}
 
 function NavLink({
   item,
@@ -61,6 +75,41 @@ function NavLink({
   );
 }
 
+function buildNavGroups(user: AuthUser | null | undefined): NavGroup[] {
+  const groups: NavGroup[] = [
+    { id: "overview", label: "Overview", items: [...OVERVIEW_NAV] },
+    { id: "operations", label: "Operations", items: [...OPERATIONS_NAV] },
+  ];
+
+  const importItems: NavItem[] = [];
+  if (can(user, VIEW_PO_INTAKE)) {
+    importItems.push({
+      href: "/dashboard/syncera-integration",
+      label: "Syncera integration",
+      icon: Radio,
+    });
+  }
+  if (can(user, IMPORT_PO_CSV)) {
+    importItems.push({ href: "/dashboard/monitoring-data", label: "Import Data", icon: Upload });
+  }
+  if (importItems.length > 0) {
+    groups.push({ id: "import", label: "Import & integration", items: importItems });
+  }
+
+  const adminItems: NavItem[] = [];
+  if (can(user, MANAGE_USERS)) {
+    adminItems.push({ href: "/dashboard/users", label: "User management", icon: Users });
+  }
+  if (can(user, VIEW_PO_PDF_AI_USAGE)) {
+    adminItems.push({ href: "/admin/po-pdf-ai", label: "PO PDF AI usage", icon: ScanLine });
+  }
+  if (adminItems.length > 0) {
+    groups.push({ id: "admin", label: "Administration", items: adminItems });
+  }
+
+  return groups;
+}
+
 export interface SidebarProps {
   /** When true (and viewport is mobile), drawer is visible. */
   isMobileOpen?: boolean;
@@ -81,19 +130,7 @@ export function Sidebar({
   const pathname = usePathname();
   const { user } = useAuth();
 
-  const mainNav = useMemo(() => {
-    const items: NavItem[] = [...BASE_NAV];
-    if (can(user, IMPORT_PO_CSV)) {
-      items.push({ href: "/dashboard/monitoring-data", label: "Import Data", icon: Upload });
-    }
-    if (can(user, MANAGE_USERS)) {
-      items.push({ href: "/dashboard/users", label: "User management", icon: Users });
-    }
-    if (can(user, VIEW_PO_PDF_AI_USAGE)) {
-      items.push({ href: "/admin/po-pdf-ai", label: "PO PDF AI usage", icon: ScanLine });
-    }
-    return items;
-  }, [user]);
+  const navGroups = useMemo(() => buildNavGroups(user), [user]);
 
   useEffect(() => {
     if (isMobileOpen && onClose) onClose();
@@ -128,23 +165,33 @@ export function Sidebar({
         </div>
       )}
       <nav className={styles.nav} aria-label="Primary">
-        <ul className={styles.list}>
-          {mainNav.map((item) => {
-            const isActive =
-              pathname === item.href ||
-              (item.href !== "/dashboard" && pathname.startsWith(item.href + "/"));
-            return (
-              <li key={item.href + item.label}>
-                <NavLink
-                  item={item}
-                  isActive={isActive}
-                  collapsed={collapsed}
-                  onNavigate={onClose}
-                />
-              </li>
-            );
-          })}
-        </ul>
+        {navGroups.map((group, groupIndex) => (
+          <section
+            key={group.id}
+            className={styles.navGroup}
+            aria-labelledby={collapsed ? undefined : `nav-group-${group.id}`}
+          >
+            {!collapsed ? (
+              <h2 id={`nav-group-${group.id}`} className={styles.navGroupLabel}>
+                {group.label}
+              </h2>
+            ) : groupIndex > 0 ? (
+              <div className={styles.navGroupDivider} role="presentation" aria-hidden />
+            ) : null}
+            <ul className={styles.list}>
+              {group.items.map((item) => (
+                <li key={item.href}>
+                  <NavLink
+                    item={item}
+                    isActive={isNavItemActive(pathname, item.href)}
+                    collapsed={collapsed}
+                    onNavigate={onClose}
+                  />
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))}
       </nav>
     </aside>
   );

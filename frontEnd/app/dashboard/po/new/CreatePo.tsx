@@ -12,7 +12,8 @@ import { useToast } from "@/components/providers/ToastProvider";
 import { formatDecimal, formatPriceInputWithCommas, roundTo2Decimals, roundTo3Decimals } from "@/lib/format-number";
 import { formatPoLineQtyDisplay } from "@/lib/po-line-qty";
 import { INCOTERM_OPTIONS } from "@/lib/incoterms";
-import { PT_OPTION_LABELS, PO_ITEM_UNIT_OPTIONS, getPlantConfigForPt } from "@/lib/po-create-constants";
+import { PT_OPTION_LABELS, getPlantConfigForPt } from "@/lib/po-create-constants";
+import { usePoItemUnitOptions } from "@/hooks/use-po-item-unit-options";
 import { isApiError } from "@/types/api";
 import type { CreateTestPoPayload } from "@/types/po";
 import { PoPdfUpload, type ApplyPoData } from "./PoPdfUpload";
@@ -34,12 +35,6 @@ type ItemFormLine = {
 };
 
 const CURRENCY_OPTIONS = ["USD", "IDR", "EUR", "GBP", "SGD", "JPY", "CNY", "AUD", "MYR", "THB"];
-
-const NBSP = "\u00a0";
-const UNIT_OPTIONS: string[] = PO_ITEM_UNIT_OPTIONS.filter(
-  (u) => u.trim() !== "" && !u.includes(NBSP)
-);
-const UNIT_OPTION_SET = new Set<string>(UNIT_OPTIONS);
 
 /** Allow partial decimal input while typing (qty only — no thousands separator). */
 const DECIMAL_INPUT_PATTERN = /^\d*\.?\d*$/;
@@ -78,6 +73,7 @@ export function CreatePo() {
   const router = useRouter();
   const { accessToken } = useAuth();
   const { pushToast } = useToast();
+  const { unitOptions, unitOptionSet } = usePoItemUnitOptions(accessToken);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [pdfApplied, setPdfApplied] = useState(false);
@@ -249,7 +245,7 @@ export function CreatePo() {
         qty != null &&
         qty > 0 &&
         u !== "" &&
-        UNIT_OPTION_SET.has(u) &&
+        unitOptionSet.has(u) &&
         price != null &&
         price >= 0
       );
@@ -572,7 +568,7 @@ export function CreatePo() {
                             <ComboboxSelect
                               className={styles.unitCombobox}
                               inputClassName={`${styles.itemsInput} ${styles.itemsInputDatalist} ${styles.itemsInputUnit}`}
-                              options={UNIT_OPTIONS}
+                              options={unitOptions}
                               value={item.unit ?? ""}
                               onChange={(v) => updateItem(index, "unit", v)}
                               allowEmpty

@@ -165,6 +165,8 @@ export interface PoIntakeListItem {
   taken_at: string | null;
   created_at: string;
   updated_at: string;
+  /** True when the current user has opened this PO detail at least once. */
+  viewed_by_me: boolean;
 }
 
 export interface PoIntakeDetail {

@@ -4,11 +4,21 @@
 
 import { config } from "./config/index.js";
 import { connectDb, closeDb } from "./db/index.js";
+import { initPoItemUnitRegistry } from "./shared/po-item-unit-registry.js";
 import { createApp } from "./app/index.js";
 import { createServer } from "./server.js";
 import { logger } from "./utils/logger.js";
 import { PoIntakeRepository } from "./modules/po-intake/repositories/po-intake.repository.js";
-import { createPoApiClient, startPoPolling } from "./integration/saaS/index.js";
+import { PoIntakeService } from "./modules/po-intake/services/po-intake.service.js";
+import { ShipmentPoMappingRepository } from "./modules/shipments/repositories/shipment-po-mapping.repository.js";
+import { UserRepository } from "./modules/auth/repositories/user.repository.js";
+import {
+  createPoApiClient,
+  isMockPoSamplesEnabled,
+  isSynceraConfigured,
+  startPoPolling,
+} from "./integration/saaS/index.js";
+import { SynceraIntegrationAuditRepository } from "./integration/saaS/syncera-integration-audit.repository.js";
 import {
   startShipmentEtaReminderJob,
   stopShipmentEtaReminderJob,
@@ -19,6 +29,7 @@ let stopCoupaStagingIntegrationFn: (() => void) | null = null;
 async function main(): Promise<void> {
   try {
     await connectDb();
+    await initPoItemUnitRegistry();
   } catch (err) {
     logger.error("Database connection failed", { error: String(err) });
     process.exit(1);
@@ -28,9 +39,29 @@ async function main(): Promise<void> {
   await createServer(app);
 
   if (config.poPolling.enabled) {
-    const repo = new PoIntakeRepository();
-    const client = createPoApiClient(config.poPolling.saasApiBaseUrl);
-    startPoPolling(repo, client, config.poPolling.intervalMs);
+    const synceraReady = isSynceraConfigured(config.poPolling);
+    if (!synceraReady && !isMockPoSamplesEnabled()) {
+      logger.error(
+        "PO polling enabled but SAAS_PO_API_BASE_URL, SYNCERA_CLIENT_ID, and SYNCERA_CLIENT_SECRET are required (or set MOCK_PO_SAMPLES=true)"
+      );
+    } else {
+      const repo = new PoIntakeRepository();
+      const mappingRepo = new ShipmentPoMappingRepository();
+      const service = new PoIntakeService(repo, mappingRepo, new UserRepository());
+      const client = createPoApiClient(config.poPolling);
+      const auditRepo = new SynceraIntegrationAuditRepository();
+      startPoPolling(
+        {
+          repo,
+          service,
+          mappingRepo,
+          client,
+          auditRepo,
+          lookbackDays: config.poPolling.lookbackDays,
+        },
+        config.poPolling.intervalMs
+      );
+    }
   }
 
   if (config.etaReminder.enabled) {

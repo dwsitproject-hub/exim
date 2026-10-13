@@ -136,6 +136,50 @@ export class PoIntakeRepository {
     return result.rows[0]?.id ?? null;
   }
 
+  async findByExternalId(externalId: string): Promise<PoIntakeRow | null> {
+    const result = await this.pool.query<PoIntakeRow>(
+      `SELECT id, external_id, po_number, plant, pt, supplier_name, delivery_location, incoterm_location, kawasan_berikat, currency,
+        intake_status, created_by_user_id, taken_by_user_id, taken_at, created_at, updated_at
+       FROM Import_purchase_order WHERE external_id = $1 LIMIT 1`,
+      [externalId]
+    );
+    return result.rows[0] ?? null;
+  }
+
+  async findRowByPoNumberTrimmed(poNumber: string): Promise<PoIntakeRow | null> {
+    const result = await this.pool.query<PoIntakeRow>(
+      `SELECT id, external_id, po_number, plant, pt, supplier_name, delivery_location, incoterm_location, kawasan_berikat, currency,
+        intake_status, created_by_user_id, taken_by_user_id, taken_at, created_at, updated_at
+       FROM Import_purchase_order
+       WHERE LOWER(TRIM(po_number)) = LOWER(TRIM($1)) LIMIT 1`,
+      [poNumber]
+    );
+    return result.rows[0] ?? null;
+  }
+
+  async updateExternalId(intakeId: string, externalId: string): Promise<void> {
+    await this.pool.query(
+      `UPDATE Import_purchase_order SET external_id = $2, updated_at = NOW() WHERE id = $1::uuid`,
+      [intakeId, externalId]
+    );
+  }
+
+  async getSynceraFingerprint(intakeId: string): Promise<string | null> {
+    const result = await this.pool.query<{ syncera_last_fingerprint: string | null }>(
+      `SELECT syncera_last_fingerprint FROM Import_purchase_order WHERE id = $1::uuid`,
+      [intakeId]
+    );
+    const fp = result.rows[0]?.syncera_last_fingerprint;
+    return fp != null && fp.trim() !== "" ? fp.trim() : null;
+  }
+
+  async updateSynceraFingerprint(intakeId: string, fingerprint: string): Promise<void> {
+    await this.pool.query(
+      `UPDATE Import_purchase_order SET syncera_last_fingerprint = $2, updated_at = NOW() WHERE id = $1::uuid`,
+      [intakeId, fingerprint]
+    );
+  }
+
   async create(dto: CreatePoIntakeDto, intakeStatus: string, createdByUserId?: string | null): Promise<PoIntakeRow> {
     const result = await this.pool.query<PoIntakeRow>(
       `INSERT INTO Import_purchase_order

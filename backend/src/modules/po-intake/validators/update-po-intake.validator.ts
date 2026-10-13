@@ -5,7 +5,7 @@
 import type { Request } from "express";
 import type { ErrorField } from "../../../shared/response.js";
 import type { UpdatePoIntakeDto } from "../dto/index.js";
-import { PO_ITEM_UNIT_OPTION_SET } from "../../../shared/po-item-units.js";
+import { isPoItemUnitAllowed } from "../../../shared/po-item-unit-registry.js";
 
 type ParsedItem = {
   id?: string;
@@ -61,7 +61,7 @@ export function validateUpdatePoIntakeBody(
       }
       const unit = (it.unit ?? "").trim();
       if (!unit) errors.push({ field: prefix, message: "unit is required" });
-      else if (!PO_ITEM_UNIT_OPTION_SET.has(unit)) {
+      else if (!isPoItemUnitAllowed(unit)) {
         errors.push({ field: prefix, message: "unit must be a supported unit code" });
       }
       const value = it.value;

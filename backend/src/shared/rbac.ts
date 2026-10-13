@@ -21,6 +21,12 @@ export const IMPORT_ETA_REMINDER_ROLES: readonly string[] = [
   ROLES.EXIM_OFFICER,
 ];
 
+/** Active Import / Exim officers receive Syncera PO detected / amended notifications. */
+export const IMPORT_PO_DETECTED_ROLES: readonly string[] = [
+  ROLES.IMPORT_OFFICER,
+  ROLES.EXIM_OFFICER,
+];
+
 /** Permissions from Access Control Matrix. */
 export const PERMISSIONS = {
   VIEW_TRANSACTIONS: "VIEW_TRANSACTIONS",

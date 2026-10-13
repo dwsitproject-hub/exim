@@ -1,5 +1,6 @@
 /**
- * Allowed PO line unit codes — keep in sync with frontEnd/lib/po-create-constants.ts PO_ITEM_UNIT_OPTIONS.
+ * Default PO line unit codes (seed). Runtime allow-list = this list ∪ po_item_unit_codes (see po-item-unit-registry.ts).
+ * Keep in sync with frontEnd/lib/po-create-constants.ts PO_ITEM_UNIT_OPTIONS (seed fallback in UI).
  */
 
 export const PO_ITEM_UNIT_OPTIONS = [

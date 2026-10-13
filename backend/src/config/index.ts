@@ -136,7 +136,24 @@ export const config = {
       const n = parseInt(raw, 10);
       return Number.isNaN(n) ? 5 * 60 * 1000 : Math.max(60000, n);
     })(),
-    saasApiBaseUrl: getEnvOptional("SAAS_PO_API_BASE_URL"),
+    saasApiBaseUrl: (getEnvOptional("SAAS_PO_API_BASE_URL", "") ?? "").replace(/\/+$/, ""),
+    clientId: getEnvOptional("SYNCERA_CLIENT_ID", "") ?? "",
+    clientSecret: getEnvOptional("SYNCERA_CLIENT_SECRET", "") ?? "",
+    lookbackDays: (() => {
+      const raw = getEnvOptional("SYNCERA_POLL_LOOKBACK_DAYS", "14") ?? "14";
+      const n = parseInt(raw, 10);
+      if (Number.isNaN(n)) return 14;
+      return Math.min(90, Math.max(1, n));
+    })(),
+    company: (() => {
+      const raw = (getEnvOptional("SYNCERA_COMPANY", "") ?? "").trim();
+      return raw || undefined;
+    })(),
+    requestTimeoutMs: (() => {
+      const raw = getEnvOptional("SYNCERA_REQUEST_TIMEOUT_MS", "30000") ?? "30000";
+      const n = parseInt(raw, 10);
+      return Number.isNaN(n) ? 30000 : Math.max(5000, n);
+    })(),
   },
   /** Coupa: `purchase_orders` → `import_purchase_order` (OAuth2 client credentials or static token). */
   coupa: {

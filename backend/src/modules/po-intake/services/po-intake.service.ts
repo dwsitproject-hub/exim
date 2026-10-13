@@ -3,6 +3,7 @@
  */
 
 import { PoIntakeRepository } from "../repositories/po-intake.repository.js";
+import { PoIntakeViewRepository } from "../repositories/po-intake-view.repository.js";
 import { PoIntakeUpdateLogRepository } from "../repositories/po-intake-update-log.repository.js";
 import { buildPoIntakeUpdateDiff } from "../utils/po-intake-update-diff.js";
 import { ShipmentPoLineReceivedRepository } from "../../shipments/repositories/shipment-po-line-received.repository.js";
@@ -69,7 +70,10 @@ type GroupHeader = {
   currency?: string;
 };
 
-function toListItem(row: PoIntakeRow & { taken_by_name?: string | null }): PoIntakeListItem {
+function toListItem(
+  row: PoIntakeRow & { taken_by_name?: string | null },
+  viewedByMe: boolean
+): PoIntakeListItem {
   return {
     id: row.id,
     external_id: row.external_id,
@@ -87,6 +91,7 @@ function toListItem(row: PoIntakeRow & { taken_by_name?: string | null }): PoInt
     taken_at: row.taken_at ? row.taken_at.toISOString() : null,
     created_at: row.created_at.toISOString(),
     updated_at: row.updated_at.toISOString(),
+    viewed_by_me: viewedByMe,
   };
 }
 
@@ -210,6 +215,7 @@ async function buildDetail(
 export class PoIntakeService {
   private readonly lineReceivedRepo = new ShipmentPoLineReceivedRepository();
   private readonly updateLogRepo = new PoIntakeUpdateLogRepository();
+  private readonly viewRepo = new PoIntakeViewRepository();
 
   constructor(
     private readonly repo: PoIntakeRepository,
@@ -600,7 +606,10 @@ export class PoIntakeService {
     return this.repo.listDistinctFilterOptions();
   }
 
-  async list(query: ListPoIntakeQuery): Promise<{ items: PoIntakeListItem[]; total: number }> {
+  async list(
+    query: ListPoIntakeQuery,
+    viewerUserId?: string | null
+  ): Promise<{ items: PoIntakeListItem[]; total: number }> {
     const { rows, total } = await this.repo.findAll(query);
     await Promise.all(
       rows.map(async (r) => {
@@ -608,12 +617,25 @@ export class PoIntakeService {
         r.intake_status = status;
       })
     );
-    return { items: rows.map(toListItem), total };
+    let viewedIds = new Set<string>();
+    if (viewerUserId && rows.length > 0) {
+      viewedIds = await this.viewRepo.findViewedIntakeIds(
+        viewerUserId,
+        rows.map((r) => r.id)
+      );
+    }
+    return {
+      items: rows.map((r) => toListItem(r, viewedIds.has(r.id))),
+      total,
+    };
   }
 
-  async getById(id: string): Promise<PoIntakeDetail | null> {
+  async getById(id: string, viewerUserId?: string | null): Promise<PoIntakeDetail | null> {
     const row = await this.repo.findById(id);
     if (!row) return null;
+    if (viewerUserId) {
+      await this.viewRepo.recordView(viewerUserId, id);
+    }
     const { overshipped } = await syncPoIntakeStatus(id);
     const updated = await this.repo.findById(id);
     if (!updated) return null;

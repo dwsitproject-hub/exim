@@ -20,6 +20,8 @@ export interface PoListItem {
   taken_at: string | null;
   created_at: string;
   updated_at: string;
+  /** User has opened this PO detail at least once. */
+  viewed_by_me?: boolean;
 }
 
 export interface ListPoQuery {
@@ -215,6 +217,46 @@ export interface PoImportHistoryItem {
   status: string;
   created_at: string;
   finished_at: string | null;
+}
+
+export type SynceraIntegrationOutcome =
+  | "ingested"
+  | "updated"
+  | "unchanged"
+  | "skipped_invalid"
+  | "skipped_conflict"
+  | "skipped_locked_amendment"
+  | "failed";
+
+export interface SynceraPollRunItem {
+  id: string;
+  started_at: string;
+  finished_at: string | null;
+  status: "RUNNING" | "SUCCESS" | "FAILED";
+  date_from: string;
+  date_to: string;
+  api_line_count: number;
+  mapped_po_count: number;
+  ingested: number;
+  updated: number;
+  unchanged: number;
+  skipped_invalid: number;
+  skipped_conflict: number;
+  skipped_locked_amendment: number;
+  failed: number;
+  error_message: string | null;
+}
+
+export interface SynceraIntegrationEventItem {
+  id: string;
+  run_id: string;
+  created_at: string;
+  outcome: SynceraIntegrationOutcome;
+  po_number: string | null;
+  pt_code: string | null;
+  external_id: string | null;
+  intake_id: string | null;
+  message: string | null;
 }
 
 // ---------------------------------------------------------------------------
