@@ -18,6 +18,7 @@ const OUTCOME_FILTER = new Set<string>([
   "skipped_invalid",
   "skipped_conflict",
   "skipped_locked_amendment",
+  "skipped_unknown_pt",
   "failed",
 ]);
 

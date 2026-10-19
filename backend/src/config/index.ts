@@ -225,7 +225,7 @@ export const config = {
     /** Absolute URL to logo image; if unset, defaults to FRONTEND_BASE_URL/faveicon/android-chrome-192x192.png */
     logoUrl: getEnvOptional("EMAIL_LOGO_URL"),
   },
-  /** IDR per 1 USD for dashboard procurement report (PO lines in IDR → US$). Optional; default 16500. */
+  /** Fallback IDR per 1 USD when DHM has no USD→IDR rate for the report as-of date. Default 16500. */
   dashboard: {
     idrPerUsd: (() => {
       const raw = getEnvOptional("DASHBOARD_IDR_PER_USD", "16500") ?? "16500";
@@ -256,6 +256,39 @@ export const config = {
       const raw = getEnvOptional("ETA_REMINDER_RUN_MINUTE_JAKARTA", "0") ?? "0";
       const n = parseInt(raw, 10);
       return Number.isNaN(n) ? 0 : Math.min(59, Math.max(0, n));
+    })(),
+  },
+  /**
+   * DHM (Data Hub Management) master-data hub. EOS consumes two masters: `company` (vendor/supplier)
+   * and `exchange_rate` (read-only). Auth is the application key pair (X-DHM-Public-Key / Private-Key).
+   */
+  dhm: {
+    enabled: (getEnvOptional("DHM_ENABLED", "false") ?? "false").toLowerCase() === "true",
+    baseUrl: (getEnvOptional("DHM_BASE_URL", "") ?? "").replace(/\/+$/, ""),
+    publicKey: getEnvOptional("DHM_PUBLIC_KEY", "") ?? "",
+    privateKey: getEnvOptional("DHM_PRIVATE_KEY", "") ?? "",
+    webhookSecret: getEnvOptional("DHM_WEBHOOK_SECRET", "") ?? "",
+    requestTimeoutMs: (() => {
+      const raw = getEnvOptional("DHM_REQUEST_TIMEOUT_MS", "10000") ?? "10000";
+      const n = parseInt(raw, 10);
+      return Number.isNaN(n) ? 10000 : Math.max(2000, n);
+    })(),
+    /** Reconciliation poll interval; webhooks are the fast path, this is the safety net (prefer both). */
+    syncIntervalMs: (() => {
+      const raw = getEnvOptional("DHM_SYNC_INTERVAL_MS", "900000") ?? "900000";
+      const n = parseInt(raw, 10);
+      return Number.isNaN(n) ? 15 * 60 * 1000 : Math.max(60000, n);
+    })(),
+    syncPageLimit: (() => {
+      const raw = getEnvOptional("DHM_SYNC_PAGE_LIMIT", "200") ?? "200";
+      const n = parseInt(raw, 10);
+      return Number.isNaN(n) ? 200 : Math.min(500, Math.max(1, n));
+    })(),
+    /** Reject webhook deliveries older than this many seconds (replay protection). */
+    webhookToleranceSeconds: (() => {
+      const raw = getEnvOptional("DHM_WEBHOOK_TOLERANCE_SECONDS", "300") ?? "300";
+      const n = parseInt(raw, 10);
+      return Number.isNaN(n) ? 300 : Math.max(10, n);
     })(),
   },
   smtp: {

@@ -74,6 +74,7 @@ export interface ProcurementPlantReportPayload {
   prev_month_label: string;
   ytd_label: string;
   idr_per_usd_used: number;
+  exchange_rate_date: string | null;
   sections: ProcurementReportSection[];
 }
 /**

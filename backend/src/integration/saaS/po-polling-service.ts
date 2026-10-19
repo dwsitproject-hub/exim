@@ -27,6 +27,7 @@ export interface PoPollingCycleMetrics {
   skippedInvalid: number;
   skippedConflict: number;
   skippedLockedAmendment: number;
+  skippedUnknownPt: number;
   failed: number;
 }
 
@@ -61,6 +62,7 @@ export async function runPoPollingCycle(deps: PoPollingDeps): Promise<PoPollingC
     skippedInvalid: 0,
     skippedConflict: 0,
     skippedLockedAmendment: 0,
+    skippedUnknownPt: 0,
     failed: 0,
   };
 
@@ -80,10 +82,12 @@ export async function runPoPollingCycle(deps: PoPollingDeps): Promise<PoPollingC
         mappedPoCount: batch.mapped.length,
       });
       for (const skip of batch.skippedAtMap) {
-        metrics.skippedInvalid += 1;
+        const unknownPt = skip.reason === "UNKNOWN_PT";
+        if (unknownPt) metrics.skippedUnknownPt += 1;
+        else metrics.skippedInvalid += 1;
         await audit.logEvent({
           runId,
-          outcome: "skipped_invalid",
+          outcome: unknownPt ? "skipped_unknown_pt" : "skipped_invalid",
           poNumber: skip.po_number,
           ptCode: skip.pt_code,
           externalId: skip.external_id,
@@ -91,7 +95,10 @@ export async function runPoPollingCycle(deps: PoPollingDeps): Promise<PoPollingC
         });
       }
     } else {
-      metrics.skippedInvalid += batch.skippedAtMap.length;
+      for (const skip of batch.skippedAtMap) {
+        if (skip.reason === "UNKNOWN_PT") metrics.skippedUnknownPt += 1;
+        else metrics.skippedInvalid += 1;
+      }
     }
 
     for (const po of batch.mapped) {
@@ -150,12 +157,19 @@ export async function runPoPollingCycle(deps: PoPollingDeps): Promise<PoPollingC
           skippedInvalid: metrics.skippedInvalid,
           skippedConflict: metrics.skippedConflict,
           skippedLockedAmendment: metrics.skippedLockedAmendment,
+          skippedUnknownPt: metrics.skippedUnknownPt,
           failed: metrics.failed,
         },
       });
     }
 
-    if (metrics.ingested > 0 || metrics.updated > 0 || metrics.failed > 0 || metrics.skippedInvalid > 0) {
+    if (
+      metrics.ingested > 0 ||
+      metrics.updated > 0 ||
+      metrics.failed > 0 ||
+      metrics.skippedInvalid > 0 ||
+      metrics.skippedUnknownPt > 0
+    ) {
       logger.info("PO polling cycle completed", { ...metrics, runId });
     }
   } catch (err) {
@@ -181,6 +195,7 @@ export async function runPoPollingCycle(deps: PoPollingDeps): Promise<PoPollingC
           skippedInvalid: metrics.skippedInvalid,
           skippedConflict: metrics.skippedConflict,
           skippedLockedAmendment: metrics.skippedLockedAmendment,
+          skippedUnknownPt: metrics.skippedUnknownPt,
           failed: metrics.failed,
         },
         errorMessage: msg,

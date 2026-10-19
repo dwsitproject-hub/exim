@@ -1,7 +1,7 @@
-import { canonicalizePtLabel, type PtOptionLabel } from "@/lib/po-create-constants";
+import { canonicalizePtLabel } from "@/lib/pt-plant-tree";
 
-/** Dashboard display labels for canonical PT names (stored values unchanged). */
-const PT_DASHBOARD_SHORT_LABELS: Record<PtOptionLabel, string> = {
+/** Dashboard display labels for known PT names (stored values unchanged). */
+const PT_DASHBOARD_SHORT_LABELS: Record<string, string> = {
   "ENERGI UNGGUL PERSADA": "EUP",
   "ENERGI OLEO PERSADA": "EOP",
   "PRIMUS SANUS COOKING OIL INDUSTRIAL (PT. PRISCOLIN)": "Priscolin",
@@ -18,9 +18,9 @@ const PT_PLANT_SEPARATOR = " – ";
 
 /** Short dashboard label for a PT value; falls back to trimmed input when unknown. */
 export function displayPtShortName(pt: string | null | undefined): string {
-  const canonical = canonicalizePtLabel(pt);
+  const canonical = canonicalizePtLabel(pt, Object.keys(PT_DASHBOARD_SHORT_LABELS));
   if (canonical === "") return "—";
-  return PT_DASHBOARD_SHORT_LABELS[canonical as PtOptionLabel] ?? canonical;
+  return PT_DASHBOARD_SHORT_LABELS[canonical] ?? canonical;
 }
 
 /** Shorten PT portion of `PT – Plant` strings used in analytics tables. */

@@ -226,6 +226,7 @@ export type SynceraIntegrationOutcome =
   | "skipped_invalid"
   | "skipped_conflict"
   | "skipped_locked_amendment"
+  | "skipped_unknown_pt"
   | "failed";
 
 export interface SynceraPollRunItem {
@@ -243,6 +244,7 @@ export interface SynceraPollRunItem {
   skipped_invalid: number;
   skipped_conflict: number;
   skipped_locked_amendment: number;
+  skipped_unknown_pt: number;
   failed: number;
   error_message: string | null;
 }

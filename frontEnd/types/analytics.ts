@@ -174,6 +174,9 @@ export interface FinancialSummaryResult {
   nilai_pabean_idr: number;
   /** import_value_idr + bm_idr + ppn_idr + pph_idr + freight_idr */
   total_idr: number;
+  /** USD→IDR from DHM master (on or before report end date). */
+  idr_per_usd_used: number;
+  exchange_rate_date: string | null;
 }
 
 /** Processed structure used in the UI after grouping flat rows by load_type. */

@@ -27,6 +27,7 @@ const OUTCOME_OPTIONS: { value: "" | SynceraIntegrationOutcome; label: string }[
   { value: "skipped_invalid", label: "Skipped — invalid data" },
   { value: "skipped_conflict", label: "Skipped — conflict" },
   { value: "skipped_locked_amendment", label: "Skipped — shipment lock" },
+  { value: "skipped_unknown_pt", label: "Skipped — unknown PT" },
   { value: "failed", label: "Failed" },
 ];
 
@@ -174,7 +175,10 @@ export function SynceraIntegrationPage() {
             <TableBody>
               {runs.map((run) => {
                 const skippedTotal =
-                  run.skipped_invalid + run.skipped_conflict + run.skipped_locked_amendment;
+                  run.skipped_invalid +
+                  run.skipped_conflict +
+                  run.skipped_locked_amendment +
+                  (run.skipped_unknown_pt ?? 0);
                 const isSelected = run.id === selectedRunId;
                 return (
                   <TableRow

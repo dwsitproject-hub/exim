@@ -14,6 +14,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Radio,
+  Database,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { can } from "@/lib/permissions";
@@ -42,6 +43,7 @@ const OPERATIONS_NAV: NavItem[] = [
 const MANAGE_USERS = "MANAGE_USERS";
 const IMPORT_PO_CSV = "IMPORT_PO_CSV";
 const VIEW_PO_INTAKE = "VIEW_PO_INTAKE";
+const VIEW_SHIPMENTS = "VIEW_SHIPMENTS";
 const VIEW_PO_PDF_AI_USAGE = "VIEW_PO_PDF_AI_USAGE";
 
 function isNavItemActive(pathname: string, href: string): boolean {
@@ -97,6 +99,9 @@ function buildNavGroups(user: AuthUser | null | undefined): NavGroup[] {
   }
 
   const adminItems: NavItem[] = [];
+  if (can(user, VIEW_PO_INTAKE) || can(user, VIEW_SHIPMENTS)) {
+    adminItems.push({ href: "/dashboard/masters", label: "Master data", icon: Database });
+  }
   if (can(user, MANAGE_USERS)) {
     adminItems.push({ href: "/dashboard/users", label: "User management", icon: Users });
   }

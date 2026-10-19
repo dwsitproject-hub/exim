@@ -13,6 +13,7 @@ export type SynceraIntegrationOutcome =
   | "skipped_invalid"
   | "skipped_conflict"
   | "skipped_locked_amendment"
+  | "skipped_unknown_pt"
   | "failed";
 
 export interface SynceraPollRunRow {
@@ -30,6 +31,7 @@ export interface SynceraPollRunRow {
   skipped_invalid: number;
   skipped_conflict: number;
   skipped_locked_amendment: number;
+  skipped_unknown_pt: number;
   failed: number;
   error_message: string | null;
 }
@@ -63,6 +65,7 @@ export interface FinishPollRunInput {
     skippedInvalid: number;
     skippedConflict: number;
     skippedLockedAmendment: number;
+    skippedUnknownPt: number;
     failed: number;
   };
   errorMessage?: string | null;
@@ -103,8 +106,9 @@ export class SynceraIntegrationAuditRepository {
          skipped_invalid = $6,
          skipped_conflict = $7,
          skipped_locked_amendment = $8,
-         failed = $9,
-         error_message = $10
+         skipped_unknown_pt = $9,
+         failed = $10,
+         error_message = $11
        WHERE id = $1::uuid`,
       [
         input.runId,
@@ -115,6 +119,7 @@ export class SynceraIntegrationAuditRepository {
         input.metrics.skippedInvalid,
         input.metrics.skippedConflict,
         input.metrics.skippedLockedAmendment,
+        input.metrics.skippedUnknownPt,
         input.metrics.failed,
         input.errorMessage ?? null,
       ]
@@ -145,7 +150,7 @@ export class SynceraIntegrationAuditRepository {
     const result = await pool.query<SynceraPollRunRow>(
       `SELECT id, started_at, finished_at, status, date_from, date_to, api_line_count, mapped_po_count,
               ingested, updated, unchanged, skipped_invalid, skipped_conflict, skipped_locked_amendment,
-              failed, error_message
+              skipped_unknown_pt, failed, error_message
        FROM syncera_po_poll_runs
        ORDER BY started_at DESC
        LIMIT $1`,

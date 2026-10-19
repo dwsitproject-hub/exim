@@ -1,21 +1,18 @@
 /**
  * Map Syncera flat PO-import lines to EOS intake DTOs.
  * One Syncera object is one line; group by pt_code + po_number.
+ * PT / Plant are resolved against a preloaded company_master / site_master snapshot
+ * (Plant snapshot is the site name; Syncera plant_code maps through plant → site).
  */
 
 import { createHash } from "node:crypto";
 import { ensureSynceraUnitRegistered } from "../../shared/po-item-unit-registry.js";
-import { PT_OPTION_LABELS, PT_PLANT_MAP, type PtOptionLabel } from "../../shared/pt-plant-options.js";
 import type { CreatePoIntakeDto, PoIntakeItemDto, PoIntakeItemRow, PoIntakeRow } from "../../modules/po-intake/dto/index.js";
+import type { CompanyMasterMatchRow, PlantMasterMatchRow } from "../dhm/dhm-sync.repository.js";
 import type { MapSynceraLinesResult, SaasPoResponse, SynceraMapSkip, SynceraPoLine } from "./types.js";
 
-const PLANT_CODE_MAP: Record<string, string> = {
-  EU72: "BONTANG",
-  EU73: "TANJUNG PURA",
-  JP22: "SIDOARJO",
-};
-
-const PT_ALIAS: Record<string, PtOptionLabel> = {
+/** Transitional Syncera text quirks → folded key that should match company_master.name. */
+const PT_ALIAS: Record<string, string> = {
   ENERGIUNGGULPERSADA: "ENERGI UNGGUL PERSADA",
   PTENERGIUNGGULPERSADA: "ENERGI UNGGUL PERSADA",
   ENERGIOLEOPERSADA: "ENERGI OLEO PERSADA",
@@ -33,6 +30,13 @@ const PT_ALIAS: Record<string, PtOptionLabel> = {
   SUMATERAUNGGULMAKMUR: "SUMATERA UNGGUL MAKMUR",
 };
 
+export interface SynceraMasterSnapshot {
+  companiesByFoldedName: Map<string, CompanyMasterMatchRow>;
+  plantsByCode: Map<string, PlantMasterMatchRow[]>;
+  plantsByFoldedName: Map<string, PlantMasterMatchRow[]>;
+  allPlants: PlantMasterMatchRow[];
+}
+
 export function foldKey(value: string): string {
   return value
     .normalize("NFKC")
@@ -44,52 +48,105 @@ export function foldKey(value: string): string {
     .replace(/\s+/g, "");
 }
 
-export function normalizePtName(ptName: string | undefined): string | undefined {
+export function buildSynceraMasterSnapshot(
+  companies: CompanyMasterMatchRow[],
+  plants: PlantMasterMatchRow[]
+): SynceraMasterSnapshot {
+  const companiesByFoldedName = new Map<string, CompanyMasterMatchRow>();
+  for (const company of companies) {
+    const key = foldKey(company.name);
+    if (key) companiesByFoldedName.set(key, company);
+  }
+
+  const plantsByCode = new Map<string, PlantMasterMatchRow[]>();
+  const plantsByFoldedName = new Map<string, PlantMasterMatchRow[]>();
+  for (const plant of plants) {
+    const code = (plant.plantCode ?? "").trim().toUpperCase();
+    if (code) {
+      const arr = plantsByCode.get(code) ?? [];
+      arr.push(plant);
+      plantsByCode.set(code, arr);
+    }
+    const nameKey = foldKey(plant.name);
+    if (nameKey) {
+      const arr = plantsByFoldedName.get(nameKey) ?? [];
+      arr.push(plant);
+      plantsByFoldedName.set(nameKey, arr);
+    }
+  }
+
+  return { companiesByFoldedName, plantsByCode, plantsByFoldedName, allPlants: plants };
+}
+
+function preferCompanyPlant(
+  plants: PlantMasterMatchRow[] | undefined,
+  companyId: string | undefined
+): PlantMasterMatchRow | undefined {
+  if (!plants?.length) return undefined;
+  if (companyId) {
+    const owned = plants.find((p) => p.companyMasterId === companyId);
+    if (owned) return owned;
+  }
+  return plants[0];
+}
+
+function findCompany(snapshot: SynceraMasterSnapshot | undefined, name: string | undefined): CompanyMasterMatchRow | undefined {
+  if (!snapshot || !name) return undefined;
+  return snapshot.companiesByFoldedName.get(foldKey(name));
+}
+
+export function normalizePtName(ptName: string | undefined, snapshot?: SynceraMasterSnapshot): string | undefined {
   const raw = (ptName ?? "").trim();
   if (!raw) return undefined;
   const folded = foldKey(raw);
   const aliased = PT_ALIAS[folded];
-  if (aliased) return aliased;
-  for (const label of PT_OPTION_LABELS) {
-    if (foldKey(label) === folded) return label;
+  const candidate = aliased ?? raw;
+  if (!snapshot) {
+    return aliased ?? undefined;
   }
-  const stripped = raw.replace(/^PT\.?\s+/i, "").trim();
-  return stripped || undefined;
+  const live =
+    snapshot.companiesByFoldedName.get(foldKey(candidate)) ?? snapshot.companiesByFoldedName.get(folded);
+  return live?.name;
 }
 
-function plantFromName(plantName: string): string | undefined {
-  const u = plantName.toUpperCase();
-  const plants = [
-    "TANJUNG PURA",
-    "BONTANG",
-    "SIDOARJO",
-    "GRESIK",
-    "KARAWANG",
-    "BEKASI",
-    "MORAWA",
-    "BATAM",
-    "DUMAI",
-    "KUMAI",
-    "LUBUK GAUNG",
-    "PALEMBANG",
-  ];
-  if (/\bTJ\.?\s*PURA\b/.test(u) || u.includes("TJ.PURA") || u.includes("TJPURA")) {
-    return "TANJUNG PURA";
+function plantFromLiveNames(
+  plantName: string,
+  snapshot: SynceraMasterSnapshot,
+  companyId?: string
+): PlantMasterMatchRow | undefined {
+  const raw = plantName.trim();
+  if (!raw) return undefined;
+  const exact = preferCompanyPlant(snapshot.plantsByFoldedName.get(foldKey(raw)), companyId);
+  if (exact) return exact;
+
+  const upper = raw.toUpperCase();
+  const scoped = companyId
+    ? snapshot.allPlants.filter((p) => p.companyMasterId === companyId)
+    : snapshot.allPlants;
+  for (const plant of scoped) {
+    if (upper.includes(plant.name.toUpperCase())) return plant;
   }
-  for (const plant of plants) {
-    if (u.includes(plant)) return plant;
+  if (/\bTJ\.?\s*PURA\b/.test(upper) || upper.includes("TJ.PURA") || upper.includes("TJPURA")) {
+    return preferCompanyPlant(snapshot.plantsByFoldedName.get(foldKey("TANJUNG PURA")), companyId);
   }
   return undefined;
 }
 
-export function normalizePlant(plantCode: string | undefined, plantName: string | undefined, pt?: string): string | undefined {
+export function normalizePlant(
+  plantCode: string | undefined,
+  plantName: string | undefined,
+  pt?: string,
+  snapshot?: SynceraMasterSnapshot
+): string | undefined {
   const code = (plantCode ?? "").trim().toUpperCase();
-  if (code && PLANT_CODE_MAP[code]) return PLANT_CODE_MAP[code];
-  const fromName = plantFromName(plantName ?? "");
-  if (fromName) return fromName;
-  if (pt && (PT_OPTION_LABELS as readonly string[]).includes(pt)) {
-    const cfg = PT_PLANT_MAP[pt as PtOptionLabel];
-    if (cfg.mode === "fixed") return cfg.plant;
+  if (snapshot) {
+    const company = findCompany(snapshot, pt);
+    if (code) {
+      const byCode = preferCompanyPlant(snapshot.plantsByCode.get(code), company?.id);
+      if (byCode) return byCode.name;
+    }
+    const fromName = plantFromLiveNames(plantName ?? "", snapshot, company?.id);
+    if (fromName) return fromName.name;
   }
   const trimmed = (plantName ?? "").trim();
   return trimmed || undefined;
@@ -221,7 +278,10 @@ export function mappedToCreateDto(po: SaasPoResponse): CreatePoIntakeDto {
   };
 }
 
-export async function mapSynceraLines(lines: SynceraPoLine[]): Promise<MapSynceraLinesResult> {
+export async function mapSynceraLines(
+  lines: SynceraPoLine[],
+  snapshot: SynceraMasterSnapshot = buildSynceraMasterSnapshot([], [])
+): Promise<MapSynceraLinesResult> {
   const groups = new Map<string, SynceraPoLine[]>();
   for (const line of lines) {
     const poNumber = (line.po_number ?? "").trim();
@@ -287,8 +347,27 @@ export async function mapSynceraLines(lines: SynceraPoLine[]): Promise<MapSyncer
       });
       continue;
     }
-    const pt = normalizePtName(first.pt_name);
-    const plant = normalizePlant(first.plant_code, first.plant_name, pt);
+    const pt = normalizePtName(first.pt_name, snapshot);
+    if (!pt) {
+      const message = `PT "${(first.pt_name ?? "").trim() || ptCode}" is not in company master.`;
+      console.warn(
+        JSON.stringify({
+          message: "Skipping Syncera PO: unknown PT",
+          po_number: poNumber,
+          pt_code: ptCode,
+          pt_name: first.pt_name,
+        })
+      );
+      skipped.push({
+        po_number: poNumber,
+        pt_code: ptCode,
+        external_id: externalId,
+        reason: "UNKNOWN_PT",
+        message,
+      });
+      continue;
+    }
+    const plant = normalizePlant(first.plant_code, first.plant_name, pt, snapshot);
     const mapped: SaasPoResponse = {
       external_id: synceraExternalId(first.pt_code ?? "", first.po_number ?? ""),
       po_number: (first.po_number ?? "").trim(),

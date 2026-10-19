@@ -5,7 +5,8 @@
 import type { IPoApiClient, PoImportFetchResult, SaasPoResponse, SynceraPoLine } from "./types.js";
 import { SynceraAuthClient } from "./syncera-auth.js";
 import { synceraDateWindow } from "./syncera-dates.js";
-import { mapSynceraLines } from "./syncera-mapper.js";
+import { buildSynceraMasterSnapshot, mapSynceraLines } from "./syncera-mapper.js";
+import { DhmSyncRepository } from "../dhm/dhm-sync.repository.js";
 import { logger } from "../../utils/logger.js";
 
 export interface SynceraPoApiClientOptions {
@@ -53,7 +54,13 @@ export class SynceraPoApiClient implements IPoApiClient {
       throw new Error("Syncera po-import returned non-JSON");
     }
     const data = extractDataArray(body);
-    const { mapped, skipped } = await mapSynceraLines(data);
+    const repo = new DhmSyncRepository();
+    const [companies, plants] = await Promise.all([
+      repo.listActiveCompaniesForMatch(),
+      repo.listActivePlantsForMatch(),
+    ]);
+    const snapshot = buildSynceraMasterSnapshot(companies, plants);
+    const { mapped, skipped } = await mapSynceraLines(data, snapshot);
     return {
       mapped,
       dateFrom,

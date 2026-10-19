@@ -1,4 +1,4 @@
-import { config } from "../../../config/index.js";
+import { resolveIdrPerUsd } from "../../../shared/resolve-idr-per-usd.js";
 import type {
   ClassificationBucketKey,
   DeliveredClassificationAggQuery,
@@ -80,6 +80,7 @@ export interface ProcurementPlantReportPayload {
   prev_month_label: string;
   ytd_label: string;
   idr_per_usd_used: number;
+  exchange_rate_date: string | null;
   sections: ProcurementReportSection[];
 }
 
@@ -225,8 +226,8 @@ export class DashboardService {
    * Spare parts rolled up per PT + plant.
    */
   async getProcurementPlantReport(year: number, month: number): Promise<ProcurementPlantReportPayload> {
-    const idrPerUsd = config.dashboard.idrPerUsd;
     const { start, end } = procurementLineQueryRange(year, month);
+    const { idr_per_usd: idrPerUsd, exchange_rate_date } = await resolveIdrPerUsd(end);
     const lines = await this.repo.getProcurementReportLines(start, end);
     const { y: prevY, m: prevM } = prevCalendarMonth(year, month);
 
@@ -332,6 +333,7 @@ export class DashboardService {
       prev_month_label: MONTH_SHORT[pmi] ?? String(prevM),
       ytd_label: `YTD ${MONTH_SHORT[mi] ?? ""} ${year}`.trim(),
       idr_per_usd_used: idrPerUsd,
+      exchange_rate_date,
       sections,
     };
   }
@@ -381,7 +383,13 @@ export class DashboardService {
     return this.analyticsRepo.getMixedFclComboShipments(query, comboKey);
   }
 
-  async getFinancialSummary(query: ShipmentAnalyticsQuery, idrPerUsd: number): Promise<FinancialSummaryResult> {
-    return this.analyticsRepo.getFinancialSummary(query, idrPerUsd);
+  async getFinancialSummary(query: ShipmentAnalyticsQuery): Promise<FinancialSummaryResult> {
+    const resolved = await resolveIdrPerUsd(query.date_to);
+    const aggregates = await this.analyticsRepo.getFinancialSummary(query, resolved.idr_per_usd);
+    return {
+      ...aggregates,
+      idr_per_usd_used: resolved.idr_per_usd,
+      exchange_rate_date: resolved.exchange_rate_date,
+    };
   }
 }

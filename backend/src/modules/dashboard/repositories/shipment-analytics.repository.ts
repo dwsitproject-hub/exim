@@ -203,7 +203,15 @@ export interface FinancialSummaryResult {
   nilai_pabean_idr: number;
   /** nilai_pabean_idr + ppn_idr + pph_idr + freight_idr */
   total_idr: number;
+  /** USD→IDR rate used for freight conversion and dashboard USD display (from DHM master when available). */
+  idr_per_usd_used: number;
+  exchange_rate_date: string | null;
 }
+
+export type FinancialSummaryAggregates = Omit<
+  FinancialSummaryResult,
+  "idr_per_usd_used" | "exchange_rate_date"
+>;
 
 /** Per-shipment container breakdown for a single mixed FCL combination. */
 export interface MixedFclComboShipmentRow {
@@ -1013,7 +1021,7 @@ export class ShipmentAnalyticsRepository {
    * - nilai_pabean_idr: import_value_idr + bm_idr (used for total only)
    * - total_idr: import_value_idr + bm_idr + ppn_idr + pph_idr + freight_idr
    */
-  async getFinancialSummary(q: ShipmentAnalyticsQuery, idrPerUsd: number): Promise<FinancialSummaryResult> {
+  async getFinancialSummary(q: ShipmentAnalyticsQuery, idrPerUsd: number): Promise<FinancialSummaryAggregates> {
     const { whereParts, params } = buildBaseWhereParams(q);
     const whereSql = whereParts.join(" AND ");
     params.push(idrPerUsd);

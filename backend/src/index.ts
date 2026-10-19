@@ -23,6 +23,12 @@ import {
   startShipmentEtaReminderJob,
   stopShipmentEtaReminderJob,
 } from "./integration/jobs/shipment-eta-reminder-job.js";
+import { startDhmSyncJob, stopDhmSyncJob } from "./integration/jobs/dhm-sync-job.js";
+import { createDhmClient, isDhmConfigured } from "./integration/dhm/dhm-client-factory.js";
+import { DhmSyncService } from "./integration/dhm/dhm-sync.service.js";
+import { DhmWebhookService } from "./integration/dhm/dhm-webhook.service.js";
+import { DhmInboundService } from "./integration/dhm/dhm-inbound.service.js";
+import { setDhmServices } from "./integration/dhm/dhm-registry.js";
 
 let stopCoupaStagingIntegrationFn: (() => void) | null = null;
 
@@ -66,6 +72,19 @@ async function main(): Promise<void> {
 
   if (config.etaReminder.enabled) {
     startShipmentEtaReminderJob(config.etaReminder.runHourJakarta, config.etaReminder.runMinuteJakarta);
+  }
+
+  if (config.dhm.enabled) {
+    if (!isDhmConfigured(config.dhm)) {
+      logger.error("DHM_ENABLED=true but DHM_BASE_URL / DHM_PUBLIC_KEY / DHM_PRIVATE_KEY are not all set");
+    } else {
+      const client = createDhmClient(config.dhm);
+      const syncService = new DhmSyncService(client, undefined, config.dhm.syncPageLimit);
+      const webhookService = new DhmWebhookService(syncService);
+      const inboundService = new DhmInboundService(client);
+      setDhmServices({ client, syncService, webhookService, inboundService });
+      startDhmSyncJob(syncService, config.dhm.syncIntervalMs);
+    }
   }
 
   if (config.coupa.enabled) {
@@ -123,6 +142,7 @@ process.on("SIGTERM", async () => {
   const { stopPoPolling } = await import("./integration/saaS/index.js");
   stopPoPolling();
   stopShipmentEtaReminderJob();
+  stopDhmSyncJob();
   stopCoupaStagingIntegrationFn?.();
   await closeDb();
   process.exit(0);

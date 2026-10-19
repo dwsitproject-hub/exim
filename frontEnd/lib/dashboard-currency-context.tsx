@@ -4,33 +4,13 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
   useState,
   type ReactNode,
 } from "react";
 
-const STORAGE_KEY = "eos.dashboard.idrPerUsd.v1";
-
-/** Default IDR per 1 USD when none stored (user should set a current market rate). */
-export const DEFAULT_IDR_PER_USD = 16_000;
-
-export function readStoredIdrPerUsd(): number {
-  if (typeof window === "undefined") return DEFAULT_IDR_PER_USD;
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw == null || raw === "") return DEFAULT_IDR_PER_USD;
-    const n = Number.parseFloat(raw);
-    return Number.isFinite(n) && n > 0 ? n : DEFAULT_IDR_PER_USD;
-  } catch {
-    return DEFAULT_IDR_PER_USD;
-  }
-}
-
-export function writeStoredIdrPerUsd(n: number): void {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(STORAGE_KEY, String(n));
-}
+/** Used only until DHM rate is loaded from the API (matches backend env fallback default). */
+export const DEFAULT_IDR_PER_USD = 16_500;
 
 /**
  * Convert a monetary amount to dashboard USD using PO/shipment currency.
@@ -41,7 +21,6 @@ export function amountToDashboardUsd(
   currency: string | null | undefined,
   idrPerUsd: number
 ): number {
-  if (!Number.isFinite(amount)) return 0;
   const c = (currency ?? "").trim().toUpperCase();
   if (c === "IDR" || c === "RP") {
     return idrPerUsd > 0 ? amount / idrPerUsd : 0;
@@ -49,7 +28,6 @@ export function amountToDashboardUsd(
   return amount;
 }
 
-/** Shipment `total_items_amount` and analytics line totals are stored in IDR. */
 export function idrToDashboardUsd(amountIdr: number, idrPerUsd: number): number {
   if (!Number.isFinite(amountIdr)) return 0;
   return idrPerUsd > 0 ? amountIdr / idrPerUsd : 0;
@@ -73,46 +51,39 @@ export function formatDashboardUsd(amount: number, decimals?: boolean): string {
   return usdFormatter.format(amount);
 }
 
+export type DashboardExchangeRateMeta = {
+  idrPerUsd: number;
+  exchangeRateDate: string | null;
+};
+
 type DashboardCurrencyContextValue = {
   idrPerUsd: number;
-  setIdrPerUsd: (n: number) => void;
-  /** Returns true when the rate was applied. */
-  applyIdrPerUsd: (raw: string) => boolean;
+  exchangeRateDate: string | null;
+  /** Sync USD display rate from financial-summary / DHM master lookup. */
+  applyMasterExchangeRate: (meta: DashboardExchangeRateMeta) => void;
   formatUsd: (amount: number, decimals?: boolean) => string;
 };
 
 const DashboardCurrencyContext = createContext<DashboardCurrencyContextValue | null>(null);
 
 export function DashboardCurrencyProvider({ children }: { children: ReactNode }) {
-  const [idrPerUsd, setIdrPerUsdState] = useState(DEFAULT_IDR_PER_USD);
+  const [idrPerUsd, setIdrPerUsd] = useState(DEFAULT_IDR_PER_USD);
+  const [exchangeRateDate, setExchangeRateDate] = useState<string | null>(null);
 
-  useEffect(() => {
-    setIdrPerUsdState(readStoredIdrPerUsd());
+  const applyMasterExchangeRate = useCallback((meta: DashboardExchangeRateMeta) => {
+    const v = Number.isFinite(meta.idrPerUsd) && meta.idrPerUsd > 0 ? meta.idrPerUsd : DEFAULT_IDR_PER_USD;
+    setIdrPerUsd(v);
+    setExchangeRateDate(meta.exchangeRateDate ?? null);
   }, []);
-
-  const setIdrPerUsd = useCallback((n: number) => {
-    const v = Number.isFinite(n) && n > 0 ? n : DEFAULT_IDR_PER_USD;
-    setIdrPerUsdState(v);
-    writeStoredIdrPerUsd(v);
-  }, []);
-
-  const applyIdrPerUsd = useCallback((raw: string) => {
-    const n = Number.parseFloat(raw.replace(/,/g, ""));
-    if (Number.isFinite(n) && n > 0) {
-      setIdrPerUsd(n);
-      return true;
-    }
-    return false;
-  }, [setIdrPerUsd]);
 
   const value = useMemo(
     (): DashboardCurrencyContextValue => ({
       idrPerUsd,
-      setIdrPerUsd,
-      applyIdrPerUsd,
+      exchangeRateDate,
+      applyMasterExchangeRate,
       formatUsd: formatDashboardUsd,
     }),
-    [idrPerUsd, setIdrPerUsd, applyIdrPerUsd]
+    [idrPerUsd, exchangeRateDate, applyMasterExchangeRate]
   );
 
   return (
@@ -134,8 +105,8 @@ export function useDashboardCurrencyOptional(): DashboardCurrencyContextValue {
   return (
     ctx ?? {
       idrPerUsd: DEFAULT_IDR_PER_USD,
-      setIdrPerUsd: () => {},
-      applyIdrPerUsd: () => false,
+      exchangeRateDate: null,
+      applyMasterExchangeRate: () => {},
       formatUsd: formatDashboardUsd,
     }
   );

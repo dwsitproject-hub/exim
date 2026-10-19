@@ -12,8 +12,9 @@ import { useToast } from "@/components/providers/ToastProvider";
 import { formatDecimal, formatPriceInputWithCommas, roundTo2Decimals, roundTo3Decimals } from "@/lib/format-number";
 import { formatPoLineQtyDisplay } from "@/lib/po-line-qty";
 import { INCOTERM_OPTIONS } from "@/lib/incoterms";
-import { PT_OPTION_LABELS, getPlantConfigForPt } from "@/lib/po-create-constants";
+import { getPlantConfigForPt } from "@/lib/pt-plant-tree";
 import { usePoItemUnitOptions } from "@/hooks/use-po-item-unit-options";
+import { usePtPlantTree } from "@/hooks/use-pt-plant-tree";
 import { isApiError } from "@/types/api";
 import type { CreateTestPoPayload } from "@/types/po";
 import { PoPdfUpload, type ApplyPoData } from "./PoPdfUpload";
@@ -74,6 +75,7 @@ export function CreatePo() {
   const { accessToken } = useAuth();
   const { pushToast } = useToast();
   const { unitOptions, unitOptionSet } = usePoItemUnitOptions(accessToken);
+  const { tree: ptPlantTree, ptLabels } = usePtPlantTree(accessToken);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [pdfApplied, setPdfApplied] = useState(false);
@@ -114,10 +116,11 @@ export function CreatePo() {
       }
 
       // PT / Plant: only apply if non-null (parser currently always returns null for PT)
-      if (data.pt && PT_OPTION_LABELS.includes(data.pt as typeof PT_OPTION_LABELS[number])) {
-        next.pt = data.pt;
-        const config = getPlantConfigForPt(data.pt);
-        if (config?.mode === "fixed") next.plant = config.plant;
+      const matchedPt = ptLabels.find((label) => label.toLowerCase() === data.pt?.trim().toLowerCase());
+      if (matchedPt) {
+        next.pt = matchedPt;
+        const config = getPlantConfigForPt(ptPlantTree, matchedPt);
+        if (config.mode === "fixed") next.plant = config.plant;
         else if (data.plant) next.plant = data.plant;
       }
 
@@ -148,15 +151,15 @@ export function CreatePo() {
   }
 
   function handlePtChange(pt: string) {
-    const config = getPlantConfigForPt(pt);
+    const config = getPlantConfigForPt(ptPlantTree, pt);
     setForm((prev) => {
       let plant = "";
-      if (config?.mode === "fixed") plant = config.plant;
+      if (config.mode === "fixed") plant = config.plant;
       return { ...prev, pt, plant };
     });
   }
 
-  const plantConfig = form.pt ? getPlantConfigForPt(form.pt) : null;
+  const plantConfig = form.pt ? getPlantConfigForPt(ptPlantTree, form.pt) : null;
 
   function updateItem<K extends keyof ItemFormLine>(index: number, field: K, value: ItemFormLine[K]) {
     setForm((prev) => {
@@ -339,7 +342,7 @@ export function CreatePo() {
                 aria-label="PT"
               >
                 <option value="">— Select PT —</option>
-                {PT_OPTION_LABELS.map((label) => (
+                {ptLabels.map((label) => (
                   <option key={label} value={label}>
                     {label}
                   </option>

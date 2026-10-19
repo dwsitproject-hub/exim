@@ -15,6 +15,8 @@ import { shipmentRoutes } from "../modules/shipments/routes.js";
 import { userAdminRoutes } from "../modules/users/routes.js";
 import { dashboardRoutes } from "../modules/dashboard/routes.js";
 import { notificationRoutes } from "../modules/notifications/routes.js";
+import { mastersRoutes } from "../modules/masters/routes.js";
+import { dhmWebhookRoutes } from "../integration/dhm/dhm-webhook.routes.js";
 
 function buildCorsOptions(): CorsOptions {
   const origins = config.cors.origins;
@@ -44,6 +46,11 @@ export function createApp(): express.Application {
 
   app.use(helmet());
   app.use(cookieParser());
+
+  // DHM webhook: needs the exact raw bytes to verify X-DHM-Signature-256, so its raw-body parser
+  // must be registered (and consume the stream) before the global express.json() below.
+  app.use("/api/v1/integration/dhm/webhook", express.raw({ type: "*/*", limit: "2mb" }), dhmWebhookRoutes);
+
   app.use(express.json({ limit: "10mb" }));
   app.use(express.urlencoded({ extended: true }));
 
@@ -60,6 +67,7 @@ export function createApp(): express.Application {
   app.use("/api/v1/po", poIntakeRoutes);
   app.use("/api/v1/shipments", shipmentRoutes);
   app.use("/api/v1/dashboard", dashboardRoutes);
+  app.use("/api/v1/masters", mastersRoutes);
 
   app.use((_req, _res, next) => next(new AppError("Not found", 404)));
   app.use(errorHandler);

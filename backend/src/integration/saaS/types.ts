@@ -47,7 +47,7 @@ export interface SynceraMapSkip {
   po_number: string;
   pt_code: string;
   external_id: string;
-  reason: "NO_VALID_LINE_ITEMS" | "SUPPLIER_NAME_MISSING";
+  reason: "NO_VALID_LINE_ITEMS" | "SUPPLIER_NAME_MISSING" | "UNKNOWN_PT";
   message: string;
 }
 

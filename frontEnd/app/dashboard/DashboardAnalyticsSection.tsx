@@ -6,7 +6,8 @@ import type { LucideIcon } from "lucide-react";
 import { BarChart2, ChevronDown, ChevronRight, Container, Filter, Loader2, Package, Plane, Ship, X } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { can } from "@/lib/permissions";
-import { PT_OPTION_LABELS, getAllPlantsSorted } from "@/lib/po-create-constants";
+import { getAllPlantsSorted } from "@/lib/pt-plant-tree";
+import { usePtPlantTree } from "@/hooks/use-pt-plant-tree";
 import { displayPtPlantLabel, displayPtShortName } from "@/lib/pt-display";
 import {
   comparePostArrivalLoadTypes,
@@ -100,7 +101,8 @@ const BULK_CARGO_LABEL = "Methanol";
 export function DashboardAnalyticsSection() {
   const { user, accessToken } = useAuth();
   const allowed = can(user, VIEW_SHIPMENTS);
-  const { idrPerUsd, formatUsd } = useDashboardCurrency();
+  const { tree: ptPlantTree, ptLabels } = usePtPlantTree(accessToken);
+  const { idrPerUsd, formatUsd, applyMasterExchangeRate } = useDashboardCurrency();
 
   const initial = useMemo(() => defaultRange(), []);
   const emptyFilters = useMemo(
@@ -143,7 +145,7 @@ export function DashboardAnalyticsSection() {
     setLogisticsModalOpen(true);
   }, []);
 
-  const plantsSorted = useMemo(() => getAllPlantsSorted(), []);
+  const plantsSorted = useMemo(() => getAllPlantsSorted(ptPlantTree), [ptPlantTree]);
 
   const loadSummary = useCallback(async () => {
     if (!accessToken || !allowed) return;
@@ -155,7 +157,7 @@ export function DashboardAnalyticsSection() {
       getClassificationQty(q, accessToken),
       getPostArrivalLead(q, accessToken),
       getLogisticsRows(q, accessToken),
-      getFinancialSummary(q, idrPerUsd, accessToken),
+      getFinancialSummary(q, accessToken),
     ]);
     if (isApiError(res)) {
       setError(res.message ?? "Failed to load analytics");
@@ -196,12 +198,19 @@ export function DashboardAnalyticsSection() {
       setLogisticsRows([]);
     }
     if (!isApiError(finRes) && finRes.success) {
-      setFinancialSummary((finRes as ApiSuccess<FinancialSummaryResult>).data ?? null);
+      const fin = (finRes as ApiSuccess<FinancialSummaryResult>).data ?? null;
+      setFinancialSummary(fin);
+      if (fin != null && fin.idr_per_usd_used > 0) {
+        applyMasterExchangeRate({
+          idrPerUsd: fin.idr_per_usd_used,
+          exchangeRateDate: fin.exchange_rate_date,
+        });
+      }
     } else {
       setFinancialSummary(null);
     }
     setLoading(false);
-  }, [accessToken, allowed, applied, idrPerUsd]);
+  }, [accessToken, allowed, applied, applyMasterExchangeRate]);
 
   useEffect(() => {
     loadSummary();
@@ -1240,8 +1249,8 @@ export function DashboardAnalyticsSection() {
                     <button
                       type="button"
                       className={styles.filterSectionAction}
-                      disabled={draft.pts.length === PT_OPTION_LABELS.length}
-                      onClick={() => setDraft((d) => ({ ...d, pts: [...PT_OPTION_LABELS] }))}
+                      disabled={ptLabels.length === 0 || draft.pts.length === ptLabels.length}
+                      onClick={() => setDraft((d) => ({ ...d, pts: [...ptLabels] }))}
                     >
                       Select all
                     </button>
@@ -1257,7 +1266,7 @@ export function DashboardAnalyticsSection() {
                   </span>
                 </div>
                 <div className={styles.analyticsCheckboxScroll}>
-                  {PT_OPTION_LABELS.map((pt) => (
+                  {ptLabels.map((pt) => (
                     <label key={pt} className={styles.analyticsCheckRow}>
                       <input
                         type="checkbox"
