@@ -1,3 +1,4 @@
+import { config } from "../../../config/index.js";
 import { resolveIdrPerUsd } from "../../../shared/resolve-idr-per-usd.js";
 import type {
   ClassificationBucketKey,
@@ -343,13 +344,13 @@ export class DashboardService {
   }
 
   async getShipmentAnalyticsLines(query: ShipmentAnalyticsLinesQuery): Promise<ShipmentAnalyticsLinesResult> {
-    return this.analyticsRepo.getLineAggregation(query);
+    return this.analyticsRepo.getLineAggregation(query, config.dashboard.idrPerUsd);
   }
 
   async getShipmentAnalyticsLineGroupShipments(
     query: ShipmentAnalyticsLineGroupShipmentsQuery
   ): Promise<ShipmentAnalyticsGroupShipmentRow[]> {
-    return this.analyticsRepo.getLineGroupShipments(query);
+    return this.analyticsRepo.getLineGroupShipments(query, config.dashboard.idrPerUsd);
   }
 
   async getClassificationQty(query: ShipmentAnalyticsQuery): Promise<ClassificationQtyRow[]> {
@@ -384,12 +385,14 @@ export class DashboardService {
   }
 
   async getFinancialSummary(query: ShipmentAnalyticsQuery): Promise<FinancialSummaryResult> {
-    const resolved = await resolveIdrPerUsd(query.date_to);
-    const aggregates = await this.analyticsRepo.getFinancialSummary(query, resolved.idr_per_usd);
+    const fallback = config.dashboard.idrPerUsd;
+    const aggregates = await this.analyticsRepo.getFinancialSummary(query, fallback);
+    const effective =
+      aggregates.total_usd > 0 ? aggregates.total_idr / aggregates.total_usd : fallback;
     return {
       ...aggregates,
-      idr_per_usd_used: resolved.idr_per_usd,
-      exchange_rate_date: resolved.exchange_rate_date,
+      idr_per_usd_used: effective,
+      exchange_rate_date: null,
     };
   }
 }

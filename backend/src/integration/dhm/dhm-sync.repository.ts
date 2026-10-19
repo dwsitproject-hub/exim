@@ -18,6 +18,7 @@ export interface DhmSyncStateRow {
 export interface CompanyMasterMatchRow {
   id: string;
   name: string;
+  country: string | null;
 }
 
 export interface PlantMasterMatchRow {
@@ -192,7 +193,7 @@ export class DhmSyncRepository {
 
   async listActiveCompaniesForMatch(): Promise<CompanyMasterMatchRow[]> {
     const { rows } = await this.pool.query<CompanyMasterMatchRow>(
-      `SELECT id, name FROM company_master
+      `SELECT id, name, country FROM company_master
        WHERE is_deleted = FALSE AND is_active = TRUE
        ORDER BY name ASC`
     );

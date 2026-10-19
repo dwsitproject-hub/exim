@@ -158,7 +158,7 @@ export function AnalyticsDrillLineTable({
                   <TableCell>{row.unit?.trim() ? row.unit.trim() : "—"}</TableCell>
                   <TableCell>{formatQtyDelivered(row.total_qty_delivered)}</TableCell>
                   <TableCell className={tdNumClassName}>
-                    {formatUsd(idrToDashboardUsd(row.total_price_idr, idrPerUsd))}
+                    {formatUsd(row.total_price_usd ?? idrToDashboardUsd(row.total_price_idr, idrPerUsd))}
                   </TableCell>
                 </TableRow>
                 {isOpen ? (

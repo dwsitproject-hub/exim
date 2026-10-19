@@ -19,6 +19,7 @@ const OUTCOME_FILTER = new Set<string>([
   "skipped_conflict",
   "skipped_locked_amendment",
   "skipped_unknown_pt",
+  "skipped_non_id_country",
   "failed",
 ]);
 

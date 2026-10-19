@@ -80,10 +80,10 @@ cannot regress a newer sync.
 ### Syncera PT filter
 
 The PO poller loads an in-memory snapshot of active `company_master` / `site_master` once per
-cycle. A Syncera PO whose `pt_name` does not fold-match an active company is **not ingested**.
-It is logged as `skipped_unknown_pt` on `syncera_po_integration_events` (and counted on
-`syncera_po_poll_runs`). Known Syncera text quirks still go through a small `PT_ALIAS`
-dictionary, then the live master.
+cycle. A Syncera PO whose `pt_name` does not fold-match an active company is **not ingested**
+(`skipped_unknown_pt`). If the company exists but `company_master.country` is not Indonesia
+(`ID`, `IDN`, or `INDONESIA`), the PO is skipped as `skipped_non_id_country`. Known Syncera
+text quirks still go through a small `PT_ALIAS` dictionary, then the live master.
 
 Plant is resolved by Syncera `plant_code` (via `plant_master` → parent site) first, then
 folded/contains match against `site_master.name`. The stored PO `pt` / `plant` values remain
@@ -122,9 +122,11 @@ webhooks (CLIENT_INTEGRATION.md §13: "prefer both"). It resumes from the saved 
 - The shipment detail's "Currency rate" field (customs clearance step) gets a **"Use DHM rate"**
   button that looks up `GET /masters/exchange-rates/latest?from=<currency>&to=IDR&date=<nopen_date>`
   and fills the field; the officer can still override it manually.
-- Dashboard **Financial visibility** and procurement-style USD totals resolve **USD→IDR** from
-  `dhm_exchange_rates` (latest rate on or before the report end date). If no row exists, the backend
-  uses `DASHBOARD_IDR_PER_USD` as a fallback. Users no longer enter a manual dashboard rate.
+- Dashboard **Financial visibility** (and analytics drill import lines) resolve **USD→IDR** live from
+  `dhm_exchange_rates` **per delivered shipment**: latest rate on or before that shipment’s
+  `closed_at` date (UTC calendar day). Amounts convert to USD per shipment, then sum
+  (convert-then-sum). Missing rates fall back to `DASHBOARD_IDR_PER_USD`. Procurement plant report
+  still uses a single rate as of the report month end.
 
 ## Configuration
 

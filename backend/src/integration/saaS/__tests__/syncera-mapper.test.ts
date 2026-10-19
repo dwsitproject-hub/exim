@@ -15,9 +15,9 @@ import type { SynceraPoLine } from "../types.js";
 
 const snapshot = buildSynceraMasterSnapshot(
   [
-    { id: "c-eup", name: "ENERGI UNGGUL PERSADA" },
-    { id: "c-jpn", name: "JATI PERKASA NUSANTARA" },
-    { id: "c-gulf", name: "GULF LUBES MALAYSIA SDN.B" },
+    { id: "c-eup", name: "ENERGI UNGGUL PERSADA", country: "ID" },
+    { id: "c-jpn", name: "JATI PERKASA NUSANTARA", country: "ID" },
+    { id: "c-gulf", name: "GULF LUBES MALAYSIA SDN.B", country: "MY" },
   ],
   [
     { id: "p-tp", name: "TANJUNG PURA", plantCode: "EU73", companyMasterId: "c-eup" },
@@ -105,17 +105,9 @@ describe("syncera-mapper", () => {
 
   it("auto-registers unknown Syncera units (M3, TUB)", async () => {
     resetPoItemUnitRegistryForTests();
-    const gmLine: SynceraPoLine = {
-      pt_code: "GM",
-      pt_name: "GULF LUBES MALAYSIA SDN.B",
-      plant_code: "GM21",
-      plant_name: "GLM REFINERY PORT KLANG",
+    const idLine: SynceraPoLine = {
+      ...ytd2026,
       po_number: "1632000379",
-      supplier_name: "AIR PRODUCTS MALAYSIA SDN BHD",
-      delivery_location: "",
-      incoterm: "",
-      currency: "MYR",
-      kawasan_berikat: "N",
       item_description: "REFILL,GAS HYDROGEN-UHP 99.999%",
       qty_item: 43,
       unit: "M3",
@@ -123,8 +115,8 @@ describe("syncera-mapper", () => {
     };
     const { mapped } = await mapSynceraLines(
       [
-        gmLine,
-        { ...gmLine, item_description: "GAS,REFILL ARGON", qty_item: 15, unit: "TUB", price_per_unit: 198 },
+        idLine,
+        { ...idLine, item_description: "GAS,REFILL ARGON", qty_item: 15, unit: "TUB", price_per_unit: 198 },
       ],
       snapshot
     );
@@ -167,5 +159,24 @@ describe("syncera-mapper", () => {
     assert.equal(skipped.length, 1);
     assert.equal(skipped[0]!.reason, "UNKNOWN_PT");
     assert.equal(skipped[0]!.pt_code, "XX");
+  });
+
+  it("skips a PO when company master country is not Indonesia", async () => {
+    resetPoItemUnitRegistryForTests();
+    const { mapped, skipped } = await mapSynceraLines(
+      [
+        {
+          ...ytd2026,
+          pt_code: "GM",
+          pt_name: "GULF LUBES MALAYSIA SDN.B",
+          plant_code: "GM21",
+          plant_name: "PORT KLANG",
+        },
+      ],
+      snapshot
+    );
+    assert.equal(mapped.length, 0);
+    assert.equal(skipped.length, 1);
+    assert.equal(skipped[0]!.reason, "NON_ID_COUNTRY");
   });
 });

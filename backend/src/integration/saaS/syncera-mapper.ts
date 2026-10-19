@@ -95,18 +95,39 @@ function findCompany(snapshot: SynceraMasterSnapshot | undefined, name: string |
   return snapshot.companiesByFoldedName.get(foldKey(name));
 }
 
+/** True when DHM company country is Indonesia (ID / IDN / INDONESIA). */
+export function isIndonesiaCountry(country: string | null | undefined): boolean {
+  const c = (country ?? "").trim().toUpperCase();
+  if (!c) return false;
+  return c === "ID" || c === "IDN" || c === "INDONESIA";
+}
+
+/** Match Syncera PT text to an active company_master row (alias + fold). */
+export function resolveCompanyForPtName(
+  ptName: string | undefined,
+  snapshot?: SynceraMasterSnapshot
+): CompanyMasterMatchRow | undefined {
+  const raw = (ptName ?? "").trim();
+  if (!raw || !snapshot) return undefined;
+  const folded = foldKey(raw);
+  const aliased = PT_ALIAS[folded];
+  const candidate = aliased ?? raw;
+  return (
+    snapshot.companiesByFoldedName.get(foldKey(candidate)) ??
+    snapshot.companiesByFoldedName.get(folded) ??
+    undefined
+  );
+}
+
 export function normalizePtName(ptName: string | undefined, snapshot?: SynceraMasterSnapshot): string | undefined {
   const raw = (ptName ?? "").trim();
   if (!raw) return undefined;
   const folded = foldKey(raw);
   const aliased = PT_ALIAS[folded];
-  const candidate = aliased ?? raw;
   if (!snapshot) {
     return aliased ?? undefined;
   }
-  const live =
-    snapshot.companiesByFoldedName.get(foldKey(candidate)) ?? snapshot.companiesByFoldedName.get(folded);
-  return live?.name;
+  return resolveCompanyForPtName(ptName, snapshot)?.name;
 }
 
 function plantFromLiveNames(
@@ -347,8 +368,8 @@ export async function mapSynceraLines(
       });
       continue;
     }
-    const pt = normalizePtName(first.pt_name, snapshot);
-    if (!pt) {
+    const company = resolveCompanyForPtName(first.pt_name, snapshot);
+    if (!company) {
       const message = `PT "${(first.pt_name ?? "").trim() || ptCode}" is not in company master.`;
       console.warn(
         JSON.stringify({
@@ -367,6 +388,28 @@ export async function mapSynceraLines(
       });
       continue;
     }
+    if (!isIndonesiaCountry(company.country)) {
+      const countryLabel = (company.country ?? "").trim() || "—";
+      const message = `PT "${company.name}" is not an Indonesia company (country=${countryLabel}). Only ID companies are ingested.`;
+      console.warn(
+        JSON.stringify({
+          message: "Skipping Syncera PO: non-ID company country",
+          po_number: poNumber,
+          pt_code: ptCode,
+          pt_name: first.pt_name,
+          country: countryLabel,
+        })
+      );
+      skipped.push({
+        po_number: poNumber,
+        pt_code: ptCode,
+        external_id: externalId,
+        reason: "NON_ID_COUNTRY",
+        message,
+      });
+      continue;
+    }
+    const pt = company.name;
     const plant = normalizePlant(first.plant_code, first.plant_name, pt, snapshot);
     const mapped: SaasPoResponse = {
       external_id: synceraExternalId(first.pt_code ?? "", first.po_number ?? ""),

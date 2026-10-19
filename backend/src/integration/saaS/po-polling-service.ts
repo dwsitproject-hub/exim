@@ -5,7 +5,7 @@
 import type { PoIntakeRepository } from "../../modules/po-intake/repositories/po-intake.repository.js";
 import type { PoIntakeService } from "../../modules/po-intake/services/po-intake.service.js";
 import type { ShipmentPoMappingRepository } from "../../modules/shipments/repositories/shipment-po-mapping.repository.js";
-import type { IPoApiClient } from "./types.js";
+import type { IPoApiClient, SynceraMapSkip } from "./types.js";
 import { logger } from "../../utils/logger.js";
 import { upsertMappedPo, type UpsertKind } from "./syncera-po-upsert.js";
 import {
@@ -28,6 +28,7 @@ export interface PoPollingCycleMetrics {
   skippedConflict: number;
   skippedLockedAmendment: number;
   skippedUnknownPt: number;
+  skippedNonIdCountry: number;
   failed: number;
 }
 
@@ -53,6 +54,12 @@ function ptCodeFromExternalId(externalId: string): string | undefined {
   return undefined;
 }
 
+function mapSkipReasonToOutcome(reason: SynceraMapSkip["reason"]): SynceraIntegrationOutcome {
+  if (reason === "UNKNOWN_PT") return "skipped_unknown_pt";
+  if (reason === "NON_ID_COUNTRY") return "skipped_non_id_country";
+  return "skipped_invalid";
+}
+
 export async function runPoPollingCycle(deps: PoPollingDeps): Promise<PoPollingCycleMetrics> {
   const metrics: PoPollingCycleMetrics = {
     ingested: 0,
@@ -63,6 +70,7 @@ export async function runPoPollingCycle(deps: PoPollingDeps): Promise<PoPollingC
     skippedConflict: 0,
     skippedLockedAmendment: 0,
     skippedUnknownPt: 0,
+    skippedNonIdCountry: 0,
     failed: 0,
   };
 
@@ -82,12 +90,13 @@ export async function runPoPollingCycle(deps: PoPollingDeps): Promise<PoPollingC
         mappedPoCount: batch.mapped.length,
       });
       for (const skip of batch.skippedAtMap) {
-        const unknownPt = skip.reason === "UNKNOWN_PT";
-        if (unknownPt) metrics.skippedUnknownPt += 1;
+        const outcome = mapSkipReasonToOutcome(skip.reason);
+        if (outcome === "skipped_unknown_pt") metrics.skippedUnknownPt += 1;
+        else if (outcome === "skipped_non_id_country") metrics.skippedNonIdCountry += 1;
         else metrics.skippedInvalid += 1;
         await audit.logEvent({
           runId,
-          outcome: unknownPt ? "skipped_unknown_pt" : "skipped_invalid",
+          outcome,
           poNumber: skip.po_number,
           ptCode: skip.pt_code,
           externalId: skip.external_id,
@@ -96,7 +105,9 @@ export async function runPoPollingCycle(deps: PoPollingDeps): Promise<PoPollingC
       }
     } else {
       for (const skip of batch.skippedAtMap) {
-        if (skip.reason === "UNKNOWN_PT") metrics.skippedUnknownPt += 1;
+        const outcome = mapSkipReasonToOutcome(skip.reason);
+        if (outcome === "skipped_unknown_pt") metrics.skippedUnknownPt += 1;
+        else if (outcome === "skipped_non_id_country") metrics.skippedNonIdCountry += 1;
         else metrics.skippedInvalid += 1;
       }
     }
@@ -158,6 +169,7 @@ export async function runPoPollingCycle(deps: PoPollingDeps): Promise<PoPollingC
           skippedConflict: metrics.skippedConflict,
           skippedLockedAmendment: metrics.skippedLockedAmendment,
           skippedUnknownPt: metrics.skippedUnknownPt,
+          skippedNonIdCountry: metrics.skippedNonIdCountry,
           failed: metrics.failed,
         },
       });
@@ -168,7 +180,8 @@ export async function runPoPollingCycle(deps: PoPollingDeps): Promise<PoPollingC
       metrics.updated > 0 ||
       metrics.failed > 0 ||
       metrics.skippedInvalid > 0 ||
-      metrics.skippedUnknownPt > 0
+      metrics.skippedUnknownPt > 0 ||
+      metrics.skippedNonIdCountry > 0
     ) {
       logger.info("PO polling cycle completed", { ...metrics, runId });
     }
@@ -196,6 +209,7 @@ export async function runPoPollingCycle(deps: PoPollingDeps): Promise<PoPollingC
           skippedConflict: metrics.skippedConflict,
           skippedLockedAmendment: metrics.skippedLockedAmendment,
           skippedUnknownPt: metrics.skippedUnknownPt,
+          skippedNonIdCountry: metrics.skippedNonIdCountry,
           failed: metrics.failed,
         },
         errorMessage: msg,

@@ -28,6 +28,7 @@ const OUTCOME_OPTIONS: { value: "" | SynceraIntegrationOutcome; label: string }[
   { value: "skipped_conflict", label: "Skipped — conflict" },
   { value: "skipped_locked_amendment", label: "Skipped — shipment lock" },
   { value: "skipped_unknown_pt", label: "Skipped — unknown PT" },
+  { value: "skipped_non_id_country", label: "Skipped — non-ID company" },
   { value: "failed", label: "Failed" },
 ];
 
@@ -178,7 +179,8 @@ export function SynceraIntegrationPage() {
                   run.skipped_invalid +
                   run.skipped_conflict +
                   run.skipped_locked_amendment +
-                  (run.skipped_unknown_pt ?? 0);
+                  (run.skipped_unknown_pt ?? 0) +
+                  (run.skipped_non_id_country ?? 0);
                 const isSelected = run.id === selectedRunId;
                 return (
                   <TableRow

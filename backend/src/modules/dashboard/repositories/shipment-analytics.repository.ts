@@ -98,6 +98,23 @@ const RECEIVED_LINE_JOIN = `INNER JOIN shipment_po_line_received r
           ON r.shipment_id = m.shipment_id AND r.intake_id = m.intake_id AND r.deleted_at IS NULL
           AND COALESCE(r.received_qty, 0) > 0`;
 
+/** Latest DHM USD→IDR on or before `anchorDateSql` (DATE expression), else fallback param. */
+function sqlUsdIdrRateExpr(anchorDateSql: string, fallbackParamRef: string): string {
+  return `COALESCE(
+    (
+      SELECT r.rate
+      FROM dhm_exchange_rates r
+      WHERE r.is_deleted = FALSE
+        AND r.from_currency = 'USD'
+        AND r.to_currency = 'IDR'
+        AND r.rate_date <= ${anchorDateSql}
+      ORDER BY r.rate_date DESC
+      LIMIT 1
+    ),
+    ${fallbackParamRef}::numeric
+  )`;
+}
+
 function buildBaseWhereParams(q: ShipmentAnalyticsQuery): { whereParts: string[]; params: unknown[] } {
   const whereParts: string[] = [
     `(s.closed_at AT TIME ZONE 'UTC')::date >= $1::date`,
@@ -203,7 +220,13 @@ export interface FinancialSummaryResult {
   nilai_pabean_idr: number;
   /** nilai_pabean_idr + ppn_idr + pph_idr + freight_idr */
   total_idr: number;
-  /** USD→IDR rate used for freight conversion and dashboard USD display (from DHM master when available). */
+  import_value_usd: number;
+  bm_usd: number;
+  ppn_usd: number;
+  pph_usd: number;
+  freight_usd: number;
+  total_usd: number;
+  /** Weighted effective IDR/USD (total_idr / total_usd) after per-shipment close-date rates. */
   idr_per_usd_used: number;
   exchange_rate_date: string | null;
 }
@@ -272,6 +295,7 @@ export interface ShipmentAnalyticsLineAggRow {
   unit: string | null;
   total_qty_delivered: number;
   total_price_idr: number;
+  total_price_usd: number;
 }
 
 export interface ShipmentAnalyticsLinesResult {
@@ -293,6 +317,7 @@ export interface ShipmentAnalyticsGroupShipmentRow {
   current_status: string;
   group_qty_delivered: number;
   group_amount_idr: number;
+  group_amount_usd: number;
 }
 
 export type LogisticsTransportMode = "AIR" | "LCL" | "FCL" | "BULK";
@@ -603,17 +628,23 @@ export class ShipmentAnalyticsRepository {
    * for shipments in the analytics scope (same filters / first-PO plant logic as summary).
    * Placeholder receipts (`received_qty` ≤ 0) are excluded.
    */
-  async getLineAggregation(q: ShipmentAnalyticsLinesQuery): Promise<ShipmentAnalyticsLinesResult> {
+  async getLineAggregation(
+    q: ShipmentAnalyticsLinesQuery,
+    fallbackIdrPerUsd: number
+  ): Promise<ShipmentAnalyticsLinesResult> {
     const base = buildBaseWhereParams(q);
     const whereParts = [...base.whereParts];
     const params = [...base.params];
     appendAnalyticsDetailDrill(whereParts, params, q);
     const whereSql = whereParts.join(" AND ");
+    params.push(fallbackIdrPerUsd);
+    const fallbackIdx = params.length;
+    const rateExpr = sqlUsdIdrRateExpr("sis.anchor_date", `$${fallbackIdx}`);
 
     const scopeCte = `
       WITH ${FIRST_PO_CTE},
       shipments_in_scope AS (
-        SELECT s.id
+        SELECT s.id, (s.closed_at AT TIME ZONE 'UTC')::date AS anchor_date
         FROM shipments s
         LEFT JOIN first_po fp ON fp.shipment_id = s.id
         WHERE ${whereSql}
@@ -636,7 +667,13 @@ export class ShipmentAnalyticsRepository {
           (COALESCE(r.received_qty, 0)::numeric * COALESCE(it.unit_price, 0)::numeric * CASE
             WHEN UPPER(TRIM(COALESCE(i.currency, ''))) IN ('IDR', 'RP') THEN 1::numeric
             ELSE COALESCE(NULLIF(m.currency_rate, 0), 1)::numeric
-          END) AS amount_idr
+          END) AS amount_idr,
+          (
+            (COALESCE(r.received_qty, 0)::numeric * COALESCE(it.unit_price, 0)::numeric * CASE
+              WHEN UPPER(TRIM(COALESCE(i.currency, ''))) IN ('IDR', 'RP') THEN 1::numeric
+              ELSE COALESCE(NULLIF(m.currency_rate, 0), 1)::numeric
+            END) / NULLIF(${rateExpr}, 0)
+          ) AS amount_usd
         FROM shipments_in_scope sis
         LEFT JOIN first_po fp ON fp.shipment_id = sis.id
         INNER JOIN shipment_po_mapping m
@@ -652,13 +689,14 @@ export class ShipmentAnalyticsRepository {
         enriched.line_plant AS plant,
         MAX(enriched.line_unit) AS unit,
         COALESCE(SUM(enriched.qty), 0)::text AS total_qty_delivered,
-        COALESCE(SUM(enriched.amount_idr), 0)::text AS total_price_idr
+        COALESCE(SUM(enriched.amount_idr), 0)::text AS total_price_idr,
+        COALESCE(SUM(enriched.amount_usd), 0)::text AS total_price_usd
       FROM enriched
       GROUP BY
         CASE WHEN enriched.merged_desc = '' THEN '__EMPTY_DESC__' ELSE LOWER(enriched.merged_desc) END,
         enriched.line_plant,
         enriched.line_pt
-      ORDER BY COALESCE(SUM(enriched.amount_idr), 0) DESC NULLS LAST,
+      ORDER BY COALESCE(SUM(enriched.amount_usd), 0) DESC NULLS LAST,
         COALESCE(MAX(NULLIF(enriched.merged_desc, '')), '(No description)') ASC,
         enriched.line_pt ASC NULLS LAST,
         enriched.line_plant ASC NULLS LAST
@@ -674,6 +712,7 @@ export class ShipmentAnalyticsRepository {
         unit: string | null;
         total_qty_delivered: string;
         total_price_idr: string;
+        total_price_usd: string;
       }>(sql, params),
     ]);
 
@@ -686,6 +725,7 @@ export class ShipmentAnalyticsRepository {
         unit: row.unit?.trim() ? row.unit.trim() : null,
         total_qty_delivered: parseFloat(row.total_qty_delivered),
         total_price_idr: parseFloat(row.total_price_idr),
+        total_price_usd: parseFloat(row.total_price_usd),
       })),
     };
   }
@@ -1016,16 +1056,15 @@ export class ShipmentAnalyticsRepository {
    *
    * - import_value_idr: Σ(PO line qty × unit_price in IDR) via shipment_po_mapping
    * - bm_idr / ppn_idr / pph_idr: direct columns on shipments
-   * - freight_idr: incoterm_amount converted to IDR (USD × idrPerUsd)
-   * - bm_idr: Σ shipments.bm (Biaya Masuk / BM amount)
-   * - nilai_pabean_idr: import_value_idr + bm_idr (used for total only)
-   * - total_idr: import_value_idr + bm_idr + ppn_idr + pph_idr + freight_idr
+   * - freight_idr: incoterm in IDR (USD freight × USD→IDR rate on shipment close date)
+   * - USD columns: convert each shipment at its close-date rate, then sum (convert-then-sum)
    */
-  async getFinancialSummary(q: ShipmentAnalyticsQuery, idrPerUsd: number): Promise<FinancialSummaryAggregates> {
+  async getFinancialSummary(q: ShipmentAnalyticsQuery, fallbackIdrPerUsd: number): Promise<FinancialSummaryAggregates> {
     const { whereParts, params } = buildBaseWhereParams(q);
     const whereSql = whereParts.join(" AND ");
-    params.push(idrPerUsd);
-    const idrIdx = params.length;
+    params.push(fallbackIdrPerUsd);
+    const fallbackIdx = params.length;
+    const rateExpr = sqlUsdIdrRateExpr("per_ship.anchor_date", `$${fallbackIdx}`);
 
     const sql = `
       WITH ${FIRST_PO_CTE},
@@ -1049,23 +1088,58 @@ export class ShipmentAnalyticsRepository {
           AND r.item_id = it.id
           AND r.deleted_at IS NULL
         GROUP BY m.shipment_id
-      )
-      SELECT
-        COALESCE(SUM(COALESCE(pa.import_value_idr, 0)), 0)::text AS import_value_idr,
-        COALESCE(SUM(COALESCE(s.bm, 0)), 0)::text AS bm_idr,
-        COALESCE(SUM(COALESCE(s.ppn_amount, 0)), 0)::text AS ppn_idr,
-        COALESCE(SUM(COALESCE(s.pph_amount, 0)), 0)::text AS pph_idr,
-        COALESCE(SUM(
+      ),
+      per_ship AS (
+        SELECT
+          (s.closed_at AT TIME ZONE 'UTC')::date AS anchor_date,
+          COALESCE(pa.import_value_idr, 0)::numeric AS import_value_idr,
+          COALESCE(s.bm, 0)::numeric AS bm_idr,
+          COALESCE(s.ppn_amount, 0)::numeric AS ppn_idr,
+          COALESCE(s.pph_amount, 0)::numeric AS pph_idr,
           CASE
             WHEN UPPER(TRIM(COALESCE(s.incoterm_currency, ''))) = 'USD'
-              THEN COALESCE(s.incoterm_amount, 0)::numeric * $${idrIdx}::numeric
+              THEN COALESCE(s.incoterm_amount, 0)::numeric
+            ELSE 0::numeric
+          END AS freight_usd,
+          CASE
+            WHEN UPPER(TRIM(COALESCE(s.incoterm_currency, ''))) = 'USD'
+              THEN 0::numeric
             ELSE COALESCE(s.incoterm_amount, 0)::numeric
-          END
-        ), 0)::text AS freight_idr
-      FROM shipments s
-      LEFT JOIN first_po fp ON fp.shipment_id = s.id
-      LEFT JOIN po_amounts pa ON pa.shipment_id = s.id
-      WHERE ${whereSql}
+          END AS freight_idr_other
+        FROM shipments s
+        LEFT JOIN first_po fp ON fp.shipment_id = s.id
+        LEFT JOIN po_amounts pa ON pa.shipment_id = s.id
+        WHERE ${whereSql}
+      ),
+      rated AS (
+        SELECT
+          per_ship.*,
+          ${rateExpr} AS idr_per_usd,
+          per_ship.freight_idr_other + per_ship.freight_usd * ${rateExpr} AS freight_idr
+        FROM per_ship
+      ),
+      usd AS (
+        SELECT
+          rated.*,
+          rated.import_value_idr / NULLIF(rated.idr_per_usd, 0) AS import_value_usd,
+          rated.bm_idr / NULLIF(rated.idr_per_usd, 0) AS bm_usd,
+          rated.ppn_idr / NULLIF(rated.idr_per_usd, 0) AS ppn_usd,
+          rated.pph_idr / NULLIF(rated.idr_per_usd, 0) AS pph_usd,
+          rated.freight_idr / NULLIF(rated.idr_per_usd, 0) AS freight_usd
+        FROM rated
+      )
+      SELECT
+        COALESCE(SUM(import_value_idr), 0)::text AS import_value_idr,
+        COALESCE(SUM(bm_idr), 0)::text AS bm_idr,
+        COALESCE(SUM(ppn_idr), 0)::text AS ppn_idr,
+        COALESCE(SUM(pph_idr), 0)::text AS pph_idr,
+        COALESCE(SUM(freight_idr), 0)::text AS freight_idr,
+        COALESCE(SUM(import_value_usd), 0)::text AS import_value_usd,
+        COALESCE(SUM(bm_usd), 0)::text AS bm_usd,
+        COALESCE(SUM(ppn_usd), 0)::text AS ppn_usd,
+        COALESCE(SUM(pph_usd), 0)::text AS pph_usd,
+        COALESCE(SUM(freight_usd), 0)::text AS freight_usd
+      FROM usd
     `;
 
     const result = await this.pool.query<{
@@ -1074,6 +1148,11 @@ export class ShipmentAnalyticsRepository {
       ppn_idr: string;
       pph_idr: string;
       freight_idr: string;
+      import_value_usd: string;
+      bm_usd: string;
+      ppn_usd: string;
+      pph_usd: string;
+      freight_usd: string;
     }>(sql, params);
 
     const row = result.rows[0];
@@ -1083,6 +1162,12 @@ export class ShipmentAnalyticsRepository {
     const pph = parseFloat(row?.pph_idr ?? "0");
     const freight = parseFloat(row?.freight_idr ?? "0");
     const nilaiPabean = importValue + bm;
+    const importValueUsd = parseFloat(row?.import_value_usd ?? "0");
+    const bmUsd = parseFloat(row?.bm_usd ?? "0");
+    const ppnUsd = parseFloat(row?.ppn_usd ?? "0");
+    const pphUsd = parseFloat(row?.pph_usd ?? "0");
+    const freightUsd = parseFloat(row?.freight_usd ?? "0");
+    const totalUsd = importValueUsd + bmUsd + ppnUsd + pphUsd + freightUsd;
     return {
       import_value_idr: importValue,
       bm_idr: bm,
@@ -1091,6 +1176,12 @@ export class ShipmentAnalyticsRepository {
       freight_idr: freight,
       nilai_pabean_idr: nilaiPabean,
       total_idr: nilaiPabean + ppn + pph + freight,
+      import_value_usd: importValueUsd,
+      bm_usd: bmUsd,
+      ppn_usd: ppnUsd,
+      pph_usd: pphUsd,
+      freight_usd: freightUsd,
+      total_usd: totalUsd,
     };
   }
 
@@ -1099,13 +1190,17 @@ export class ShipmentAnalyticsRepository {
    * One row per shipment with matching received lines (`received_qty` > 0); link opens full shipment detail.
    */
   async getLineGroupShipments(
-    q: ShipmentAnalyticsLineGroupShipmentsQuery
+    q: ShipmentAnalyticsLineGroupShipmentsQuery,
+    fallbackIdrPerUsd: number
   ): Promise<ShipmentAnalyticsGroupShipmentRow[]> {
     const base = buildBaseWhereParams(q);
     const whereParts = [...base.whereParts];
     const params = [...base.params];
     appendAnalyticsDetailDrill(whereParts, params, q);
     const scopeWhereSql = whereParts.join(" AND ");
+    params.push(fallbackIdrPerUsd);
+    const fallbackIdx = params.length;
+    const shipRateExpr = sqlUsdIdrRateExpr("(s.closed_at AT TIME ZONE 'UTC')::date", `$${fallbackIdx}`);
 
     const groupWhereParts: string[] = [];
     appendLineGroupKeyFilter(groupWhereParts, params, {
@@ -1154,11 +1249,14 @@ export class ShipmentAnalyticsRepository {
         s.shipment_no AS shipment_number,
         COALESCE(s.current_status, '') AS current_status,
         COALESCE(SUM(enriched.qty), 0)::text AS group_qty_delivered,
-        COALESCE(SUM(enriched.amount_idr), 0)::text AS group_amount_idr
+        COALESCE(SUM(enriched.amount_idr), 0)::text AS group_amount_idr,
+        (
+          COALESCE(SUM(enriched.amount_idr), 0)::numeric / NULLIF(${shipRateExpr}, 0)
+        )::text AS group_amount_usd
       FROM enriched
       INNER JOIN shipments s ON s.id = enriched.shipment_id AND s.deleted_at IS NULL
       WHERE ${groupWhereSql}
-      GROUP BY s.id, s.shipment_no, s.current_status
+      GROUP BY s.id, s.shipment_no, s.current_status, s.closed_at
       ORDER BY s.shipment_no ASC
       LIMIT 500
     `;
@@ -1169,6 +1267,7 @@ export class ShipmentAnalyticsRepository {
       current_status: string;
       group_qty_delivered: string;
       group_amount_idr: string;
+      group_amount_usd: string;
     }>(sql, params);
 
     return result.rows.map((row) => ({
@@ -1177,6 +1276,7 @@ export class ShipmentAnalyticsRepository {
       current_status: row.current_status,
       group_qty_delivered: parseFloat(row.group_qty_delivered),
       group_amount_idr: parseFloat(row.group_amount_idr),
+      group_amount_usd: parseFloat(row.group_amount_usd),
     }));
   }
 
@@ -1266,6 +1366,7 @@ export class ShipmentAnalyticsRepository {
       current_status: row.current_status,
       group_qty_delivered: parseFloat(row.group_qty_delivered),
       group_amount_idr: parseFloat(row.group_amount_idr),
+      group_amount_usd: 0,
     }));
   }
 

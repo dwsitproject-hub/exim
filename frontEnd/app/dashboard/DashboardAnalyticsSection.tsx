@@ -42,17 +42,13 @@ import {
 } from "@/components/logistics-detail-table";
 import type { LogisticsDetailSourceRow } from "@/components/logistics-detail-table/types";
 import { ShipmentPerformanceCard } from "@/components/shipment-performance/ShipmentPerformanceCard";
-import { DashboardUsdRateBar } from "@/components/dashboard/DashboardUsdRateBar";
 import { AnalyticsDrillLineTable } from "@/components/dashboard/AnalyticsDrillLineTable";
 import { usePostArrivalPlantExpand } from "@/components/dashboard/usePostArrivalPlantExpand";
 import expandStyles from "@/components/dashboard/GroupedShipmentExpandRows.module.css";
 import { ScalingFinancialValue } from "@/components/dashboard/ScalingFinancialValue";
 import { fclComboLabel, fclContainerUnit, formatFclShipmentUnit } from "@/lib/fcl-logistics-split";
 import { useMixedFclComboExpand } from "@/lib/useMixedFclComboExpand";
-import {
-  idrToDashboardUsd,
-  useDashboardCurrency,
-} from "@/lib/dashboard-currency-context";
+import { useDashboardCurrency } from "@/lib/dashboard-currency-context";
 import styles from "./DashboardContent.module.css";
 
 const VIEW_SHIPMENTS = "VIEW_SHIPMENTS";
@@ -917,25 +913,22 @@ export function DashboardAnalyticsSection() {
                   <h3 className={styles.analyticsCardTitle}>Financial visibility</h3>
                   {loading && <span className={styles.analyticsTrendHint}>Updating…</span>}
                 </div>
-                <DashboardUsdRateBar compact />
               </div>
               <ScalingFinancialValue
                 className={styles.bigNumber}
-                valueText={formatUsd(idrToDashboardUsd(financialSummary?.total_idr ?? 0, idrPerUsd))}
+                valueText={formatUsd(financialSummary?.total_usd ?? 0)}
               />
               <div className={styles.financialBreakdownList}>
                 {[
-                  { label: "Import Value", value: financialSummary?.import_value_idr ?? 0 },
-                  { label: "Bea Masuk", value: financialSummary?.bm_idr ?? 0 },
-                  { label: "PPH", value: financialSummary?.pph_idr ?? 0 },
-                  { label: "PPN", value: financialSummary?.ppn_idr ?? 0 },
-                  { label: "Freight Charge", value: financialSummary?.freight_idr ?? 0 },
+                  { label: "Import Value", value: financialSummary?.import_value_usd ?? 0 },
+                  { label: "Bea Masuk", value: financialSummary?.bm_usd ?? 0 },
+                  { label: "PPH", value: financialSummary?.pph_usd ?? 0 },
+                  { label: "PPN", value: financialSummary?.ppn_usd ?? 0 },
+                  { label: "Freight Charge", value: financialSummary?.freight_usd ?? 0 },
                 ].map(({ label, value }) => (
                   <div key={label} className={styles.financialBreakdownRow}>
                     <span className={styles.financialBreakdownLabel}>{label}</span>
-                    <span className={styles.financialBreakdownValue}>
-                      {formatUsd(idrToDashboardUsd(value, idrPerUsd))}
-                    </span>
+                    <span className={styles.financialBreakdownValue}>{formatUsd(value)}</span>
                   </div>
                 ))}
               </div>
