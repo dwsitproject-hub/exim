@@ -1100,7 +1100,7 @@ export class ShipmentAnalyticsRepository {
             WHEN UPPER(TRIM(COALESCE(s.incoterm_currency, ''))) = 'USD'
               THEN COALESCE(s.incoterm_amount, 0)::numeric
             ELSE 0::numeric
-          END AS freight_usd,
+          END AS incoterm_usd,
           CASE
             WHEN UPPER(TRIM(COALESCE(s.incoterm_currency, ''))) = 'USD'
               THEN 0::numeric
@@ -1115,7 +1115,7 @@ export class ShipmentAnalyticsRepository {
         SELECT
           per_ship.*,
           ${rateExpr} AS idr_per_usd,
-          per_ship.freight_idr_other + per_ship.freight_usd * ${rateExpr} AS freight_idr
+          per_ship.freight_idr_other + per_ship.incoterm_usd * ${rateExpr} AS freight_idr
         FROM per_ship
       ),
       usd AS (
