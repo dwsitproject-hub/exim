@@ -2,7 +2,7 @@
  * PDF page renderer — spawns a Python subprocess using PyMuPDF (fitz) to convert
  * the first page of a PDF to a high-resolution PNG for OCR.
  * Requires: `python3` available in PATH and `pymupdf` installed (`pip install pymupdf`).
- * In Docker (node:20-alpine), add to Dockerfile: apk add python3 py3-pip && pip3 install pymupdf
+ * In Docker (node:20-bookworm-slim), install python3 + pip and `pip install pymupdf` (see backend/Dockerfile).
  */
 
 import { spawn, spawnSync, type ChildProcess } from "child_process";
