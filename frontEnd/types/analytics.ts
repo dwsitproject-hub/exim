@@ -110,6 +110,7 @@ export interface ShipmentAnalyticsLineAggRow {
   unit: string | null;
   total_qty_delivered: number;
   total_price_idr: number;
+  total_price_usd: number;
 }
 
 /** GET /dashboard/shipment-analytics/lines — drill-down payload. */
@@ -131,6 +132,7 @@ export interface ShipmentAnalyticsGroupShipmentRow {
   current_status: string;
   group_qty_delivered: number;
   group_amount_idr: number;
+  group_amount_usd: number;
 }
 
 export type LogisticsTransportMode = "AIR" | "LCL" | "FCL" | "BULK";
@@ -174,6 +176,15 @@ export interface FinancialSummaryResult {
   nilai_pabean_idr: number;
   /** import_value_idr + bm_idr + ppn_idr + pph_idr + freight_idr */
   total_idr: number;
+  import_value_usd: number;
+  bm_usd: number;
+  ppn_usd: number;
+  pph_usd: number;
+  freight_usd: number;
+  total_usd: number;
+  /** Weighted effective IDR/USD after per-shipment close-date rates. */
+  idr_per_usd_used: number;
+  exchange_rate_date: string | null;
 }
 
 /** Processed structure used in the UI after grouping flat rows by load_type. */

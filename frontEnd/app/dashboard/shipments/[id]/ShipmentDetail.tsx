@@ -49,6 +49,7 @@ import { Modal } from "@/components/overlays";
 import { useToast } from "@/components/providers/ToastProvider";
 import { OcrBlockingOverlay, OcrReviewModal, type OcrFieldRow } from "@/components/ocr/OcrReviewModal";
 import { ShipmentNoteMentionTextarea } from "@/components/shipments/ShipmentNoteMentionTextarea";
+import { getLatestExchangeRate } from "@/services/masters-service";
 import { renderNoteWithMentions } from "@/lib/render-note-mentions";
 import { DutyFormulaInfoIcon } from "@/components/icons/DutyFormulaInfoIcon";
 import { ActivityLogRibbonIcon } from "@/components/icons/ActivityLogRibbonIcon";
@@ -782,6 +783,8 @@ export function ShipmentDetail({ id }: { id: string }) {
   const [isUpdatingShipment, setIsUpdatingShipment] = useState(false);
   const [savingDetails, setSavingDetails] = useState(false);
   const [editVendorName, setEditVendorName] = useState("");
+  const [dhmRateLoading, setDhmRateLoading] = useState(false);
+  const [dhmRateNotice, setDhmRateNotice] = useState<string | null>(null);
   const [editForwarderName, setEditForwarderName] = useState("");
   /** Bidding incoterms: `bid:<id>`, `recent:<i>`, FORWARDER_LINER_PICK_OTHER, or "". */
   const [editForwarderPick, setEditForwarderPick] = useState("");
@@ -3489,7 +3492,19 @@ export function ShipmentDetail({ id }: { id: string }) {
         <div className={styles.grid}>
           <div className={styles.field}>
             <span className={styles.fieldLabel}>Vendor / supplier</span>
-            <span className={styles.fieldValue}>{display(isUpdatingShipment ? editVendorName : detail.vendor_name)}</span>
+            {isUpdatingShipment ? (
+              <input
+                id="field-vendor-name"
+                type="text"
+                className={styles.input}
+                value={editVendorName}
+                onChange={(e) => setEditVendorName(e.target.value)}
+                disabled={!canEditShipment || savingDetails}
+                aria-label="Vendor / supplier"
+              />
+            ) : (
+              <span className={styles.fieldValue}>{display(detail.vendor_name)}</span>
+            )}
           </div>
           <div
             id="field-forwarder-liner"
@@ -4248,6 +4263,42 @@ export function ShipmentDetail({ id }: { id: string }) {
                       {primaryGroupedPo?.currency_rate != null ? formatDecimal(primaryGroupedPo.currency_rate) : "—"}
                     </span>
                   )}
+                  {isUpdatingShipment && canEditShipment && primaryGroupedPoCurrency ? (
+                    <button
+                      type="button"
+                      className={styles.dhmRateSuggestButton}
+                      disabled={dhmRateLoading || savingDetails}
+                      onClick={async () => {
+                        setDhmRateLoading(true);
+                        setDhmRateNotice(null);
+                        try {
+                          const date = (detail.nopen_date ?? "").slice(0, 10) || undefined;
+                          const res = await getLatestExchangeRate(
+                            { from: primaryGroupedPoCurrency, to: "IDR", date },
+                            accessToken
+                          );
+                          if (isApiError(res)) {
+                            setDhmRateNotice(res.message);
+                            return;
+                          }
+                          const next = formatPriceInputWithCommas(String(res.data.rate), 2);
+                          setPoEditCurrencyRateByIntake(
+                            Object.fromEntries(detail.linked_pos.map((po) => [po.intake_id, next] as const))
+                          );
+                          setDhmRateNotice(
+                            `Applied DHM rate ${formatDecimal(res.data.rate)} (${res.data.rate_date}).`
+                          );
+                        } catch (err) {
+                          setDhmRateNotice(err instanceof Error ? err.message : "Failed to fetch DHM rate");
+                        } finally {
+                          setDhmRateLoading(false);
+                        }
+                      }}
+                    >
+                      {dhmRateLoading ? "Fetching DHM rate…" : `Use DHM rate (${primaryGroupedPoCurrency}/IDR)`}
+                    </button>
+                  ) : null}
+                  {dhmRateNotice ? <span className={styles.fieldHintInline}>{dhmRateNotice}</span> : null}
                 </div>
               ) : null}
             </div>

@@ -105,4 +105,27 @@ export class NotificationRepository {
       values
     );
   }
+
+  async insertPoSyncNotifications(
+    rows: {
+      userId: string;
+      type: "po_detected" | "po_amended";
+      intakeId: string;
+      message: string;
+    }[]
+  ): Promise<void> {
+    if (rows.length === 0) return;
+    const values: unknown[] = [];
+    const placeholders: string[] = [];
+    let p = 1;
+    for (const r of rows) {
+      placeholders.push(`($${p++}::uuid, $${p++}, $${p++}::uuid, NULL, $${p++})`);
+      values.push(r.userId, r.type, r.intakeId, r.message);
+    }
+    await this.pool.query(
+      `INSERT INTO notifications (user_id, type, reference_id, shipment_id, message)
+       VALUES ${placeholders.join(", ")}`,
+      values
+    );
+  }
 }

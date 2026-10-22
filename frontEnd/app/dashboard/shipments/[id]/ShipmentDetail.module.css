@@ -339,6 +339,30 @@
   word-break: break-word;
 }
 
+.dhmRateSuggestButton {
+  margin-top: var(--spacing-1, 4px);
+  align-self: flex-start;
+  padding: 2px 10px;
+  font-size: var(--typography-fontSize-xs, 12px);
+  font-weight: var(--typography-fontWeight-medium, 500);
+  color: var(--color-semantic-primary-default, #c43a31);
+  background: var(--color-primitive-background-white, #fff);
+  border: 1px solid var(--color-semantic-primary-default, #c43a31);
+  border-radius: var(--borderRadius-sm, 6px);
+  cursor: pointer;
+}
+
+.dhmRateSuggestButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.fieldHintInline {
+  font-size: var(--typography-fontSize-small, 12px);
+  font-weight: var(--typography-fontWeight-regular, 400);
+  color: var(--color-primitive-text-steel, #6b6b6b);
+}
+
 .fieldHint {
   display: block;
   font-size: var(--typography-fontSize-small, 12px);

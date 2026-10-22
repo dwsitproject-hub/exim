@@ -19,12 +19,10 @@ import {
 } from "@/lib/format-number";
 import { formatPoLineQtyDisplay } from "@/lib/po-line-qty";
 import { INCOTERM_OPTIONS } from "@/lib/incoterms";
-import {
-  PT_OPTION_LABELS,
-  PO_ITEM_UNIT_OPTIONS,
-  canonicalizePtLabel,
-  getPlantConfigForPt,
-} from "@/lib/po-create-constants";
+import { canonicalizePtLabel, getPlantConfigForPt } from "@/lib/pt-plant-tree";
+import { usePoItemUnitOptions } from "@/hooks/use-po-item-unit-options";
+import { usePtPlantTree } from "@/hooks/use-pt-plant-tree";
+import type { PtPlantTreeNode } from "@/types/masters";
 import { parseYesNoSelectValue } from "@/lib/yes-no-field";
 import { can } from "@/lib/permissions";
 import { anyLinkedShipmentBlocksPoEdit, PO_EDIT_BLOCKED_BY_SHIPMENT_MESSAGE } from "@/lib/po-shipment-edit-lock";
@@ -56,8 +54,6 @@ type ItemFormLine = {
 };
 
 const CURRENCY_OPTIONS = ["USD", "IDR", "EUR", "GBP", "SGD", "JPY", "CNY", "AUD", "MYR", "THB"];
-const UNIT_OPTIONS: string[] = [...PO_ITEM_UNIT_OPTIONS];
-const UNIT_OPTION_SET = new Set<string>(UNIT_OPTIONS);
 const DECIMAL_INPUT_PATTERN = /^\d*\.?\d*$/;
 
 function initialItem(): ItemFormLine {
@@ -84,9 +80,10 @@ function coerceApiNumber(value: unknown): number | null {
   return null;
 }
 
-function detailToForm(detail: PoDetailType): EditPoFormState {
-  const pt = canonicalizePtLabel(detail.pt);
-  const pc = pt ? getPlantConfigForPt(pt) : null;
+function detailToForm(detail: PoDetailType, tree: PtPlantTreeNode[] = []): EditPoFormState {
+  const labels = tree.map((node) => node.name);
+  const pt = canonicalizePtLabel(detail.pt, labels);
+  const pc = pt ? getPlantConfigForPt(tree, pt) : null;
   let plant = detail.plant?.trim() ?? "";
   if (plant.toUpperCase() === "KIJING / TJ PURA") {
     plant = "TANJUNG PURA";
@@ -144,6 +141,10 @@ export function PoEdit({ id }: { id: string }) {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  const extraLineUnits = form?.items.map((it) => it.unit?.trim() ?? "").filter(Boolean) ?? [];
+  const { unitOptions, unitOptionSet } = usePoItemUnitOptions(accessToken, extraLineUnits);
+  const { tree: ptPlantTree, ptLabels } = usePtPlantTree(accessToken);
+
   const load = useCallback(() => {
     if (!accessToken || !id) return;
     setLoading(true);
@@ -160,7 +161,7 @@ export function PoEdit({ id }: { id: string }) {
         setDetail(d);
         if (d) {
           setEditLocked(anyLinkedShipmentBlocksPoEdit(d.linked_shipments ?? []));
-          setForm(detailToForm(d));
+          setForm(detailToForm(d, ptPlantTree));
         } else {
           setForm(null);
         }
@@ -177,13 +178,27 @@ export function PoEdit({ id }: { id: string }) {
     load();
   }, [load]);
 
+  useEffect(() => {
+    if (ptLabels.length === 0) return;
+    setForm((prev) => {
+      if (!prev) return prev;
+      const nextPt = canonicalizePtLabel(prev.pt, ptLabels);
+      const config = nextPt ? getPlantConfigForPt(ptPlantTree, nextPt) : null;
+      let plant = prev.plant;
+      if (config?.mode === "fixed") plant = config.plant;
+      else if (config?.mode === "none") plant = "";
+      if (nextPt === prev.pt && plant === prev.plant) return prev;
+      return { ...prev, pt: nextPt, plant };
+    });
+  }, [ptPlantTree, ptLabels]);
+
   function updateField<K extends keyof EditPoFormState>(field: K, value: string | undefined) {
     setForm((prev) => (prev ? { ...prev, [field]: value ?? "" } : prev));
   }
 
   function handlePtChange(pt: string) {
-    const ptKey = canonicalizePtLabel(pt);
-    const config = ptKey ? getPlantConfigForPt(ptKey) : null;
+    const ptKey = canonicalizePtLabel(pt, ptLabels);
+    const config = ptKey ? getPlantConfigForPt(ptPlantTree, ptKey) : null;
     setForm((prev) => {
       if (!prev) return prev;
       let plant = "";
@@ -192,9 +207,9 @@ export function PoEdit({ id }: { id: string }) {
     });
   }
 
-  const ptKey = form?.pt ? canonicalizePtLabel(form.pt) : "";
-  const plantConfig = ptKey ? getPlantConfigForPt(ptKey) : null;
-  const ptInKnownList = form?.pt ? (PT_OPTION_LABELS as readonly string[]).includes(form.pt) : false;
+  const ptKey = form?.pt ? canonicalizePtLabel(form.pt, ptLabels) : "";
+  const plantConfig = ptKey ? getPlantConfigForPt(ptPlantTree, ptKey) : null;
+  const ptInKnownList = form?.pt ? ptLabels.includes(form.pt) : false;
 
   function updateItem<K extends keyof ItemFormLine>(index: number, field: K, value: ItemFormLine[K]) {
     setForm((prev) => {
@@ -272,7 +287,7 @@ export function PoEdit({ id }: { id: string }) {
         qty != null &&
         qty > 0 &&
         u !== "" &&
-        UNIT_OPTION_SET.has(u) &&
+        unitOptionSet.has(u) &&
         price != null &&
         price >= 0
       );
@@ -289,7 +304,7 @@ export function PoEdit({ id }: { id: string }) {
       supplier_name: form.supplier_name.trim(),
       delivery_location: form.delivery_location.trim(),
       kawasan_berikat: form.kawasan_berikat,
-      pt: canonicalizePtLabel(form.pt.trim()),
+      pt: canonicalizePtLabel(form.pt.trim(), ptLabels),
       items: completeItems.map((it) => {
         const qty = parseOptionalDecimal(it.qtyText);
         const value = parseOptionalDecimal(it.priceText);
@@ -396,7 +411,7 @@ export function PoEdit({ id }: { id: string }) {
                     {form.pt}
                   </option>
                 )}
-                {PT_OPTION_LABELS.map((label) => (
+                {ptLabels.map((label) => (
                   <option key={label} value={label}>
                     {label}
                   </option>
@@ -643,7 +658,7 @@ export function PoEdit({ id }: { id: string }) {
                           <ComboboxSelect
                             className={styles.unitCombobox}
                             inputClassName={`${styles.itemsInput} ${styles.itemsInputDatalist}`}
-                            options={UNIT_OPTIONS}
+                            options={unitOptions}
                             value={item.unit ?? ""}
                             onChange={(v) => updateItem(index, "unit", v || "PCS")}
                             allowEmpty={false}

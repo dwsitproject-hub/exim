@@ -271,13 +271,11 @@ export async function getMixedFclComboShipments(
 
 export async function getFinancialSummary(
   query: ShipmentAnalyticsQuery,
-  idrPerUsd: number,
   accessToken: string | null
 ): Promise<ApiResponse<FinancialSummaryResult>> {
   const params = new URLSearchParams();
   params.set("date_from", query.date_from);
   params.set("date_to", query.date_to);
-  params.set("idr_per_usd", String(idrPerUsd));
   query.pts?.forEach((p) => params.append("pt", p));
   query.plants?.forEach((p) => params.append("plant", p));
   query.vendor_names?.forEach((v) => params.append("vendor_name", v));

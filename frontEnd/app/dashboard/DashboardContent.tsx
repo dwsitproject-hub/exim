@@ -15,7 +15,6 @@ import { isApiError } from "@/types/api";
 import type { ShipmentListItem } from "@/types/shipments";
 import type { ApiSuccess } from "@/types/api";
 import { DashboardCurrencyProvider } from "@/lib/dashboard-currency-context";
-import { DashboardUsdRateBar } from "@/components/dashboard/DashboardUsdRateBar";
 import { DashboardAnalyticsSection } from "./DashboardAnalyticsSection";
 import { RecentShipmentsCard } from "@/components/dashboard/RecentShipmentsCard";
 import {
@@ -139,8 +138,6 @@ export function DashboardContent() {
             </Link>
           </div>
         </div>
-
-        {!can(user, VIEW_SHIPMENTS) && <DashboardUsdRateBar />}
 
         {countsLoading ? (
           <LoadingSkeleton lines={4} className={styles.loading} />

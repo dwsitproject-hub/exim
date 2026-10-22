@@ -371,7 +371,6 @@ export async function getFinancialSummary(
     return;
   }
 
-  const idrPerUsd = typeof q.idr_per_usd === "string" ? parseFloat(q.idr_per_usd) : 0;
   const pts = mergeFilterTokens(q, "pt", "pts_in");
   const plants = mergeFilterTokens(q, "plant", "plants_in");
   const vendor_names = mergeFilterTokens(q, "vendor_name", "vendor_names_in");
@@ -379,10 +378,15 @@ export async function getFinancialSummary(
   const shipment_method = parseOptionalStringQuery(q.shipment_method, 40);
 
   try {
-    const payload = await service.getFinancialSummary(
-      { date_from, date_to, pts, plants, vendor_names, product_classifications, shipment_method },
-      idrPerUsd
-    );
+    const payload = await service.getFinancialSummary({
+      date_from,
+      date_to,
+      pts,
+      plants,
+      vendor_names,
+      product_classifications,
+      shipment_method,
+    });
     sendSuccess(res, payload);
   } catch (error) {
     next(error);

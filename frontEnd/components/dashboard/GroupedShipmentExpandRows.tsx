@@ -91,7 +91,7 @@ export function GroupedShipmentExpandRows({
             <TableCell className={styles.subMutedCell} />
             <TableCell className={styles.subQtyCell}>{formatQtyDelivered(s.group_qty_delivered)}</TableCell>
             <TableCell className={`${styles.subQtyCell} ${tdNumClassName}`.trim()}>
-              {formatUsd(idrToDashboardUsd(s.group_amount_idr, idrPerUsd))}
+              {formatUsd(s.group_amount_usd ?? idrToDashboardUsd(s.group_amount_idr, idrPerUsd))}
             </TableCell>
           </TableRow>
         ))}
@@ -123,7 +123,7 @@ export function GroupedShipmentExpandRows({
             <>
               <td className={styles.subCell}>{formatQtyDelivered(s.group_qty_delivered)}</td>
               <td className={`${styles.subCell} ${styles.subNum}`}>
-                {formatUsd(idrToDashboardUsd(s.group_amount_idr, idrPerUsd))}
+                {formatUsd(s.group_amount_usd ?? idrToDashboardUsd(s.group_amount_idr, idrPerUsd))}
               </td>
             </>
           ) : null}

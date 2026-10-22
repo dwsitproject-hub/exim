@@ -12,6 +12,9 @@ import type {
   UpdatePoPayload,
   PoImportCsvResult,
   PoImportHistoryItem,
+  SynceraIntegrationEventItem,
+  SynceraIntegrationOutcome,
+  SynceraPollRunItem,
   PoIntakeActivityItem,
   ParsedPoResult,
   PoPdfAiRequestItem,
@@ -64,6 +67,12 @@ export async function getPoListFilterOptions(
   accessToken: string | null
 ): Promise<ApiResponse<PoListFilterOptions>> {
   return apiGet<PoListFilterOptions>("po/list-filter-options", accessToken);
+}
+
+export async function listPoItemUnitOptions(
+  accessToken: string | null
+): Promise<ApiResponse<{ units: string[] }>> {
+  return apiGet<{ units: string[] }>("po/unit-options", accessToken);
 }
 
 export async function getPoDetail(
@@ -164,6 +173,29 @@ export async function listPoImportHistory(
 ): Promise<ApiResponse<PoImportHistoryItem[]>> {
   const q = new URLSearchParams({ limit: String(limit) });
   return apiGet<PoImportHistoryItem[]>(`po/import/history?${q.toString()}`, accessToken);
+}
+
+export async function listSynceraPollRuns(
+  accessToken: string | null,
+  limit = 30
+): Promise<ApiResponse<SynceraPollRunItem[]>> {
+  const q = new URLSearchParams({ limit: String(limit) });
+  return apiGet<SynceraPollRunItem[]>(`po/syncera-integration/runs?${q.toString()}`, accessToken);
+}
+
+export async function listSynceraIntegrationEvents(
+  accessToken: string | null,
+  options?: { runId?: string; outcome?: SynceraIntegrationOutcome; limit?: number }
+): Promise<ApiResponse<SynceraIntegrationEventItem[]>> {
+  const q = new URLSearchParams();
+  if (options?.runId) q.set("run_id", options.runId);
+  if (options?.outcome) q.set("outcome", options.outcome);
+  if (options?.limit != null) q.set("limit", String(options.limit));
+  const qs = q.toString();
+  return apiGet<SynceraIntegrationEventItem[]>(
+    `po/syncera-integration/events${qs ? `?${qs}` : ""}`,
+    accessToken
+  );
 }
 
 /** GET /po/admin/pdf-ai-requests — admin audit log for PO PDF AI rescans. */

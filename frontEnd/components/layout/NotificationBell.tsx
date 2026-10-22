@@ -64,7 +64,9 @@ export function NotificationBell() {
       await markNotificationRead(n.id, accessToken);
     }
     setOpen(false);
-    if (n.shipment_id) {
+    if (n.type === "po_detected" || n.type === "po_amended") {
+      router.push(`/dashboard/po/${n.reference_id}`);
+    } else if (n.shipment_id) {
       router.push(`/dashboard/shipments/${n.shipment_id}`);
     }
     refresh();

@@ -21,8 +21,9 @@ import {
   TableColumnPicker,
   TableColumnFilterPicker,
 } from "@/components/tables";
-import { intakeStatusToBadgeVariant, formatStatusLabel } from "@/lib/status-badge";
+import { intakeStatusToBadgeVariant } from "@/lib/status-badge";
 import { formatPoStatusLabel } from "@/lib/po-status-label";
+import { existingIntakeStatuses, shouldShowNewPoAttention } from "@/lib/po-intake-kind";
 import { isApiError } from "@/types/api";
 import { can } from "@/lib/permissions";
 import { MANAGERIAL_LIST_FILTERS } from "@/lib/managerial-deep-link";
@@ -103,6 +104,7 @@ export function PoList() {
   const searchFromUrl = searchParams.get("search") ?? "";
   const filterFromUrl = searchParams.get("filter");
   const daysFromUrl = searchParams.get("days");
+  const viewFromUrl = searchParams.get("view");
   const { accessToken, user } = useAuth();
   const { visibleById, toggleColumn, resetColumns, columns: poColumnDefs } = useTableColumnVisibility(
     PO_LIST_TABLE_COLUMNS_KEY,
@@ -173,6 +175,11 @@ export function PoList() {
       };
     } else if (filterFromUrl === MANAGERIAL_LIST_FILTERS.uncoupled) {
       out = { ...base, has_linked_shipment: false };
+    } else if (viewFromUrl === "new") {
+      out = { ...base, intake_status: "NEW_PO_DETECTED" };
+    } else if (viewFromUrl === "existing") {
+      const statuses = existingIntakeStatuses(filterOptions?.intake_statuses ?? []);
+      out = statuses.length ? { ...base, intake_statuses: statuses } : base;
     } else {
       out = { ...base, intake_status: statusFromUrl };
     }
@@ -185,9 +192,11 @@ export function PoList() {
     searchParam,
     columnFiltersKey,
     statusLabelToRaw,
+    filterOptions,
     filterFromUrl,
     daysFromUrl,
     statusFromUrl,
+    viewFromUrl,
     sortBy,
     sortDir,
   ]);
@@ -213,6 +222,7 @@ export function PoList() {
             taken_by_user_id: r.taken_by_user_id ?? null,
             taken_by_name: r.taken_by_name ?? null,
             updated_at: r.updated_at ?? r.created_at,
+            viewed_by_me: r.viewed_by_me ?? false,
           }))
         );
         const m = success.meta as { page: number; limit: number; total: number } | undefined;
@@ -251,7 +261,22 @@ export function PoList() {
 
   useEffect(() => {
     setPage(1);
-  }, [filterFromUrl, daysFromUrl, statusFromUrl]);
+  }, [filterFromUrl, daysFromUrl, statusFromUrl, viewFromUrl]);
+
+  const setListView = useCallback(
+    (view: "all" | "new" | "existing") => {
+      const p = new URLSearchParams(searchParams.toString());
+      p.delete("intake_status");
+      if (view === "all") p.delete("view");
+      else p.set("view", view);
+      router.replace(`/dashboard/po${p.toString() ? `?${p.toString()}` : ""}`, { scroll: false });
+      setPage(1);
+    },
+    [router, searchParams]
+  );
+
+  const activeListView: "all" | "new" | "existing" =
+    viewFromUrl === "new" ? "new" : viewFromUrl === "existing" ? "existing" : "all";
 
   const clearManagerialFilter = useCallback(() => {
     const p = new URLSearchParams(searchParams.toString());
@@ -301,9 +326,14 @@ export function PoList() {
       case "po_number":
         return (
           <TableCell key={column.id}>
-            <Link href={`/dashboard/po/${row.id}`} className={styles.cellLink} onClick={(e) => e.stopPropagation()}>
-              {row.po_number}
-            </Link>
+            <span className={styles.poNumberCell}>
+              {shouldShowNewPoAttention(row) ? (
+                <span className={styles.newPoDot} title="New PO — not yet opened" aria-hidden />
+              ) : null}
+              <Link href={`/dashboard/po/${row.id}`} className={styles.cellLink} onClick={(e) => e.stopPropagation()}>
+                {row.po_number}
+              </Link>
+            </span>
           </TableCell>
         );
       case "pt":
@@ -403,7 +433,39 @@ export function PoList() {
         <LoadingSkeleton lines={6} />
       ) : (
         <Card>
-          {(statusFromUrl && !filterFromUrl) ||
+          <div className={styles.listLegend} role="note">
+            <span className={styles.listLegendText}>
+              <strong>New</strong> — detected in the last 3 days, not yet opened by you (dot + highlight).{" "}
+              <strong>Existing</strong> — opened, older than 3 days, or already in workflow.
+            </span>
+            <div className={styles.viewToggle} role="group" aria-label="Filter by new or existing POs">
+              <button
+                type="button"
+                className={`${styles.viewToggleBtn} ${activeListView === "all" ? styles.viewToggleBtnActive : ""}`}
+                onClick={() => setListView("all")}
+                aria-pressed={activeListView === "all"}
+              >
+                All
+              </button>
+              <button
+                type="button"
+                className={`${styles.viewToggleBtn} ${activeListView === "new" ? styles.viewToggleBtnActive : ""}`}
+                onClick={() => setListView("new")}
+                aria-pressed={activeListView === "new"}
+              >
+                New POs
+              </button>
+              <button
+                type="button"
+                className={`${styles.viewToggleBtn} ${activeListView === "existing" ? styles.viewToggleBtnActive : ""}`}
+                onClick={() => setListView("existing")}
+                aria-pressed={activeListView === "existing"}
+              >
+                Existing POs
+              </button>
+            </div>
+          </div>
+          {(statusFromUrl && !filterFromUrl && !viewFromUrl) ||
           filterFromUrl === MANAGERIAL_LIST_FILTERS.stale ||
           filterFromUrl === MANAGERIAL_LIST_FILTERS.uncoupled ? (
             <div className={styles.filterChipsBar}>
@@ -522,7 +584,7 @@ export function PoList() {
                   {items.map((row) => (
                     <TableRow
                       key={row.id}
-                      className={styles.clickableRow}
+                      className={`${styles.clickableRow} ${shouldShowNewPoAttention(row) ? styles.rowNewPo : ""}`}
                       onClick={() => handleRowClick(row.id)}
                       onKeyDown={(e) => {
                         if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) {

@@ -1,4 +1,5 @@
 import { config } from "../../../config/index.js";
+import { resolveIdrPerUsd } from "../../../shared/resolve-idr-per-usd.js";
 import type {
   ClassificationBucketKey,
   DeliveredClassificationAggQuery,
@@ -80,6 +81,7 @@ export interface ProcurementPlantReportPayload {
   prev_month_label: string;
   ytd_label: string;
   idr_per_usd_used: number;
+  exchange_rate_date: string | null;
   sections: ProcurementReportSection[];
 }
 
@@ -225,8 +227,8 @@ export class DashboardService {
    * Spare parts rolled up per PT + plant.
    */
   async getProcurementPlantReport(year: number, month: number): Promise<ProcurementPlantReportPayload> {
-    const idrPerUsd = config.dashboard.idrPerUsd;
     const { start, end } = procurementLineQueryRange(year, month);
+    const { idr_per_usd: idrPerUsd, exchange_rate_date } = await resolveIdrPerUsd(end);
     const lines = await this.repo.getProcurementReportLines(start, end);
     const { y: prevY, m: prevM } = prevCalendarMonth(year, month);
 
@@ -332,6 +334,7 @@ export class DashboardService {
       prev_month_label: MONTH_SHORT[pmi] ?? String(prevM),
       ytd_label: `YTD ${MONTH_SHORT[mi] ?? ""} ${year}`.trim(),
       idr_per_usd_used: idrPerUsd,
+      exchange_rate_date,
       sections,
     };
   }
@@ -341,13 +344,13 @@ export class DashboardService {
   }
 
   async getShipmentAnalyticsLines(query: ShipmentAnalyticsLinesQuery): Promise<ShipmentAnalyticsLinesResult> {
-    return this.analyticsRepo.getLineAggregation(query);
+    return this.analyticsRepo.getLineAggregation(query, config.dashboard.idrPerUsd);
   }
 
   async getShipmentAnalyticsLineGroupShipments(
     query: ShipmentAnalyticsLineGroupShipmentsQuery
   ): Promise<ShipmentAnalyticsGroupShipmentRow[]> {
-    return this.analyticsRepo.getLineGroupShipments(query);
+    return this.analyticsRepo.getLineGroupShipments(query, config.dashboard.idrPerUsd);
   }
 
   async getClassificationQty(query: ShipmentAnalyticsQuery): Promise<ClassificationQtyRow[]> {
@@ -381,7 +384,15 @@ export class DashboardService {
     return this.analyticsRepo.getMixedFclComboShipments(query, comboKey);
   }
 
-  async getFinancialSummary(query: ShipmentAnalyticsQuery, idrPerUsd: number): Promise<FinancialSummaryResult> {
-    return this.analyticsRepo.getFinancialSummary(query, idrPerUsd);
+  async getFinancialSummary(query: ShipmentAnalyticsQuery): Promise<FinancialSummaryResult> {
+    const fallback = config.dashboard.idrPerUsd;
+    const aggregates = await this.analyticsRepo.getFinancialSummary(query, fallback);
+    const effective =
+      aggregates.total_usd > 0 ? aggregates.total_idr / aggregates.total_usd : fallback;
+    return {
+      ...aggregates,
+      idr_per_usd_used: effective,
+      exchange_rate_date: null,
+    };
   }
 }
