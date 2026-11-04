@@ -67,19 +67,59 @@ type AppliedFilters = {
   shipmentMethod: string;
 };
 
+type AnalyticsFilterUniverses = {
+  allPts: string[];
+  allPlants: string[];
+  allVendors: string[];
+  allProductClassifications: readonly string[];
+};
+
 type DrillState =
   | null
   | { kind: "plant"; plant: string }
   | { kind: "classification"; classification: string };
 
-function buildAnalyticsQueryPayload(a: AppliedFilters): ShipmentAnalyticsQuery {
+/** Full checkbox selection means “no restriction” (same as empty). */
+function isFullMultiSelect(selected: string[], universe: readonly string[]): boolean {
+  if (universe.length === 0 || selected.length === 0) return false;
+  if (selected.length !== universe.length) return false;
+  const universeSet = new Set(universe);
+  return selected.every((item) => universeSet.has(item));
+}
+
+function effectiveMultiSelect(selected: string[], universe: readonly string[]): string[] {
+  if (selected.length === 0 || isFullMultiSelect(selected, universe)) return [];
+  return selected;
+}
+
+function normalizeAppliedFilters(a: AppliedFilters, universes: AnalyticsFilterUniverses): AppliedFilters {
+  return {
+    ...a,
+    pts: effectiveMultiSelect(a.pts, universes.allPts),
+    plants: effectiveMultiSelect(a.plants, universes.allPlants),
+    vendors: effectiveMultiSelect(a.vendors, universes.allVendors),
+    productClassifications: effectiveMultiSelect(a.productClassifications, universes.allProductClassifications),
+  };
+}
+
+function buildAnalyticsQueryPayload(
+  a: AppliedFilters,
+  universes?: AnalyticsFilterUniverses
+): ShipmentAnalyticsQuery {
+  const pts = universes ? effectiveMultiSelect(a.pts, universes.allPts) : a.pts;
+  const plants = universes ? effectiveMultiSelect(a.plants, universes.allPlants) : a.plants;
+  const vendors = universes ? effectiveMultiSelect(a.vendors, universes.allVendors) : a.vendors;
+  const productClassifications = universes
+    ? effectiveMultiSelect(a.productClassifications, universes.allProductClassifications)
+    : a.productClassifications;
+
   return {
     date_from: a.dateFrom,
     date_to: a.dateTo,
-    ...(a.pts.length ? { pts: [...a.pts] } : {}),
-    ...(a.plants.length ? { plants: [...a.plants] } : {}),
-    ...(a.vendors.length ? { vendor_names: [...a.vendors] } : {}),
-    ...(a.productClassifications.length ? { product_classifications: [...a.productClassifications] } : {}),
+    ...(pts.length ? { pts: [...pts] } : {}),
+    ...(plants.length ? { plants: [...plants] } : {}),
+    ...(vendors.length ? { vendor_names: [...vendors] } : {}),
+    ...(productClassifications.length ? { product_classifications: [...productClassifications] } : {}),
     ...(a.shipmentMethod ? { shipment_method: a.shipmentMethod } : {}),
   };
 }
@@ -143,11 +183,26 @@ export function DashboardAnalyticsSection() {
 
   const plantsSorted = useMemo(() => getAllPlantsSorted(ptPlantTree), [ptPlantTree]);
 
+  const filterUniverses = useMemo(
+    (): AnalyticsFilterUniverses => ({
+      allPts: ptLabels,
+      allPlants: plantsSorted,
+      allVendors: summary?.vendor_options ?? [],
+      allProductClassifications: PRODUCT_CLASSIFICATION_OPTIONS,
+    }),
+    [ptLabels, plantsSorted, summary?.vendor_options]
+  );
+
+  const analyticsQuery = useMemo(
+    () => buildAnalyticsQueryPayload(applied, filterUniverses),
+    [applied, filterUniverses]
+  );
+
   const loadSummary = useCallback(async () => {
     if (!accessToken || !allowed) return;
     setLoading(true);
     setError(null);
-    const q = buildAnalyticsQueryPayload(applied);
+    const q = buildAnalyticsQueryPayload(applied, filterUniverses);
     const [res, qtyRes, leadRes, logisticsRes, finRes] = await Promise.all([
       getShipmentAnalytics(q, accessToken),
       getClassificationQty(q, accessToken),
@@ -206,7 +261,7 @@ export function DashboardAnalyticsSection() {
       setFinancialSummary(null);
     }
     setLoading(false);
-  }, [accessToken, allowed, applied, applyMasterExchangeRate]);
+  }, [accessToken, allowed, applied, filterUniverses, applyMasterExchangeRate]);
 
   useEffect(() => {
     loadSummary();
@@ -222,7 +277,7 @@ export function DashboardAnalyticsSection() {
     setDetailLoading(true);
 
     const linesQuery = {
-      ...buildAnalyticsQueryPayload(applied),
+      ...buildAnalyticsQueryPayload(applied, filterUniverses),
       detail_kind: drill.kind,
       ...(drill.kind === "plant" && drill.plant !== "__ALL__" ? { detail_plant: drill.plant } : {}),
       ...(drill.kind === "classification" && drill.classification !== "__ALL__"
@@ -255,7 +310,7 @@ export function DashboardAnalyticsSection() {
     return () => {
       cancelled = true;
     };
-  }, [drill, applied, accessToken, allowed]);
+  }, [drill, applied, filterUniverses, accessToken, allowed]);
 
   const toggleLoadType = (loadType: string) => {
     setExpandedLoadTypes((prev) => {
@@ -267,7 +322,9 @@ export function DashboardAnalyticsSection() {
   };
 
   const applyFilters = () => {
-    setApplied({ ...draft });
+    const next = normalizeAppliedFilters(draft, filterUniverses);
+    setApplied(next);
+    setDraft(next);
     setFilterOpen(false);
     setDrill(null);
     setLogisticsModalOpen(false);
@@ -306,16 +363,14 @@ export function DashboardAnalyticsSection() {
   const drillLinesQuery = useMemo((): ShipmentAnalyticsLinesQuery | null => {
     if (!drill) return null;
     return {
-      ...buildAnalyticsQueryPayload(applied),
+      ...analyticsQuery,
       detail_kind: drill.kind,
       ...(drill.kind === "plant" && drill.plant !== "__ALL__" ? { detail_plant: drill.plant } : {}),
       ...(drill.kind === "classification" && drill.classification !== "__ALL__"
         ? { detail_classification: drill.classification }
         : {}),
     };
-  }, [drill, applied]);
-
-  const analyticsQuery = useMemo(() => buildAnalyticsQueryPayload(applied), [applied]);
+  }, [drill, analyticsQuery]);
 
   const {
     expanded: expandedMixedCombos,
@@ -1096,7 +1151,7 @@ export function DashboardAnalyticsSection() {
                     navigate={logisticsNavigate}
                     detailRootId={null}
                     variant="modal"
-                    analyticsQuery={buildAnalyticsQueryPayload(applied)}
+                    analyticsQuery={analyticsQuery}
                     accessToken={accessToken}
                     shipmentDetailBasePath="/dashboard/shipments"
                   />
