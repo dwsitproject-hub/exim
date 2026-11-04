@@ -183,15 +183,20 @@ export function DashboardAnalyticsSection() {
 
   const plantsSorted = useMemo(() => getAllPlantsSorted(ptPlantTree), [ptPlantTree]);
 
-  const filterUniverses = useMemo(
-    (): AnalyticsFilterUniverses => ({
+  const vendorOptionsKey = useMemo(
+    () => (summary?.vendor_options ?? []).join("\0"),
+    [summary?.vendor_options]
+  );
+
+  const filterUniverses = useMemo((): AnalyticsFilterUniverses => {
+    const allVendors = vendorOptionsKey.length > 0 ? vendorOptionsKey.split("\0") : [];
+    return {
       allPts: ptLabels,
       allPlants: plantsSorted,
-      allVendors: summary?.vendor_options ?? [],
+      allVendors,
       allProductClassifications: PRODUCT_CLASSIFICATION_OPTIONS,
-    }),
-    [ptLabels, plantsSorted, summary?.vendor_options]
-  );
+    };
+  }, [ptLabels, plantsSorted, vendorOptionsKey]);
 
   const analyticsQuery = useMemo(
     () => buildAnalyticsQueryPayload(applied, filterUniverses),
@@ -202,7 +207,7 @@ export function DashboardAnalyticsSection() {
     if (!accessToken || !allowed) return;
     setLoading(true);
     setError(null);
-    const q = buildAnalyticsQueryPayload(applied, filterUniverses);
+    const q = analyticsQuery;
     const [res, qtyRes, leadRes, logisticsRes, finRes] = await Promise.all([
       getShipmentAnalytics(q, accessToken),
       getClassificationQty(q, accessToken),
@@ -261,7 +266,7 @@ export function DashboardAnalyticsSection() {
       setFinancialSummary(null);
     }
     setLoading(false);
-  }, [accessToken, allowed, applied, filterUniverses, applyMasterExchangeRate]);
+  }, [accessToken, allowed, analyticsQuery, applyMasterExchangeRate]);
 
   useEffect(() => {
     loadSummary();
@@ -276,8 +281,8 @@ export function DashboardAnalyticsSection() {
     let cancelled = false;
     setDetailLoading(true);
 
-    const linesQuery = {
-      ...buildAnalyticsQueryPayload(applied, filterUniverses),
+    const linesQuery: ShipmentAnalyticsLinesQuery = {
+      ...analyticsQuery,
       detail_kind: drill.kind,
       ...(drill.kind === "plant" && drill.plant !== "__ALL__" ? { detail_plant: drill.plant } : {}),
       ...(drill.kind === "classification" && drill.classification !== "__ALL__"
@@ -310,7 +315,7 @@ export function DashboardAnalyticsSection() {
     return () => {
       cancelled = true;
     };
-  }, [drill, applied, filterUniverses, accessToken, allowed]);
+  }, [drill, analyticsQuery, accessToken, allowed]);
 
   const toggleLoadType = (loadType: string) => {
     setExpandedLoadTypes((prev) => {

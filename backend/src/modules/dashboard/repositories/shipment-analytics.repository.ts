@@ -637,6 +637,7 @@ export class ShipmentAnalyticsRepository {
     const params = [...base.params];
     appendAnalyticsDetailDrill(whereParts, params, q);
     const whereSql = whereParts.join(" AND ");
+    const scopeParams = [...params];
     params.push(fallbackIdrPerUsd);
     const fallbackIdx = params.length;
     const rateExpr = sqlUsdIdrRateExpr("sis.anchor_date", `$${fallbackIdx}`);
@@ -704,7 +705,7 @@ export class ShipmentAnalyticsRepository {
     `;
 
     const [countRes, result] = await Promise.all([
-      this.pool.query<{ c: string }>(countSql, params),
+      this.pool.query<{ c: string }>(countSql, scopeParams),
       this.pool.query<{
         item_description: string;
         pt: string | null;
